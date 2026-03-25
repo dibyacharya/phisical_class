@@ -54,7 +54,7 @@ exports.courseClasses = async (req, res) => {
   }
 };
 
-// GET /api/courses/:id/attendance — student's attendance for a course
+// GET /api/courses/:id/attendance — attendance for a course (role-aware)
 exports.courseAttendance = async (req, res) => {
   try {
     const classes = await ScheduledClass.find({ course: req.params.id });
@@ -64,33 +64,70 @@ exports.courseAttendance = async (req, res) => {
       .populate({
         path: "scheduledClass",
         populate: { path: "course", select: "courseName courseCode" },
-      });
+      })
+      .populate("attendees.student", "name email rollNumber");
 
-    // Filter to only show this student's attendance entries
-    const result = [];
-    for (const att of attendances) {
-      const myEntry = att.attendees.find(
-        (a) => a.student?.toString() === req.user._id.toString()
-      );
-      if (myEntry) {
-        result.push({
+    const isTeacher = req.user.role === "teacher" || req.user.role === "admin";
+
+    if (isTeacher) {
+      // Teacher/Admin: show ALL students' attendance per class
+      const classRecords = [];
+      for (const att of attendances) {
+        classRecords.push({
+          classId: att.scheduledClass?._id,
           classTitle: att.scheduledClass?.title,
           courseCode: att.scheduledClass?.course?.courseCode,
           courseName: att.scheduledClass?.course?.courseName,
           date: att.scheduledClass?.date,
           startTime: att.scheduledClass?.startTime,
           roomNumber: att.scheduledClass?.roomNumber,
-          scannedAt: myEntry.scannedAt,
-          verified: myEntry.verified,
+          totalPresent: att.attendees.length,
+          attendees: att.attendees.map((a) => ({
+            name: a.student?.name || a.name,
+            email: a.student?.email || "",
+            rollNumber: a.student?.rollNumber || a.rollNumber || "-",
+            scannedAt: a.scannedAt,
+            verified: a.verified,
+          })),
         });
       }
-    }
 
-    res.json({
-      totalClasses: classes.length,
-      attended: result.length,
-      records: result.sort((a, b) => new Date(b.date) - new Date(a.date)),
-    });
+      const totalStudents = classRecords.reduce((sum, c) => sum + c.totalPresent, 0);
+      res.json({
+        totalClasses: classes.length,
+        attended: totalStudents,
+        isTeacherView: true,
+        records: classRecords.sort((a, b) => new Date(b.date) - new Date(a.date)),
+      });
+    } else {
+      // Student: show only their own attendance
+      const result = [];
+      for (const att of attendances) {
+        const myEntry = att.attendees.find((a) => {
+          const studentId = a.student?._id?.toString() || a.student?.toString();
+          return studentId === req.user._id.toString();
+        });
+        if (myEntry) {
+          result.push({
+            classTitle: att.scheduledClass?.title,
+            courseCode: att.scheduledClass?.course?.courseCode,
+            courseName: att.scheduledClass?.course?.courseName,
+            date: att.scheduledClass?.date,
+            startTime: att.scheduledClass?.startTime,
+            roomNumber: att.scheduledClass?.roomNumber,
+            scannedAt: myEntry.scannedAt,
+            verified: myEntry.verified,
+          });
+        }
+      }
+
+      res.json({
+        totalClasses: classes.length,
+        attended: result.length,
+        isTeacherView: false,
+        records: result.sort((a, b) => new Date(b.date) - new Date(a.date)),
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -106,7 +106,7 @@ export default function CourseDetail({ user }) {
                 <div className="flex gap-4 mb-6">
                   <div className="bg-white rounded-xl border p-4 flex-1 text-center">
                     <div className="text-2xl font-bold text-purple-600">{attendance.attended}</div>
-                    <div className="text-xs text-gray-500">Present</div>
+                    <div className="text-xs text-gray-500">{attendance.isTeacherView ? "Total Scans" : "Present"}</div>
                   </div>
                   <div className="bg-white rounded-xl border p-4 flex-1 text-center">
                     <div className="text-2xl font-bold text-gray-600">{attendance.totalClasses}</div>
@@ -114,15 +114,68 @@ export default function CourseDetail({ user }) {
                   </div>
                   <div className="bg-white rounded-xl border p-4 flex-1 text-center">
                     <div className="text-2xl font-bold text-green-600">
-                      {attendance.totalClasses > 0 ? Math.round((attendance.attended / attendance.totalClasses) * 100) : 0}%
+                      {attendance.isTeacherView
+                        ? (attendance.totalClasses > 0 ? Math.round(attendance.attended / attendance.totalClasses) : 0) + " avg"
+                        : (attendance.totalClasses > 0 ? Math.round((attendance.attended / attendance.totalClasses) * 100) : 0) + "%"
+                      }
                     </div>
-                    <div className="text-xs text-gray-500">Percentage</div>
+                    <div className="text-xs text-gray-500">{attendance.isTeacherView ? "Avg/Class" : "Percentage"}</div>
                   </div>
                 </div>
 
                 {attendance.records.length === 0 ? (
                   <div className="bg-white rounded-xl border p-8 text-center text-gray-400">No attendance records yet.</div>
+                ) : attendance.isTeacherView ? (
+                  /* Teacher View: show per-class breakdown with all students */
+                  <div className="space-y-4">
+                    {attendance.records.map((r, i) => (
+                      <div key={i} className="bg-white rounded-xl border overflow-hidden">
+                        <div className="px-4 py-3 bg-gray-50 flex justify-between items-center">
+                          <div>
+                            <span className="font-semibold text-gray-800">{r.classTitle}</span>
+                            <span className="text-gray-500 text-sm ml-2">
+                              {new Date(r.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} {r.startTime} | Room {r.roomNumber}
+                            </span>
+                          </div>
+                          <span className="bg-purple-100 text-purple-700 text-xs font-medium px-2 py-1 rounded-full">
+                            {r.totalPresent} present
+                          </span>
+                        </div>
+                        {r.attendees.length > 0 ? (
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="text-left px-4 py-2 text-xs text-gray-500 uppercase">#</th>
+                                <th className="text-left px-4 py-2 text-xs text-gray-500 uppercase">Student</th>
+                                <th className="text-left px-4 py-2 text-xs text-gray-500 uppercase">Roll No.</th>
+                                <th className="text-left px-4 py-2 text-xs text-gray-500 uppercase">Scanned At</th>
+                                <th className="text-left px-4 py-2 text-xs text-gray-500 uppercase">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {r.attendees.map((a, j) => (
+                                <tr key={j} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2 text-gray-500">{j + 1}</td>
+                                  <td className="px-4 py-2 text-gray-800">{a.name}</td>
+                                  <td className="px-4 py-2 text-gray-600">{a.rollNumber}</td>
+                                  <td className="px-4 py-2 text-gray-600">
+                                    {new Date(a.scannedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <span className="flex items-center gap-1 text-green-600 text-xs"><CheckCircle size={14} /> Verified</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="p-4 text-center text-gray-400 text-sm">No students scanned for this class</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 ) : (
+                  /* Student View: simple attendance list */
                   <div className="bg-white rounded-xl border overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">

@@ -60,7 +60,7 @@ export default function AttendanceView() {
             <h2 className="text-2xl font-bold text-gray-800">{cls.title}</h2>
             <p className="text-gray-500 mt-1">{cls.courseCode} - {cls.courseName}</p>
             <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
-              <span>Teacher: {cls.teacher}</span>
+              <span>Teacher: {typeof cls.teacher === 'object' ? cls.teacher?.name : cls.teacher || cls.teacherName}</span>
               <span>Room: {cls.roomNumber}</span>
               <span>{new Date(cls.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
               <span>{cls.startTime} - {cls.endTime}</span>
