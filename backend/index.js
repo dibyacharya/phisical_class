@@ -8,8 +8,9 @@ const connectDB = require("./config/database");
 const app = express();
 
 // Middleware
+const allowedOrigins = process.env.ALLOWED_ORIGINS === "*" ? true : (process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:5174", "http://localhost:5175"]);
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:5174", "http://localhost:5175"],
+  origin: allowedOrigins,
   credentials: true,
 }));
 app.use(express.json({ limit: "10mb" }));
