@@ -35,6 +35,7 @@ app.use("/api/classroom-recording", require("./routes/classroomRecording"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/batches", require("./routes/batches"));
 app.use("/api/courses", require("./routes/courses"));
+app.use("/api/rooms", require("./routes/rooms"));
 
 // Start
 const PORT = process.env.PORT || 4000;

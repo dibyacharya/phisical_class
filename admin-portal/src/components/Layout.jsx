@@ -1,12 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarPlus, Video, Tv, Users, Layers, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/facility", label: "Facility", icon: Building2 },
   { to: "/batches", label: "Batches", icon: Layers },
   { to: "/schedule", label: "Schedule Class", icon: CalendarPlus },
   { to: "/recordings", label: "Recordings", icon: Video },
-  { to: "/devices", label: "Devices", icon: Tv },
   { to: "/users", label: "Users", icon: Users },
 ];
 
@@ -16,7 +16,7 @@ export default function Layout({ user, onLogout, children }) {
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col">
         <div className="p-6 border-b border-slate-700">
-          <h1 className="text-xl font-bold">Lecture Capture</h1>
+          <h1 className="text-lg font-bold leading-tight">Facility Monitoring</h1>
           <p className="text-slate-400 text-sm mt-1">Admin Portal</p>
         </div>
         <nav className="flex-1 p-4 space-y-1">

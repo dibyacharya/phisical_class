@@ -5,6 +5,7 @@ const ClassroomDevice = require("../models/ClassroomDevice");
 const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
 const Attendance = require("../models/Attendance");
+const Room = require("../models/Room");
 
 // ============ DEVICE ENDPOINTS ============
 
@@ -14,52 +15,135 @@ exports.registerDevice = async (req, res) => {
     const {
       name, roomId, roomName, building, floor, roomNumber,
       ipAddress, deviceType, deviceModel, osVersion, macAddress,
+      // Space/facility fields sent during device setup
+      campus, block, spaceType, capacity,
     } = req.body;
 
-    // Check if device with same macAddress or same room already exists
+    // ── Validate required fields ─────────────────────────────────────────────
+    const resolvedRoomNumber = roomNumber || roomId;
+    if (!resolvedRoomNumber) return res.status(400).json({ error: "roomNumber (or roomId) is required" });
+    if (!macAddress)         return res.status(400).json({ error: "macAddress is required for device registration" });
+
+    const resolvedCampus = campus   || building || "Default Campus";
+    const resolvedBlock  = block    || "Block A";
+
+    // ── 1. Register / update device ──────────────────────────────────────────
     let device = null;
-    if (macAddress) {
-      device = await ClassroomDevice.findOne({ macAddress });
-    }
+    if (macAddress) device = await ClassroomDevice.findOne({ macAddress });
 
     if (device) {
-      // Re-register: update info
-      device.name = name || device.name;
-      device.roomId = roomId || device.roomId;
-      device.roomName = roomName || device.roomName;
-      device.roomNumber = roomNumber || roomId || device.roomNumber;
-      device.building = building || device.building;
-      device.floor = floor || device.floor;
-      device.ipAddress = ipAddress || device.ipAddress;
-      device.deviceType = deviceType || device.deviceType;
+      device.name        = name        || device.name;
+      device.roomId      = roomId      || device.roomId;
+      device.roomName    = roomName    || device.roomName;
+      device.roomNumber  = resolvedRoomNumber || device.roomNumber;
+      device.building    = resolvedCampus;
+      device.floor       = floor       || device.floor;
+      device.ipAddress   = ipAddress   || device.ipAddress;
+      device.deviceType  = deviceType  || device.deviceType;
       device.deviceModel = deviceModel || device.deviceModel;
-      device.osVersion = osVersion || device.osVersion;
-      device.isActive = true;
+      device.osVersion   = osVersion   || device.osVersion;
+      device.isActive    = true;
       await device.save();
     } else {
       device = await ClassroomDevice.create({
-        name: name || `Smart TV - ${roomName || roomId}`,
-        roomId,
-        roomName: roomName || `Room ${roomId}`,
-        roomNumber: roomNumber || roomId,
-        building,
+        name:        name || `Smart TV - ${roomName || resolvedRoomNumber}`,
+        roomId:      roomId,
+        roomName:    roomName || `Room ${resolvedRoomNumber}`,
+        roomNumber:  resolvedRoomNumber,
+        building:    resolvedCampus,
         floor,
         ipAddress,
-        deviceType: deviceType || "android",
+        deviceType:  deviceType || "android",
         deviceModel,
         osVersion,
         macAddress,
       });
     }
 
+    // ── 2. Auto-create / update Room in facility hierarchy ───────────────────
+    if (resolvedRoomNumber) {
+      await Room.findOneAndUpdate(
+        { campus: resolvedCampus, block: resolvedBlock, roomNumber: resolvedRoomNumber },
+        {
+          $setOnInsert: { createdAt: new Date() },
+          $set: {
+            campus:     resolvedCampus,
+            block:      resolvedBlock,
+            floor:      floor || "",
+            roomNumber: resolvedRoomNumber,
+            roomName:   roomName || name || `Room ${resolvedRoomNumber}`,
+            spaceType:  spaceType || "room",
+            capacity:   capacity  || 0,
+            isActive:   true,
+            updatedAt:  new Date(),
+          },
+        },
+        { upsert: true, new: true }
+      );
+    }
+
     res.json({
       message: "Device registered",
       setupConfig: {
-        deviceId: device.deviceId,
+        deviceId:  device.deviceId,
         authToken: device.authToken,
-        apiUrl: `${req.protocol}://${req.get("host")}/api`,
+        apiUrl:    `${req.protocol}://${req.get("host")}/api`,
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/classroom-recording/devices/:deviceId/health-report
+exports.healthReport = async (req, res) => {
+  try {
+    const device = req.device;
+    const incoming = req.body; // { camera, mic, screen, disk, cpu, ram, network, battery, recording, serviceUptime }
+
+    // Build alerts list from any failing components (keep last 20)
+    const now = new Date();
+    const existingAlerts = (device.health && device.health.alerts) ? [...device.health.alerts] : [];
+
+    const newAlerts = [];
+    if (incoming.camera && incoming.camera.ok === false) {
+      newAlerts.push({ type: "camera", message: incoming.camera.error || "Camera not detected", time: now });
+    }
+    if (incoming.mic && incoming.mic.ok === false) {
+      newAlerts.push({ type: "mic", message: incoming.mic.error || "Microphone not detected", time: now });
+    }
+    if (incoming.screen && incoming.screen.ok === false) {
+      newAlerts.push({ type: "screen", message: incoming.screen.error || "Display issue detected", time: now });
+    }
+    if (incoming.disk && incoming.disk.usedPercent >= 90) {
+      newAlerts.push({ type: "disk", message: `Disk ${incoming.disk.usedPercent}% full (${incoming.disk.freeGB?.toFixed(1)} GB free)`, time: now });
+    }
+    if (incoming.network && incoming.network.latencyMs > 2000) {
+      newAlerts.push({ type: "network", message: `High latency: ${incoming.network.latencyMs}ms`, time: now });
+    }
+    if (incoming.recording && incoming.recording.lastError) {
+      newAlerts.push({ type: "recording", message: incoming.recording.lastError, time: now });
+    }
+
+    const allAlerts = [...newAlerts, ...existingAlerts].slice(0, 20);
+
+    device.health = {
+      camera: incoming.camera || device.health?.camera,
+      mic: incoming.mic || device.health?.mic,
+      screen: incoming.screen || device.health?.screen,
+      disk: incoming.disk || device.health?.disk,
+      cpu: incoming.cpu || device.health?.cpu,
+      ram: incoming.ram || device.health?.ram,
+      network: incoming.network || device.health?.network,
+      battery: incoming.battery || device.health?.battery,
+      recording: incoming.recording || device.health?.recording,
+      serviceUptime: incoming.serviceUptime ?? device.health?.serviceUptime,
+      alerts: allAlerts,
+      updatedAt: now,
+    };
+
+    await device.save();
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -72,6 +156,17 @@ exports.heartbeat = async (req, res) => {
     device.lastHeartbeat = new Date();
     device.isOnline = true;
     if (req.body.ipAddress) device.ipAddress = req.body.ipAddress;
+
+    // Accept lightweight health snapshot inline with heartbeat
+    if (req.body.health) {
+      const h = req.body.health;
+      device.health = {
+        ...(device.health || {}),
+        ...h,
+        updatedAt: new Date(),
+      };
+    }
+
     await device.save();
 
     // Get today's schedule for this device's room

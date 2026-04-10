@@ -9,6 +9,9 @@ router.post("/devices/register", ctrl.registerDevice);
 // Device heartbeat — device auth via x-device-id / x-device-token
 router.post("/devices/:deviceId/heartbeat", deviceAuth, ctrl.heartbeat);
 
+// Device health report — device auth
+router.post("/devices/:deviceId/health-report", deviceAuth, ctrl.healthReport);
+
 // Device management — admin auth
 router.get("/devices", auth, adminOnly, ctrl.getDevices);
 router.delete("/devices/:id", auth, adminOnly, ctrl.deleteDevice);

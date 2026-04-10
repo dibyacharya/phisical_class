@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard";
 import ScheduleClass from "./pages/ScheduleClass";
 import Recordings from "./pages/Recordings";
 import Devices from "./pages/Devices";
+import Facility from "./pages/Facility";
+import RoomDetail from "./pages/RoomDetail";
 import AttendanceView from "./pages/AttendanceView";
 import Users from "./pages/Users";
 import Batches from "./pages/Batches";
@@ -59,6 +61,8 @@ export default function App() {
                   <Route path="/schedule" element={<ScheduleClass />} />
                   <Route path="/recordings" element={<Recordings />} />
                   <Route path="/devices" element={<Devices />} />
+                  <Route path="/facility" element={<Facility />} />
+                  <Route path="/facility/room/:id" element={<RoomDetail />} />
                   <Route path="/users" element={<Users />} />
                   <Route path="/batches" element={<Batches />} />
                   <Route path="/attendance/:classId" element={<AttendanceView />} />
