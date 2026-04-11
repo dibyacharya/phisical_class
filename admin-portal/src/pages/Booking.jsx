@@ -157,6 +157,7 @@ export default function Booking() {
   const [bookLoading, setBookLoading] = useState(false);
   const [bookSuccess, setBookSuccess] = useState(false);
   const [onlineOnly, setOnlineOnly]   = useState(false);
+  const [slotMode, setSlotMode]       = useState("start"); // "start" | "end"
 
   // ── ALL BOOKINGS ──────────────────────────────────────────────────────────
   const [classes, setClasses]     = useState([]);
@@ -192,6 +193,7 @@ export default function Booking() {
   useEffect(() => {
     if (sel.room && sel.date && step === 2) {
       setSchedLoading(true);
+      setSlotMode("start"); // reset slot click mode on room/date change
       api.get(`/rooms/${sel.room._id}/schedule?date=${sel.date}`)
         .then(r => { setDaySchedule(r.data); setSchedLoading(false); })
         .catch(() => setSchedLoading(false));
@@ -596,21 +598,74 @@ export default function Booking() {
                       onClickTime={(t) => setSel(s => ({ ...s, startTime:t }))}
                     />
 
-                    {/* Slot pills */}
-                    <div className="mt-4 grid grid-cols-5 gap-1.5">
+                    {/* Slot pills — two-click range selector */}
+                    <div className="mt-3 mb-2 flex items-center gap-2">
+                      {slotMode === "start" ? (
+                        <span className="text-xs font-semibold text-blue-600 flex items-center gap-1">
+                          <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse inline-block" />
+                          Click start slot
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1">
+                          <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse inline-block" />
+                          Now click end slot (after {sel.startTime})
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
                       {HOURS.map(slot => {
-                        const m = toMin(slot);
+                        const m       = toMin(slot);
+                        const startM  = toMin(sel.startTime);
+                        const endM    = toMin(sel.endTime);
                         const occupied = (daySchedule?.gantt||[]).some(g => m >= toMin(g.startTime) && m < toMin(g.endTime));
-                        const inRange  = m >= toMin(sel.startTime) && m < toMin(sel.endTime);
+                        // FIX: inclusive range — both start AND end pill are highlighted
+                        const isStart  = m === startM;
+                        const isEnd    = m === endM;
+                        const inRange  = m > startM && m < endM;
+
+                        let pillCls = "";
+                        if (occupied) {
+                          pillCls = "bg-red-50 text-red-400 border-red-200 cursor-not-allowed";
+                        } else if (isStart) {
+                          pillCls = "bg-blue-600 text-white border-blue-600 ring-2 ring-blue-200 scale-105";
+                        } else if (isEnd) {
+                          pillCls = "bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-200 scale-105";
+                        } else if (inRange) {
+                          pillCls = "bg-blue-100 text-blue-700 border-blue-300";
+                        } else if (slotMode === "end" && m > startM) {
+                          pillCls = "bg-white text-gray-600 border-gray-200 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 cursor-pointer";
+                        } else {
+                          pillCls = "bg-white text-gray-600 border-gray-200 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 cursor-pointer";
+                        }
+
+                        const handleSlotClick = () => {
+                          if (occupied) return;
+                          if (slotMode === "start") {
+                            setSel(s => ({ ...s, startTime: slot }));
+                            setSlotMode("end");
+                          } else {
+                            // End click: must be after start
+                            if (m > startM) {
+                              setSel(s => ({ ...s, endTime: slot }));
+                              setSlotMode("start");
+                            } else {
+                              // Clicked before/equal start → reset start
+                              setSel(s => ({ ...s, startTime: slot }));
+                              // stay in "end" mode
+                            }
+                          }
+                        };
+
                         return (
-                          <button key={slot} disabled={occupied}
-                            onClick={() => { if (!occupied) setSel(s => ({ ...s, startTime:slot })); }}
-                            className={`py-1.5 rounded-lg text-xs font-medium border transition-all
-                              ${occupied ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed"
-                              : inRange  ? "bg-blue-500 text-white border-blue-500"
-                              :            "bg-white text-gray-600 border-gray-200 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700"}`}
-                            title={occupied ? "Already booked" : `Set start to ${slot}`}>
-                            {slot}
+                          <button key={slot} disabled={occupied} onClick={handleSlotClick}
+                            className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${pillCls}`}
+                            title={
+                              occupied ? "Already booked" :
+                              isStart  ? `Start: ${slot}` :
+                              isEnd    ? `End: ${slot}` :
+                              slotMode === "end" ? `Set end to ${slot}` : `Set start to ${slot}`
+                            }>
+                            {isStart ? `▶ ${slot}` : isEnd ? `${slot} ◀` : slot}
                           </button>
                         );
                       })}
