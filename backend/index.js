@@ -64,14 +64,15 @@ app.post("/api/internal/seed", async (req, res) => {
       { campus: CAMPUS, block: "Tech Block", floor: "1st Floor",  roomNumber: "T-101", roomName: "Innovation Lab",      spaceType: "room",             capacity: 50  },
       { campus: CAMPUS, block: "Tech Block", floor: "2nd Floor",  roomNumber: "T-201", roomName: "AI Research Lab",     spaceType: "room",             capacity: 30  },
     ];
-    const roomCount = await db.collection("lcs_rooms").countDocuments();
-    if (roomCount === 0) {
-      const docs = ROOMS.map(r => ({ ...r, isActive: true, createdAt: new Date(), updatedAt: new Date() }));
-      await db.collection("lcs_rooms").insertMany(docs);
-      results.rooms.push(`${docs.length} rooms created`);
-    } else {
-      results.rooms.push(`${roomCount} rooms already exist — skipped`);
+    let added = 0;
+    for (const r of ROOMS) {
+      const exists = await db.collection("lcs_rooms").findOne({ roomNumber: r.roomNumber, campus: r.campus });
+      if (!exists) {
+        await db.collection("lcs_rooms").insertOne({ ...r, isActive: true, createdAt: new Date(), updatedAt: new Date() });
+        added++;
+      }
     }
+    results.rooms.push(`${added} rooms added (duplicates skipped)`);
 
     res.json({ ok: true, results });
   } catch (e) {
