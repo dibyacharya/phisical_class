@@ -12,9 +12,9 @@ const navItems = [
 
 export default function Layout({ user, onLogout, children }) {
   return (
-    <div className="min-h-screen flex">
+    <div className="h-screen flex overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col">
+      <aside className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0">
         <div className="p-6 border-b border-slate-700">
           <h1 className="text-lg font-bold leading-tight">Facility Monitoring</h1>
           <p className="text-slate-400 text-sm mt-1">Admin Portal</p>

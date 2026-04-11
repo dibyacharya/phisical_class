@@ -29,10 +29,13 @@ exports.getHierarchy = async (_req, res) => {
     const now = Date.now();
     for (const d of devices) {
       const rn = d.roomNumber || d.roomId;
-      if (rn) {
-        const isOnline = d.lastHeartbeat && now - new Date(d.lastHeartbeat).getTime() < 5 * 60 * 1000;
-        devicesByRoom[rn] = { deviceId: d.deviceId, isOnline, isRecording: d.isRecording, health: d.health };
-      }
+      if (!rn) continue;
+      // isOnline: stored flag OR heartbeat within last 5 min. Always boolean (never undefined)
+      const heartbeatFresh = d.lastHeartbeat
+        ? now - new Date(d.lastHeartbeat).getTime() < 5 * 60 * 1000
+        : false;
+      const isOnline = d.isOnline === true || heartbeatFresh;
+      devicesByRoom[rn] = { deviceId: d.deviceId, isOnline, isRecording: d.isRecording, health: d.health };
     }
 
     const hierarchy = {};
@@ -105,7 +108,10 @@ exports.getRoomDetail = async (req, res) => {
     });
 
     const now = Date.now();
-    const isOnline = device?.lastHeartbeat && now - new Date(device.lastHeartbeat).getTime() < 5 * 60 * 1000;
+    const heartbeatFresh = device?.lastHeartbeat
+      ? now - new Date(device.lastHeartbeat).getTime() < 5 * 60 * 1000
+      : false;
+    const isOnline = device?.isOnline === true || heartbeatFresh;
     res.json({ room, device: device ? { ...device.toObject(), isOnline } : null });
   } catch (err) {
     handleErr(err, res);
