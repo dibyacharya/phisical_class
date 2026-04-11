@@ -63,9 +63,9 @@ Set these in Render dashboard → Environment tab:
 
 ```
 PORT=4000
-MONGODB_URI=mongodb+srv://lcsadmin:LCS2024secure@cluster0.yivbc.mongodb.net/lecture_capture?retryWrites=true&w=majority&appName=Cluster0
-JWT_SECRET=lecture-capture-demo-secret-2024
-ALLOWED_ORIGINS=https://admin-portal-two-gray.vercel.app,https://student-portal-drab-seven.vercel.app
+MONGODB_URI=mongodb+srv://dibyacharya_db_user:LCS2024secure@cluster0.033f2jt.mongodb.net/lecture_capture?retryWrites=true&w=majority&appName=Cluster0
+JWT_SECRET=lecture-capture-prod-secret-2026
+ALLOWED_ORIGINS=*
 ```
 
 ### After Code Changes (Backend)
@@ -127,11 +127,11 @@ vercel --prod --yes
 
 - **Cluster:** Cluster0
 - **Database:** lecture_capture
-- **Connection String:** `mongodb+srv://lcsadmin:LCS2024secure@cluster0.yivbc.mongodb.net/lecture_capture?retryWrites=true&w=majority&appName=Cluster0`
+- **Connection String:** `mongodb+srv://dibyacharya_db_user:LCS2024secure@cluster0.033f2jt.mongodb.net/lecture_capture?retryWrites=true&w=majority&appName=Cluster0`
 - **Dashboard:** https://cloud.mongodb.com
-- **Login:** GitHub (dibyacharya)
+- **Login:** Google (dibyacharya@gmail.com)
 - **Network Access:** 0.0.0.0/0 (all IPs allowed)
-- **User:** lcsadmin / LCS2024secure
+- **User:** dibyacharya_db_user / LCS2024secure
 
 ### Collections
 | Collection | Purpose |
