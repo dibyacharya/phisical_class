@@ -4,8 +4,8 @@ import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/facility", label: "Facility", icon: Building2 },
-  { to: "/batches", label: "Batches", icon: Layers },
   { to: "/booking", label: "Booking", icon: CalendarPlus },
+  { to: "/batches", label: "Batches", icon: Layers },
   { to: "/recordings", label: "Recordings", icon: Video },
   { to: "/users", label: "Users", icon: Users },
 ];
