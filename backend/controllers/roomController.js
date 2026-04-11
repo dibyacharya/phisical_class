@@ -66,8 +66,8 @@ exports.getHierarchy = async (_req, res) => {
 // POST /api/rooms
 exports.createRoom = async (req, res) => {
   try {
-    const { campus, block, floor, roomNumber, roomName, spaceType, capacity } = req.body;
-    const room = await Room.create({ campus, block, floor, roomNumber, roomName, spaceType, capacity });
+    const { campus, block, building, floor, roomNumber, roomName, spaceType, capacity } = req.body;
+    const room = await Room.create({ campus, block, building, floor, roomNumber, roomName, spaceType, capacity });
     res.status(201).json(room);
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ error: "Space already exists in this campus/block" });

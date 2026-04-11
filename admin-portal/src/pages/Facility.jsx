@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, RefreshCw, Activity,
   Camera, CameraOff, Play, X, Maximize2, ChevronLeft,
   ChevronRight as ChevronRightIcon, LayoutGrid, List,
-  Pause, FastForward, ExternalLink, Volume2,
+  Pause, FastForward, ExternalLink, Volume2, Plus, Layers,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -386,7 +386,21 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
         {/* Room name */}
         <p className="font-black text-gray-800 text-sm leading-tight">{space.roomNumber}</p>
         {space.roomName && <p className="text-[10px] text-gray-500 truncate mt-0.5">{space.roomName}</p>}
-        {space.floor    && <p className="text-[9px] text-gray-400 mt-0.5">{space.floor}</p>}
+        {/* Building + Floor badges */}
+        {(space.building || space.floor) && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {space.building && (
+              <span className="flex items-center gap-0.5 text-[9px] bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
+                🏢 {space.building}
+              </span>
+            )}
+            {space.floor && (
+              <span className="flex items-center gap-0.5 text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
+                <Layers size={7} /> {space.floor}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Space type badge */}
         <span className={`inline-block text-[9px] font-semibold px-2 py-0.5 rounded-full mt-1.5 ${meta.badge}`}>
@@ -613,6 +627,175 @@ function CampusSection({ campusData, idx, onPlay, onNavigate, compact }) {
   );
 }
 
+// ── Add Space Modal ───────────────────────────────────────────────────────────
+const EMPTY_FORM = { campus:"", block:"", building:"", floor:"", roomNumber:"", roomName:"", spaceType:"room", capacity:"" };
+
+function AddSpaceModal({ onClose, onSaved }) {
+  const [form, setForm]     = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.campus.trim() || !form.block.trim() || !form.roomNumber.trim()) {
+      setError("Campus, Block and Room Number are required."); return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/rooms", {
+        campus: form.campus.trim(),
+        block:  form.block.trim(),
+        building: form.building.trim() || undefined,
+        floor:    form.floor.trim()    || undefined,
+        roomNumber: form.roomNumber.trim(),
+        roomName:   form.roomName.trim() || undefined,
+        spaceType:  form.spaceType,
+        capacity:   form.capacity ? Number(form.capacity) : 0,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to create space");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg z-10 overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+              <Plus size={18} />
+            </div>
+            <div>
+              <p className="font-bold text-lg leading-tight">Add New Space</p>
+              <p className="text-blue-200 text-xs">Classroom, Conference Hall or Auditorium</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 hover:bg-white/20 rounded-lg flex items-center justify-center transition">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-xl">
+              <AlertTriangle size={14} /> {error}
+            </div>
+          )}
+
+          {/* Campus + Block */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Campus *
+              </label>
+              <input value={form.campus} onChange={e => set("campus", e.target.value)} required
+                placeholder="e.g. KIIT Campus"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Block *
+              </label>
+              <input value={form.block} onChange={e => set("block", e.target.value)} required
+                placeholder="e.g. Block 14"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+          </div>
+
+          {/* Building + Floor */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Building
+              </label>
+              <input value={form.building} onChange={e => set("building", e.target.value)}
+                placeholder="e.g. Main Building"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Floor
+              </label>
+              <input value={form.floor} onChange={e => set("floor", e.target.value)}
+                placeholder="e.g. 2nd Floor"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+          </div>
+
+          {/* Room Number + Name */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Room Number *
+              </label>
+              <input value={form.roomNumber} onChange={e => set("roomNumber", e.target.value)} required
+                placeholder="e.g. 202 or CF-01"
+                className="w-full px-3 py-2.5 border-2 border-orange-300 rounded-xl text-sm focus:ring-2 focus:ring-orange-400 outline-none focus:border-orange-400 text-gray-800" />
+              <p className="text-[10px] text-orange-500 mt-1">Must match admin portal room IDs</p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Display Name
+              </label>
+              <input value={form.roomName} onChange={e => set("roomName", e.target.value)}
+                placeholder="e.g. Conference Hall 1"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+          </div>
+
+          {/* Space Type + Capacity */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Space Type
+              </label>
+              <select value={form.spaceType} onChange={e => set("spaceType", e.target.value)}
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white focus:border-blue-500 text-gray-800">
+                <option value="room">🚪 Classroom</option>
+                <option value="conference_hall">🤝 Conference Hall</option>
+                <option value="auditorium">🎭 Auditorium</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                Capacity (seats)
+              </label>
+              <input type="number" min="0" value={form.capacity} onChange={e => set("capacity", e.target.value)}
+                placeholder="e.g. 60"
+                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2 border-t border-gray-100">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition flex items-center justify-center gap-2">
+              {saving ? (
+                <><RefreshCw size={14} className="animate-spin" /> Saving...</>
+              ) : (
+                <><Plus size={14} /> Add Space</>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon: Icon, gradient, pulse }) {
   return (
@@ -639,6 +822,7 @@ export default function Facility() {
   const [modalSpace,  setModalSpace]  = useState(null);
   const [compact,     setCompact]     = useState(false);
   const [autoScroll,  setAutoScroll]  = useState(false);
+  const [showAddSpace, setShowAddSpace] = useState(false);
   const autoScrollRef = useRef(null);
 
   const fetchHierarchy = useCallback(async (showRefresh = false) => {
@@ -707,6 +891,14 @@ export default function Facility() {
         />
       )}
 
+      {/* ── Add Space Modal ───────────────────────────────────────────────── */}
+      {showAddSpace && (
+        <AddSpaceModal
+          onClose={() => setShowAddSpace(false)}
+          onSaved={() => fetchHierarchy(true)}
+        />
+      )}
+
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
@@ -736,6 +928,15 @@ export default function Facility() {
               ${autoScroll ? "bg-emerald-600 border-emerald-600 text-white animate-pulse" : "bg-white border-gray-200 text-gray-600 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700"}`}>
             {autoScroll ? <Pause size={14} /> : <FastForward size={14} />}
             {autoScroll ? "Stop Scroll" : "Auto Scroll"}
+          </button>
+
+          {/* Add Space */}
+          <button
+            onClick={() => setShowAddSpace(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 border border-blue-600 rounded-xl text-sm text-white
+              hover:bg-blue-700 transition font-semibold shadow-sm"
+          >
+            <Plus size={14} /> Add Space
           </button>
 
           {/* Refresh */}

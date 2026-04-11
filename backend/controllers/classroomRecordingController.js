@@ -69,7 +69,8 @@ exports.registerDevice = async (req, res) => {
           $set: {
             campus:     resolvedCampus,
             block:      resolvedBlock,
-            floor:      floor || "",
+            building:   building  || undefined,
+            floor:      floor     || "",
             roomNumber: resolvedRoomNumber,
             roomName:   roomName || name || `Room ${resolvedRoomNumber}`,
             spaceType:  spaceType || "room",
@@ -165,6 +166,12 @@ exports.heartbeat = async (req, res) => {
         ...h,
         updatedAt: new Date(),
       };
+    }
+
+    // Android explicitly signals recording stopped → reset flag
+    if (req.body.isRecording === false && device.isRecording) {
+      device.isRecording = false;
+      device.currentMeetingId = null;
     }
 
     await device.save();

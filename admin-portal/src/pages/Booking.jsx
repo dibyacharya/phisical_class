@@ -386,6 +386,8 @@ export default function Booking() {
               <p className="text-sm"><span className="text-gray-400">Class:</span> <strong className="text-gray-700">{sel.title}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Room:</span> <strong className="text-gray-700">{sel.room?.roomNumber} — {sel.room?.roomName}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{sel.blockName}, {sel.campusName}</strong></p>
+              {sel.room?.building && <p className="text-sm"><span className="text-gray-400">Building:</span> <strong className="text-gray-700">{sel.room.building}</strong></p>}
+              {sel.room?.floor    && <p className="text-sm"><span className="text-gray-400">Floor:</span> <strong className="text-gray-700">{sel.room.floor}</strong></p>}
               <p className="text-sm"><span className="text-gray-400">Date:</span> <strong className="text-gray-700">{fmtShort(sel.date)}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Time:</span> <strong className="text-gray-700">{sel.startTime} – {sel.endTime}</strong></p>
               {sel.teacherName && <p className="text-sm"><span className="text-gray-400">Faculty:</span> <strong className="text-gray-700">{sel.teacherName}</strong></p>}
@@ -478,6 +480,21 @@ export default function Booking() {
                                     <p className="font-bold text-gray-800 text-lg leading-tight">{r.roomNumber}</p>
                                     <p className="text-xs text-gray-500 leading-tight">{r.roomName}</p>
                                     <p className="text-xs text-gray-400 mt-0.5">{r.capacity} seats</p>
+                                    {/* Building + Floor tags */}
+                                    {(r.building || r.floor) && (
+                                      <div className="flex flex-wrap gap-1 mt-1.5">
+                                        {r.building && (
+                                          <span className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
+                                            🏢 {r.building}
+                                          </span>
+                                        )}
+                                        {r.floor && (
+                                          <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
+                                            ⬆ {r.floor}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="flex flex-col gap-1 border-t pt-2">
                                     <DeviceBadge device={r.device} size="xs" />
@@ -505,6 +522,12 @@ export default function Booking() {
                       <div>
                         <p className="font-bold text-blue-800">{sel.room.roomNumber} — {sel.room.roomName}</p>
                         <p className="text-xs text-blue-600">{sel.blockName} · {sel.campusName} · {sel.room.capacity} seats</p>
+                        {(sel.room.building || sel.room.floor) && (
+                          <div className="flex gap-1.5 mt-1">
+                            {sel.room.building && <span className="text-[10px] bg-white/60 text-slate-600 px-2 py-0.5 rounded-full font-medium">🏢 {sel.room.building}</span>}
+                            {sel.room.floor    && <span className="text-[10px] bg-white/60 text-indigo-600 px-2 py-0.5 rounded-full font-medium">⬆ {sel.room.floor}</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <DeviceBadge device={sel.room.device} />
@@ -543,18 +566,35 @@ export default function Booking() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1.5">🕐 Start Time</label>
-                        <select value={sel.startTime} onChange={e => setSel(s => ({ ...s, startTime:e.target.value }))}
-                          className="w-full px-3 py-3 border-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-800 font-medium focus:border-blue-500">
-                          {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
+                        <input type="time" value={sel.startTime}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            setSel(s => ({
+                              ...s, startTime: val,
+                              // auto-push endTime if it's now <= startTime
+                              endTime: toMin(s.endTime) <= toMin(val)
+                                ? (() => { const m = toMin(val)+60; const hh=Math.floor(m/60), mm=m%60; return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`; })()
+                                : s.endTime
+                            }));
+                            setSlotMode("end");
+                          }}
+                          className="w-full px-3 py-3 border-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-800 font-medium focus:border-blue-500" />
                       </div>
                       <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1.5">🕑 End Time</label>
-                        <select value={sel.endTime} onChange={e => setSel(s => ({ ...s, endTime:e.target.value }))}
-                          className="w-full px-3 py-3 border-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-800 font-medium focus:border-blue-500">
-                          {HOURS.filter(h => toMin(h) > toMin(sel.startTime)).map(h => <option key={h} value={h}>{h}</option>)}
-                          <option value="18:00">18:00</option>
-                        </select>
+                        <input type="time" value={sel.endTime}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            if (toMin(val) <= toMin(sel.startTime)) {
+                              alert("End time must be after start time");
+                              return;
+                            }
+                            setSel(s => ({ ...s, endTime: val }));
+                            setSlotMode("start");
+                          }}
+                          className="w-full px-3 py-3 border-2 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white text-gray-800 font-medium focus:border-blue-500" />
                       </div>
                     </div>
 
@@ -562,7 +602,9 @@ export default function Booking() {
                     <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-full px-4 py-2">
                       <Clock size={14} className="text-blue-500" />
                       <span className="text-sm text-blue-700 font-semibold">
-                        {toMin(sel.endTime) - toMin(sel.startTime)} minutes
+                        {toMin(sel.endTime) - toMin(sel.startTime) > 0
+                          ? `${toMin(sel.endTime) - toMin(sel.startTime)} minutes`
+                          : "—"}
                       </span>
                     </div>
 
@@ -599,18 +641,21 @@ export default function Booking() {
                     />
 
                     {/* Slot pills — two-click range selector */}
-                    <div className="mt-3 mb-2 flex items-center gap-2">
-                      {slotMode === "start" ? (
-                        <span className="text-xs font-semibold text-blue-600 flex items-center gap-1">
-                          <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse inline-block" />
-                          Click start slot
-                        </span>
-                      ) : (
-                        <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1">
-                          <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse inline-block" />
-                          Now click end slot (after {sel.startTime})
-                        </span>
-                      )}
+                    <div className="mt-3 mb-2 flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        {slotMode === "start" ? (
+                          <span className="text-xs font-semibold text-blue-600 flex items-center gap-1">
+                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse inline-block" />
+                            Quick-select start slot ↓
+                          </span>
+                        ) : (
+                          <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1">
+                            <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse inline-block" />
+                            Quick-select end slot (after {sel.startTime}) ↓
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-gray-400 italic">Or type any time directly above ↑</span>
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
                       {HOURS.map(slot => {
@@ -793,6 +838,21 @@ export default function Booking() {
                         <p className="font-black text-lg">{sel.room?.roomNumber}</p>
                       </div>
                     </div>
+                    {/* Building + Floor sub-line */}
+                    {(sel.room?.building || sel.room?.floor) && (
+                      <div className="mt-2 flex items-center gap-3 justify-center">
+                        {sel.room?.building && (
+                          <span className="flex items-center gap-1 text-xs text-blue-200 bg-white/10 px-3 py-1 rounded-full">
+                            🏢 {sel.room.building}
+                          </span>
+                        )}
+                        {sel.room?.floor && (
+                          <span className="flex items-center gap-1 text-xs text-blue-200 bg-white/10 px-3 py-1 rounded-full">
+                            ⬆ {sel.room.floor}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Body */}
@@ -803,6 +863,8 @@ export default function Booking() {
                         { label:"TIME",    value: `${sel.startTime} → ${sel.endTime}` },
                         { label:"DURATION",value: `${toMin(sel.endTime)-toMin(sel.startTime)} min` },
                         { label:"CAPACITY",value: `${sel.room?.capacity} seats` },
+                        ...(sel.room?.building ? [{ label:"BUILDING", value: sel.room.building }] : []),
+                        ...(sel.room?.floor    ? [{ label:"FLOOR",    value: sel.room.floor    }] : []),
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{label}</p>

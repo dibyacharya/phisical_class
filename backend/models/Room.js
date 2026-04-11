@@ -4,6 +4,7 @@ const roomSchema = new mongoose.Schema(
   {
     campus: { type: String, required: true },
     block: { type: String, required: true },
+    building: { type: String },
     floor: { type: String },
     roomNumber: { type: String, required: true },   // space identifier e.g. "A-201"
     roomName: { type: String },                     // display name e.g. "Conference Hall 1"

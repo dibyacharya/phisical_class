@@ -6,7 +6,9 @@ import {
   Cpu, Battery, AlertTriangle, CheckCircle, XCircle, Signal,
   Clock, Download, Play, RefreshCw, Calendar, BookOpen, User,
   ChevronLeft, ChevronRight as ChevronRightIcon, Home, X,
-  ExternalLink, CalendarDays,
+  ExternalLink, CalendarDays, Zap, Thermometer, Activity,
+  BatteryCharging, BatteryFull, BatteryLow, BatteryMedium,
+  Radio, ShieldCheck, ShieldAlert, Timer, TrendingUp,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -247,9 +249,80 @@ function TabConfig({ detail }) {
   );
 }
 
+// ── WiFi Signal Bars ──────────────────────────────────────────────────────────
+function WifiSignalBars({ dBm }) {
+  if (dBm == null) return <span className="text-gray-400 text-sm">–</span>;
+  const strength = dBm >= -50 ? 4 : dBm >= -65 ? 3 : dBm >= -75 ? 2 : dBm >= -85 ? 1 : 0;
+  const labels   = ["Very Weak","Weak","Fair","Good","Excellent"];
+  const colors   = ["text-red-500","text-orange-500","text-yellow-500","text-blue-500","text-emerald-500"];
+  const bgColors = ["bg-red-400","bg-orange-400","bg-yellow-400","bg-blue-500","bg-emerald-500"];
+  return (
+    <div className="flex items-end gap-0.5">
+      {[1,2,3,4].map(i => (
+        <div key={i} className={`rounded-sm transition-all ${i <= strength ? bgColors[strength] : "bg-gray-200"}`}
+          style={{ width: 5, height: 4 + i * 4 }} />
+      ))}
+      <span className={`ml-2 text-xs font-semibold ${colors[strength]}`}>{labels[strength]} ({dBm} dBm)</span>
+    </div>
+  );
+}
+
+// ── Battery Visual ────────────────────────────────────────────────────────────
+function BatteryVisual({ level, charging }) {
+  const color = charging ? "bg-emerald-400" : level >= 50 ? "bg-emerald-500" : level >= 20 ? "bg-yellow-400" : "bg-red-500";
+  const textColor = charging ? "text-emerald-600" : level >= 50 ? "text-emerald-600" : level >= 20 ? "text-yellow-600" : "text-red-600";
+  return (
+    <div className="flex items-center gap-3">
+      <BatteryCharging size={18} className={charging ? "text-emerald-500" : "text-gray-400"} />
+      <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+        <div className={`${color} h-3 rounded-full transition-all`} style={{ width: `${Math.min(level,100)}%` }} />
+      </div>
+      <span className={`text-sm font-black w-12 text-right ${textColor}`}>{level}%</span>
+      {charging && <span className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">⚡ Charging</span>}
+    </div>
+  );
+}
+
+// ── Radial Gauge ──────────────────────────────────────────────────────────────
+function RadialGauge({ value, label, warn = 75, danger = 90 }) {
+  if (value == null) return null;
+  const size  = 80;
+  const r     = 32;
+  const circ  = 2 * Math.PI * r;
+  const fill  = (Math.min(value, 100) / 100) * circ;
+  const color = value >= danger ? "#ef4444" : value >= warn ? "#f59e0b" : "#10b981";
+  return (
+    <div className="flex flex-col items-center gap-1 min-w-[80px]">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90" style={{ position:"absolute", top:0, left:0 }}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e5e7eb" strokeWidth={7} />
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={7}
+            strokeDasharray={`${fill} ${circ - fill}`} strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <p className="text-base font-black leading-none" style={{ color }}>{value}%</p>
+        </div>
+      </div>
+      <p className="text-xs text-gray-500 font-semibold">{label}</p>
+    </div>
+  );
+}
+
 // ── Tab 2: Health Card ────────────────────────────────────────────────────────
-function TabHealth({ detail }) {
+function TabHealth({ detail, onRefresh }) {
   const { device } = detail;
+  const [tick, setTick] = useState(30);
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setTick(t => {
+        if (t <= 1) { onRefresh?.(); return 30; }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [onRefresh]);
+
   if (!device) {
     return (
       <div className="text-center py-20 text-gray-400">
@@ -258,154 +331,326 @@ function TabHealth({ detail }) {
       </div>
     );
   }
-  const h = device.health || {};
-  const isOnline = device.isOnline;
+
+  const h          = device.health || {};
+  const isOnline   = device.isOnline;
+  const isRec      = device.isRecording;
+  const alertCount = (h.alerts || []).length;
+  const wifiDbm    = h.network?.wifiSignal;
 
   return (
-    <div className="space-y-6">
-      {/* Status banner */}
-      <div className={`rounded-2xl p-4 flex items-center gap-4 ${
-        isOnline ? "bg-green-50 border border-green-200" : "bg-gray-100 border border-gray-200"
-      }`}>
-        <div className={`p-3 rounded-xl ${isOnline ? "bg-green-200" : "bg-gray-300"}`}>
-          {isOnline
-            ? <Wifi size={24} className="text-green-700" />
-            : <WifiOff size={24} className="text-gray-500" />}
+    <div className="space-y-5">
+
+      {/* ── Hero Banner ───────────────────────────────────────────────────── */}
+      <div className={`relative overflow-hidden rounded-3xl p-6
+        ${isRec ? "bg-gradient-to-r from-red-600 via-rose-600 to-orange-600"
+        : isOnline ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700"
+        : "bg-gradient-to-r from-gray-600 to-gray-700"}`}>
+        <div className="absolute inset-0 opacity-10"
+          style={{ backgroundImage:"radial-gradient(circle, white 1px, transparent 1px)", backgroundSize:"20px 20px" }} />
+        <div className="relative flex items-center gap-5 flex-wrap">
+          {/* Orb */}
+          <div className="relative shrink-0">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-white/20 backdrop-blur-sm border border-white/30">
+              {isRec ? <CircleDot size={32} className="text-white animate-pulse" />
+                     : isOnline ? <Wifi size={32} className="text-white" />
+                                : <WifiOff size={32} className="text-white/60" />}
+            </div>
+            {isOnline && !isRec && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 border-2 border-white rounded-full animate-pulse" />
+            )}
+          </div>
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-2xl font-black text-white">
+                {isRec ? "🔴 Live Recording" : isOnline ? "Device Online" : "Device Offline"}
+              </h2>
+              {alertCount > 0 && (
+                <span className="flex items-center gap-1 text-xs bg-amber-400 text-amber-900 px-2.5 py-1 rounded-full font-bold">
+                  <AlertTriangle size={11} /> {alertCount} alert{alertCount > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <p className="text-white/70 text-sm mt-0.5">{device.deviceModel || device.name} · {device.deviceType?.toUpperCase()}</p>
+            <div className="flex items-center gap-4 mt-2 flex-wrap">
+              <span className="flex items-center gap-1.5 text-white/80 text-xs">
+                <Clock size={11} /> Last beat: {device.lastHeartbeat ? new Date(device.lastHeartbeat).toLocaleTimeString("en-IN") : "–"}
+              </span>
+              {h.serviceUptime != null && (
+                <span className="flex items-center gap-1.5 text-white/80 text-xs">
+                  <Timer size={11} /> Uptime: {fmtUptime(h.serviceUptime)}
+                </span>
+              )}
+              {device.ipAddress && (
+                <span className="flex items-center gap-1.5 text-white/80 text-xs">
+                  <Signal size={11} /> {device.ipAddress}
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Countdown */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="relative w-12 h-12">
+              <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+                <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="3"
+                  strokeDasharray={`${(tick/30)*125.7} 125.7`} strokeLinecap="round" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-white font-bold text-xs">{tick}s</span>
+            </div>
+            <span className="text-white/60 text-[10px]">Auto refresh</span>
+          </div>
         </div>
-        <div>
-          <p className="font-semibold text-gray-800">{isOnline ? "Device Online" : "Device Offline"}</p>
-          <p className="text-sm text-gray-500">
-            Last heartbeat: {device.lastHeartbeat ? new Date(device.lastHeartbeat).toLocaleString("en-IN") : "–"}
-            {h.serviceUptime != null && ` · Uptime: ${fmtUptime(h.serviceUptime)}`}
-          </p>
-        </div>
-        {device.isRecording && (
-          <span className="ml-auto flex items-center gap-2 text-red-600 bg-red-100 px-4 py-2 rounded-xl font-medium animate-pulse">
-            <CircleDot size={16} /> Recording
-          </span>
+        {h.updatedAt && (
+          <div className="relative mt-4 pt-3 border-t border-white/20 flex items-center justify-between text-white/60 text-xs">
+            <span>Health updated: {new Date(h.updatedAt).toLocaleString("en-IN")}</span>
+            <span className="flex items-center gap-1"><Activity size={10} /> Live</span>
+          </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Hardware */}
-        <div className="bg-white rounded-2xl border p-6">
-          <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
-            <Camera size={18} /> Hardware Status
-          </h3>
-          <HardwareRow ok={h.camera?.ok ?? null} Icon={Camera} label="Camera"
-            detail={h.camera?.name} error={h.camera?.error} />
-          <HardwareRow ok={h.mic?.ok ?? null} Icon={Mic} label="Microphone"
-            detail={h.mic?.name} error={h.mic?.error} />
-          <HardwareRow ok={h.screen?.ok ?? null} Icon={Monitor} label="Display / Screen"
-            detail={h.screen?.resolution} error={h.screen?.error} />
+      {/* ── Quick Stat Cards ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Battery */}
+        <div className={`rounded-2xl p-4 border-2 ${
+          h.battery?.level == null ? "bg-gray-50 border-gray-200"
+          : h.battery.charging     ? "bg-emerald-50 border-emerald-200"
+          : h.battery.level <= 20  ? "bg-red-50 border-red-200"
+          :                          "bg-gray-50 border-gray-200"}`}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Battery</p>
+          {h.battery?.level != null ? (
+            <>
+              <p className={`text-3xl font-black ${h.battery.level <= 20 ? "text-red-600" : h.battery.charging ? "text-emerald-600" : "text-gray-800"}`}>
+                {h.battery.level}%
+              </p>
+              <p className="text-xs text-gray-500 mt-1">{h.battery.charging ? "⚡ Charging" : "🔋 On battery"}</p>
+            </>
+          ) : <p className="text-2xl font-black text-gray-300 mt-1">–</p>}
         </div>
+        {/* WiFi */}
+        <div className={`rounded-2xl p-4 border-2 ${
+          wifiDbm == null ? "bg-gray-50 border-gray-200"
+          : wifiDbm >= -50 ? "bg-emerald-50 border-emerald-200"
+          : wifiDbm >= -65 ? "bg-blue-50 border-blue-200"
+          : wifiDbm >= -75 ? "bg-yellow-50 border-yellow-200"
+          : "bg-red-50 border-red-200"}`}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">WiFi Signal</p>
+          {wifiDbm != null ? (
+            <>
+              <p className={`text-3xl font-black ${wifiDbm >= -50 ? "text-emerald-700" : wifiDbm >= -65 ? "text-blue-700" : wifiDbm >= -75 ? "text-yellow-600" : "text-red-600"}`}>{wifiDbm}</p>
+              <p className="text-xs text-gray-500 mt-1">dBm · {wifiDbm >= -50 ? "Excellent" : wifiDbm >= -65 ? "Good" : wifiDbm >= -75 ? "Fair" : "Weak"}</p>
+            </>
+          ) : <p className="text-2xl font-black text-gray-300 mt-1">–</p>}
+        </div>
+        {/* RAM */}
+        <div className={`rounded-2xl p-4 border-2 ${
+          h.ram?.usedPercent == null ? "bg-gray-50 border-gray-200"
+          : h.ram.usedPercent >= 90  ? "bg-red-50 border-red-200"
+          : h.ram.usedPercent >= 75  ? "bg-yellow-50 border-yellow-200"
+          :                            "bg-blue-50 border-blue-200"}`}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">RAM</p>
+          {h.ram?.usedPercent != null ? (
+            <>
+              <p className={`text-3xl font-black ${h.ram.usedPercent >= 90 ? "text-red-600" : h.ram.usedPercent >= 75 ? "text-yellow-600" : "text-blue-700"}`}>{h.ram.usedPercent}%</p>
+              <p className="text-xs text-gray-500 mt-1">{h.ram.freeGB} GB free</p>
+            </>
+          ) : <p className="text-2xl font-black text-gray-300 mt-1">–</p>}
+        </div>
+        {/* Disk */}
+        <div className={`rounded-2xl p-4 border-2 ${
+          h.disk?.usedPercent == null ? "bg-gray-50 border-gray-200"
+          : h.disk.usedPercent >= 90  ? "bg-red-50 border-red-200"
+          : h.disk.usedPercent >= 75  ? "bg-yellow-50 border-yellow-200"
+          :                             "bg-teal-50 border-teal-200"}`}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Disk</p>
+          {h.disk?.usedPercent != null ? (
+            <>
+              <p className={`text-3xl font-black ${h.disk.usedPercent >= 90 ? "text-red-600" : h.disk.usedPercent >= 75 ? "text-yellow-600" : "text-teal-700"}`}>{h.disk.usedPercent}%</p>
+              <p className="text-xs text-gray-500 mt-1">{h.disk.freeGB} GB free</p>
+            </>
+          ) : <p className="text-2xl font-black text-gray-300 mt-1">–</p>}
+        </div>
+      </div>
 
-        {/* Network */}
-        <div className="bg-white rounded-2xl border p-6">
-          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Signal size={18} /> Network
-          </h3>
-          <dl className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        {/* ── Hardware ─────────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gradient-to-r from-slate-50 to-gray-50 flex items-center justify-between">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><Camera size={17} className="text-blue-600" /> Hardware Status</h3>
+            {[h.camera?.ok, h.mic?.ok, h.screen?.ok].every(v => v === true) && (
+              <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">All OK ✓</span>
+            )}
+          </div>
+          <div className="p-4 space-y-2">
             {[
-              ["SSID",        h.network?.ssid || "–"],
-              ["WiFi Signal", h.network?.wifiSignal != null
-                ? `${h.network.wifiSignal}${device.deviceType === "android" ? " dBm" : "%"}`
-                : "–"],
-              ["Latency",     h.network?.latencyMs != null ? `${h.network.latencyMs} ms` : "–"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between text-sm border-b pb-3 last:border-0 last:pb-0">
-                <span className="text-gray-500">{k}</span>
-                <span className={`font-medium ${
-                  k === "Latency" && h.network?.latencyMs > 1000 ? "text-red-600" : "text-gray-800"
-                }`}>{v}</span>
+              { ok: h.camera?.ok,  Icon: Camera,  label: "Camera",         detail: h.camera?.name,       error: h.camera?.error  },
+              { ok: h.mic?.ok,     Icon: Mic,     label: "Microphone",     detail: h.mic?.name,          error: h.mic?.error     },
+              { ok: h.screen?.ok,  Icon: Monitor, label: "Display/Screen", detail: h.screen?.resolution, error: h.screen?.error  },
+            ].map(({ ok, Icon, label, detail, error }) => (
+              <div key={label} className={`flex items-center gap-3 p-3 rounded-xl border
+                ${ok === true ? "bg-emerald-50 border-emerald-100" : ok === false ? "bg-red-50 border-red-100" : "bg-gray-50 border-gray-100"}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
+                  ${ok === true ? "bg-emerald-100" : ok === false ? "bg-red-100" : "bg-gray-100"}`}>
+                  <Icon size={17} className={ok === true ? "text-emerald-600" : ok === false ? "text-red-500" : "text-gray-400"} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-gray-800">{label}</span>
+                    {ok === true  && <CheckCircle size={13} className="text-emerald-500" />}
+                    {ok === false && <XCircle     size={13} className="text-red-500" />}
+                    {ok == null   && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">Unknown</span>}
+                  </div>
+                  {detail && <p className="text-xs text-gray-500 mt-0.5 truncate">{detail}</p>}
+                  {error  && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
+                </div>
               </div>
             ))}
-          </dl>
+          </div>
         </div>
 
-        {/* Resources */}
-        <div className="bg-white rounded-2xl border p-6">
-          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Cpu size={18} /> System Resources
-          </h3>
-          <div className="space-y-4">
-            {h.cpu?.usagePercent != null && (
-              <div>
-                <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-gray-500 flex items-center gap-1"><Cpu size={12} /> CPU</span>
-                </div>
-                <UsageBar value={h.cpu.usagePercent} />
+        {/* ── Network ──────────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gradient-to-r from-slate-50 to-gray-50">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><Signal size={17} className="text-cyan-600" /> Network</h3>
+          </div>
+          <div className="p-5 space-y-5">
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">WiFi Network</p>
+              <div className="flex items-center gap-2">
+                <Wifi size={15} className="text-cyan-500" />
+                <span className="font-semibold text-gray-800 text-sm">
+                  {h.network?.ssid && h.network.ssid !== "<unknown ssid>" ? h.network.ssid : "Hidden / Unknown"}
+                </span>
               </div>
-            )}
-            {h.ram?.usedPercent != null && (
-              <div>
-                <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-gray-500">RAM</span>
-                  <span className="text-xs text-gray-400">{h.ram.freeGB} GB free of {h.ram.totalGB} GB</span>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Signal Strength</p>
+              <WifiSignalBars dBm={h.network?.wifiSignal} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Latency to Server</p>
+              {h.network?.latencyMs != null ? (
+                <div className="flex items-center gap-3">
+                  <span className={`text-2xl font-black ${h.network.latencyMs > 1000 ? "text-red-600" : h.network.latencyMs > 300 ? "text-yellow-600" : "text-emerald-600"}`}>
+                    {h.network.latencyMs}
+                  </span>
+                  <div>
+                    <p className="text-xs text-gray-400">ms</p>
+                    <p className={`text-xs font-bold ${h.network.latencyMs > 1000 ? "text-red-500" : h.network.latencyMs > 300 ? "text-yellow-500" : "text-emerald-500"}`}>
+                      {h.network.latencyMs > 1000 ? "High ⚠️" : h.network.latencyMs > 300 ? "Fair" : "Good ✓"}
+                    </p>
+                  </div>
                 </div>
-                <UsageBar value={h.ram.usedPercent} />
-              </div>
-            )}
-            {h.disk?.usedPercent != null && (
-              <div>
-                <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-gray-500 flex items-center gap-1"><HardDrive size={12} /> Disk</span>
-                  <span className="text-xs text-gray-400">{h.disk.freeGB} GB free</span>
+              ) : <span className="text-sm text-gray-400">Not yet measured</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* ── System Resources ─────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gradient-to-r from-slate-50 to-gray-50">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><Activity size={17} className="text-violet-600" /> System Resources</h3>
+          </div>
+          <div className="p-5 space-y-5">
+            {(h.cpu?.usagePercent != null || h.ram?.usedPercent != null || h.disk?.usedPercent != null) ? (
+              <>
+                <div className="flex justify-around py-2">
+                  {h.cpu?.usagePercent  != null && <RadialGauge value={h.cpu.usagePercent}  label="CPU"  danger={90} />}
+                  {h.ram?.usedPercent   != null && <RadialGauge value={h.ram.usedPercent}   label="RAM"  />}
+                  {h.disk?.usedPercent  != null && <RadialGauge value={h.disk.usedPercent}  label="Disk" warn={80} />}
                 </div>
-                <UsageBar value={h.disk.usedPercent} />
+                <div className="space-y-3">
+                  {h.ram?.usedPercent != null && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-semibold text-gray-600">RAM</span>
+                        <span className="text-gray-400">{h.ram.freeGB} GB free of {h.ram.totalGB} GB</span>
+                      </div>
+                      <UsageBar value={h.ram.usedPercent} />
+                    </div>
+                  )}
+                  {h.disk?.usedPercent != null && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-semibold text-gray-600">Disk</span>
+                        <span className="text-gray-400">{h.disk.freeGB} GB free of {h.disk.totalGB} GB</span>
+                      </div>
+                      <UsageBar value={h.disk.usedPercent} warn={80} danger={90} />
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-8 text-gray-400">
+                <Cpu size={32} className="mx-auto mb-2 opacity-20" />
+                <p className="text-sm">Waiting for resource data...</p>
               </div>
             )}
             {h.battery?.level != null && (
-              <div className="flex items-center gap-2 text-sm pt-1">
-                <Battery size={14} className="text-gray-400" />
-                <span className="text-gray-600">Battery: <strong>{h.battery.level}%</strong></span>
-                {h.battery.charging && <span className="text-xs text-green-600">(Charging)</span>}
+              <div className="pt-3 border-t">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Battery</p>
+                <BatteryVisual level={h.battery.level} charging={h.battery.charging} />
               </div>
             )}
           </div>
         </div>
 
-        {/* Recording quality */}
-        <div className="bg-white rounded-2xl border p-6">
-          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Video size={18} /> Recording Quality
-          </h3>
-          <dl className="space-y-3">
-            {[
-              ["Frame Drops",    h.recording?.frameDrop ?? "–"],
-              ["Error Count",    h.recording?.errorCount ?? "–"],
-              ["Last Error",     h.recording?.lastError || "None"],
-              ["Health Updated", h.updatedAt ? new Date(h.updatedAt).toLocaleString("en-IN") : "Never"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between text-sm border-b pb-3 last:border-0 last:pb-0">
-                <span className="text-gray-500">{k}</span>
-                <span className={`font-medium max-w-[60%] text-right truncate ${
-                  (k === "Last Error" && v !== "None") || (k === "Error Count" && v > 0)
-                    ? "text-red-600" : "text-gray-800"
-                }`}>{String(v)}</span>
+        {/* ── Recording Quality ─────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gradient-to-r from-slate-50 to-gray-50">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><Video size={17} className="text-rose-600" /> Recording Quality</h3>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className={`flex items-center justify-between p-3 rounded-xl border ${(h.recording?.frameDrop ?? 0) > 0 ? "bg-yellow-50 border-yellow-200" : "bg-emerald-50 border-emerald-200"}`}>
+              <span className="text-sm font-semibold text-gray-700 flex items-center gap-2"><TrendingUp size={14} /> Frame Drops</span>
+              <span className={`text-xl font-black ${(h.recording?.frameDrop ?? 0) > 0 ? "text-yellow-600" : "text-emerald-600"}`}>{h.recording?.frameDrop ?? 0}</span>
+            </div>
+            <div className={`flex items-center justify-between p-3 rounded-xl border ${(h.recording?.errorCount ?? 0) > 0 ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+              <span className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Zap size={14} /> Error Count</span>
+              <span className={`text-xl font-black ${(h.recording?.errorCount ?? 0) > 0 ? "text-red-600" : "text-emerald-600"}`}>{h.recording?.errorCount ?? 0}</span>
+            </div>
+            {h.recording?.lastError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-red-500 uppercase mb-1">Last Error</p>
+                <p className="text-sm text-red-700">{h.recording.lastError}</p>
               </div>
-            ))}
-          </dl>
+            )}
+            {h.serviceUptime != null && (
+              <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <span className="text-sm font-semibold text-blue-700 flex items-center gap-2"><Timer size={14} /> Service Uptime</span>
+                <span className="font-bold text-blue-800">{fmtUptime(h.serviceUptime)}</span>
+              </div>
+            )}
+            {(h.recording?.frameDrop ?? 0) === 0 && (h.recording?.errorCount ?? 0) === 0 && !h.recording?.lastError && (
+              <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                <CheckCircle size={16} className="text-emerald-500" />
+                <span className="text-sm font-semibold">Recording quality excellent ✓</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Alerts */}
-      {(h.alerts || []).length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
-          <h3 className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
-            <AlertTriangle size={18} /> Active Alerts
-          </h3>
-          <div className="space-y-2">
+      {/* ── Alerts ───────────────────────────────────────────────────────────── */}
+      {alertCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-amber-200 bg-amber-100/50 flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-600" />
+            <h3 className="font-bold text-amber-800">{alertCount} Active Alert{alertCount > 1 ? "s" : ""}</h3>
+          </div>
+          <div className="p-4 space-y-2">
             {h.alerts.map((a, i) => (
               <div key={i} className="flex items-start gap-3 bg-white rounded-xl p-3 border border-amber-100">
-                <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-semibold text-amber-700 uppercase">[{a.type}]</span>
-                  <span className="text-sm text-gray-700 ml-2">{a.message}</span>
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={14} className="text-amber-600" />
                 </div>
-                <span className="text-xs text-gray-400 shrink-0">
-                  {a.time ? new Date(a.time).toLocaleTimeString("en-IN") : ""}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] font-black text-amber-600 uppercase bg-amber-100 px-1.5 py-0.5 rounded">{a.type}</span>
+                  <p className="text-sm text-gray-700 mt-1">{a.message}</p>
+                </div>
+                <span className="text-xs text-gray-400 shrink-0 mt-1">{a.time ? new Date(a.time).toLocaleTimeString("en-IN") : ""}</span>
               </div>
             ))}
           </div>
@@ -890,7 +1135,7 @@ export default function RoomDetail() {
 
       {/* Tab content */}
       {tab === "config"      && <TabConfig      detail={detail} />}
-      {tab === "health"      && <TabHealth      detail={detail} />}
+      {tab === "health"      && <TabHealth      detail={detail} onRefresh={fetchDetail} />}
       {tab === "utilization" && <TabUtilization roomId={id} />}
       {tab === "scheduling"  && <TabScheduling  roomId={id} />}
     </div>
