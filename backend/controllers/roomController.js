@@ -282,20 +282,76 @@ exports.getSchedule = async (req, res) => {
   }
 };
 
-// GET /api/rooms/:id/recordings
+// GET /api/rooms/:id/recordings?from=YYYY-MM-DD&to=YYYY-MM-DD&courseCode=&status=
 exports.getRoomRecordings = async (req, res) => {
   try {
     const room = await Room.findById(req.params.id);
     if (!room) return res.status(404).json({ error: "Space not found" });
 
-    const classes = await ScheduledClass.find({ roomNumber: room.roomNumber });
+    // ── Date range ─────────────────────────────────────────────────────────
+    const from = req.query.from ? new Date(`${req.query.from}T00:00:00.000+05:30`) : null;
+    const to   = req.query.to   ? new Date(`${req.query.to}T23:59:59.999+05:30`)   : null;
+
+    const classFilter = { roomNumber: room.roomNumber };
+    if (from || to) {
+      classFilter.date = {};
+      if (from) classFilter.date.$gte = from;
+      if (to)   classFilter.date.$lte = to;
+    }
+    if (req.query.courseCode) classFilter.courseCode = req.query.courseCode;
+
+    const classes = await ScheduledClass.find(classFilter)
+      .populate("teacher", "name employeeId")
+      .sort({ date: -1, startTime: 1 });
+
     const classIds = classes.map((c) => c._id);
 
-    const recordings = await Recording.find({ scheduledClass: { $in: classIds } })
-      .populate("scheduledClass", "title courseCode courseName teacherName date startTime endTime")
-      .sort({ createdAt: -1 });
+    // ── Recordings ─────────────────────────────────────────────────────────
+    const recFilter = { scheduledClass: { $in: classIds } };
+    if (req.query.status) recFilter.status = req.query.status;
 
-    res.json(recordings);
+    const recordings = await Recording.find(recFilter).sort({ createdAt: -1 });
+
+    // Build classMap for O(1) lookup
+    const classMap = {};
+    for (const cls of classes) classMap[cls._id.toString()] = cls;
+
+    const rows = recordings.map((rec) => {
+      const cls = classMap[rec.scheduledClass?.toString()];
+      return {
+        recordingId:    rec._id,
+        title:          rec.title,
+        videoUrl:       rec.videoUrl,
+        duration:       rec.duration,
+        fileSize:       rec.fileSize,
+        status:         rec.status,
+        isPublished:    rec.isPublished,
+        recordingStart: rec.recordingStart,
+        recordingEnd:   rec.recordingEnd,
+        createdAt:      rec.createdAt,
+        // ── From class ─────────────────────────────────────────────────────
+        classId:        cls?._id,
+        date:           cls?.date,
+        startTime:      cls?.startTime,
+        endTime:        cls?.endTime,
+        courseName:     cls?.courseName  || "–",
+        courseCode:     cls?.courseCode  || "",
+        teacherName:    cls?.teacherName || cls?.teacher?.name || "–",
+        facultyId:      cls?.teacher?.employeeId || "–",
+        classStatus:    cls?.status,
+      };
+    });
+
+    // Unique courses for filter dropdown
+    const courseMap = new Map();
+    for (const cls of classes) {
+      if (cls.courseCode && !courseMap.has(cls.courseCode)) {
+        courseMap.set(cls.courseCode, { courseCode: cls.courseCode, courseName: cls.courseName || cls.courseCode });
+      }
+    }
+    const courses = [...courseMap.values()];
+
+    res.json({ rows, courses, total: rows.length });
   } catch (err) {
     handleErr(err, res);
   }

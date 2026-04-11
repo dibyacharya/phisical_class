@@ -1043,12 +1043,310 @@ function TabScheduling({ roomId }) {
   );
 }
 
+// ── Tab 5: Recordings ─────────────────────────────────────────────────────────
+function RecordingCard({ row, API_BASE, onClick }) {
+  const hasVideo = !!(row.videoUrl);
+  return (
+    <div
+      onClick={onClick}
+      className="bg-white rounded-2xl border overflow-hidden hover:shadow-lg transition-shadow group cursor-pointer"
+    >
+      {/* Thumbnail */}
+      <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 h-44 flex items-center justify-center select-none">
+        <Video size={44} className="text-gray-600 opacity-25" />
+        {hasVideo && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-sm border border-white/20
+                            flex items-center justify-center
+                            group-hover:bg-white/25 group-hover:scale-110 transition-all duration-200">
+              <Play size={22} className="text-white ml-1" fill="white" />
+            </div>
+          </div>
+        )}
+        {/* Status pill — top right */}
+        <span className={`absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full font-semibold shadow ${STATUS_COLOR(row.status)}`}>
+          {row.status || "–"}
+        </span>
+        {/* Published — top left */}
+        {row.isPublished && (
+          <span className="absolute top-3 left-3 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">
+            Published
+          </span>
+        )}
+        {/* Duration — bottom right */}
+        {row.duration > 0 && (
+          <span className="absolute bottom-3 right-3 text-xs bg-black/60 text-white px-2 py-0.5 rounded-md font-mono tracking-wide">
+            {fmtDuration(row.duration)}
+          </span>
+        )}
+        {/* No video overlay */}
+        {!hasVideo && (
+          <span className="absolute bottom-3 left-3 text-[10px] px-2 py-0.5 rounded-md bg-black/40 text-gray-400">
+            No video
+          </span>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="p-4">
+        <p className="font-semibold text-gray-800 text-sm truncate leading-snug">
+          {row.courseName !== "–" ? row.courseName : row.title}
+        </p>
+        {row.courseCode && (
+          <span className="inline-block mt-1 text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
+            {row.courseCode}
+          </span>
+        )}
+
+        <div className="mt-3 space-y-1.5 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5">
+            <Calendar size={11} className="shrink-0 text-gray-400" />
+            <span>{fmtDate(row.date)}</span>
+            <span className="text-gray-300 mx-0.5">·</span>
+            <Clock size={11} className="shrink-0 text-gray-400" />
+            <span className="font-mono">{row.startTime || "–"} – {row.endTime || "–"}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <User size={11} className="shrink-0 text-gray-400" />
+            <span className="truncate">{row.teacherName}</span>
+            {row.facultyId && row.facultyId !== "–" && (
+              <span className="text-gray-300">({row.facultyId})</span>
+            )}
+          </div>
+          {row.fileSize > 0 && (
+            <div className="flex items-center gap-1.5">
+              <HardDrive size={11} className="shrink-0 text-gray-400" />
+              <span>{fmtSize(row.fileSize)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabRecordings({ roomId }) {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:4000";
+
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({ from: "", to: "", courseCode: "", status: "" });
+  const [applied, setApplied] = useState({});
+  const [modal,   setModal]   = useState(null);
+
+  const fetchRecs = useCallback(async (f = {}) => {
+    setLoading(true);
+    try {
+      const p = new URLSearchParams();
+      if (f.from)       p.set("from",       f.from);
+      if (f.to)         p.set("to",         f.to);
+      if (f.courseCode) p.set("courseCode", f.courseCode);
+      if (f.status)     p.set("status",     f.status);
+      const { data: res } = await api.get(`/rooms/${roomId}/recordings?${p}`);
+      setData(res);
+    } catch { setData({ rows: [], courses: [], total: 0 }); }
+    finally { setLoading(false); }
+  }, [roomId]);
+
+  useEffect(() => { fetchRecs(); }, [fetchRecs]);
+
+  const applyFilters = () => { setApplied({ ...filters }); fetchRecs(filters); };
+  const clearFilters = () => {
+    const empty = { from: "", to: "", courseCode: "", status: "" };
+    setFilters(empty); setApplied({}); fetchRecs(empty);
+  };
+  const hasFilters = Object.values(filters).some(Boolean);
+
+  const totalDuration = data?.rows.reduce((s, r) => s + (r.duration || 0), 0) || 0;
+  const completedCount = data?.rows.filter(r => r.status === "completed").length || 0;
+  const uniqueCourses  = new Set(data?.rows.map(r => r.courseCode).filter(Boolean)).size;
+
+  // Adapt row for VideoModal (expects .status = class status, .videoUrl etc.)
+  const toModalRow = (row) => ({
+    ...row,
+    status:      row.classStatus,   // class status for the details grid
+    facultyName: row.teacherName,
+  });
+
+  return (
+    <div>
+      {/* ── Filter Bar ────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border p-4 mb-5">
+        <div className="flex flex-wrap gap-3 items-end">
+
+          {/* From */}
+          <div className="flex flex-col gap-1 min-w-[130px]">
+            <label className="text-xs text-gray-500 font-medium">From Date</label>
+            <input type="date" value={filters.from}
+              onChange={e => setFilters(f => ({ ...f, from: e.target.value }))}
+              className="border rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+
+          {/* To */}
+          <div className="flex flex-col gap-1 min-w-[130px]">
+            <label className="text-xs text-gray-500 font-medium">To Date</label>
+            <input type="date" value={filters.to}
+              onChange={e => setFilters(f => ({ ...f, to: e.target.value }))}
+              className="border rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+
+          {/* Course */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500 font-medium">Course</label>
+            <select value={filters.courseCode}
+              onChange={e => setFilters(f => ({ ...f, courseCode: e.target.value }))}
+              className="border rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 min-w-[180px]"
+            >
+              <option value="">All Courses</option>
+              {data?.courses.map(c => (
+                <option key={c.courseCode} value={c.courseCode}>
+                  {c.courseName} ({c.courseCode})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500 font-medium">Status</label>
+            <select value={filters.status}
+              onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
+              className="border rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              <option value="">All Status</option>
+              <option value="completed">✅ Completed</option>
+              <option value="recording">🔴 Recording</option>
+              <option value="uploading">⬆️ Uploading</option>
+              <option value="failed">❌ Failed</option>
+            </select>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 items-center">
+            <button onClick={applyFilters}
+              className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition shadow-sm">
+              Apply
+            </button>
+            {hasFilters && (
+              <button onClick={clearFilters}
+                className="px-4 py-2 border text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                Clear
+              </button>
+            )}
+          </div>
+
+          <button onClick={() => fetchRecs(applied)}
+            className="ml-auto p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition"
+            title="Refresh">
+            <RefreshCw size={16} />
+          </button>
+        </div>
+
+        {/* Active filter chips */}
+        {hasFilters && (
+          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t">
+            {filters.from && (
+              <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">
+                From: {filters.from}
+              </span>
+            )}
+            {filters.to && (
+              <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">
+                To: {filters.to}
+              </span>
+            )}
+            {filters.courseCode && (
+              <span className="text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full font-medium">
+                Course: {filters.courseCode}
+              </span>
+            )}
+            {filters.status && (
+              <span className="text-xs bg-green-50 text-green-700 px-2.5 py-1 rounded-full font-medium capitalize">
+                Status: {filters.status}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Summary Stats ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        {[
+          { label: "Total Recordings", value: data?.total ?? "–", Icon: Video,        bg: "bg-blue-50",   ic: "text-blue-600"   },
+          { label: "Total Duration",   value: fmtDuration(totalDuration),  Icon: Clock,        bg: "bg-purple-50", ic: "text-purple-600" },
+          { label: "Completed",        value: completedCount,               Icon: CheckCircle,  bg: "bg-green-50",  ic: "text-green-600"  },
+          { label: "Courses Recorded", value: uniqueCourses,                Icon: BookOpen,     bg: "bg-orange-50", ic: "text-orange-600" },
+        ].map(({ label, value, Icon, bg, ic }) => (
+          <div key={label} className="bg-white rounded-2xl border p-4">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${bg}`}>
+              <Icon size={18} className={ic} />
+            </div>
+            <p className="text-2xl font-bold text-gray-800">{value}</p>
+            <p className="text-xs text-gray-500 mt-1">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Content ───────────────────────────────────────────────────────── */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
+          <RefreshCw size={28} className="animate-spin opacity-40" />
+          <p className="text-sm">Loading recordings…</p>
+        </div>
+      ) : data?.rows.length === 0 ? (
+        <div className="bg-white rounded-2xl border text-center py-20">
+          <Video size={52} className="mx-auto mb-4 text-gray-200" />
+          <p className="text-gray-600 font-medium">No recordings found</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {hasFilters
+              ? "Try clearing the filters to see all recordings"
+              : "This room has no recordings yet"}
+          </p>
+          {hasFilters && (
+            <button onClick={clearFilters}
+              className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-200 rounded-xl hover:bg-blue-50 transition">
+              Clear filters
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-gray-400 mb-3">
+            Showing {data.rows.length} recording{data.rows.length !== 1 ? "s" : ""}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {data.rows.map((row) => (
+              <RecordingCard
+                key={row.recordingId}
+                row={row}
+                API_BASE={API_BASE}
+                onClick={() => setModal(row)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Video Modal ───────────────────────────────────────────────────── */}
+      {modal && (
+        <VideoModal
+          row={toModalRow(modal)}
+          onClose={() => setModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main RoomDetail ───────────────────────────────────────────────────────────
 const TABS = [
   { id: "config",      label: "Configuration", icon: Settings    },
   { id: "health",      label: "Health Card",   icon: Heart       },
   { id: "utilization", label: "Utilization",   icon: BarChart2   },
   { id: "scheduling",  label: "Scheduling",    icon: CalendarDays },
+  { id: "recordings",  label: "Recordings",    icon: Video       },
 ];
 
 export default function RoomDetail() {
@@ -1138,6 +1436,7 @@ export default function RoomDetail() {
       {tab === "health"      && <TabHealth      detail={detail} onRefresh={fetchDetail} />}
       {tab === "utilization" && <TabUtilization roomId={id} />}
       {tab === "scheduling"  && <TabScheduling  roomId={id} />}
+      {tab === "recordings"  && <TabRecordings  roomId={id} />}
     </div>
   );
 }
