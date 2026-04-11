@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import ScheduleClass from "./pages/ScheduleClass";
+import Booking from "./pages/Booking";
 import Recordings from "./pages/Recordings";
 import Devices from "./pages/Devices";
 import Facility from "./pages/Facility";
@@ -58,7 +58,8 @@ export default function App() {
               <Layout user={user} onLogout={handleLogout}>
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
-                  <Route path="/schedule" element={<ScheduleClass />} />
+                  <Route path="/booking" element={<Booking />} />
+                  <Route path="/schedule" element={<Navigate to="/booking" />} />
                   <Route path="/recordings" element={<Recordings />} />
                   <Route path="/devices" element={<Devices />} />
                   <Route path="/facility" element={<Facility />} />

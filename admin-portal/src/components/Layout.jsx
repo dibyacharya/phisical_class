@@ -5,7 +5,7 @@ const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/facility", label: "Facility", icon: Building2 },
   { to: "/batches", label: "Batches", icon: Layers },
-  { to: "/schedule", label: "Schedule Class", icon: CalendarPlus },
+  { to: "/booking", label: "Booking", icon: CalendarPlus },
   { to: "/recordings", label: "Recordings", icon: Video },
   { to: "/users", label: "Users", icon: Users },
 ];
