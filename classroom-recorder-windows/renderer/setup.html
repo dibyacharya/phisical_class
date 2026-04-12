@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EduCampus Recorder — Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "Segoe UI", sans-serif;
+      background: #fff7ed;
+      color: #1f2937;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #ea580c 0%, #9a3412 100%);
+      color: #fff;
+      padding: 28px 24px 22px;
+      text-align: center;
+    }
+    .header .logo { font-size: 36px; margin-bottom: 6px; }
+    .header h1   { font-size: 20px; font-weight: 800; letter-spacing: -.3px; }
+    .header p    { font-size: 12px; opacity: .65; margin-top: 4px; }
+
+    /* Device info box */
+    .device-box {
+      margin: 16px 20px 0;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 11.5px;
+      color: #6b7280;
+      line-height: 1.9;
+    }
+    .device-box .label { font-weight: 700; color: #374151; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .device-box .val-green { color: #059669; font-weight: 600; font-family: monospace; font-size: 11px; }
+
+    /* Form */
+    .form { padding: 14px 20px 24px; }
+
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #6b7280;
+      margin-bottom: 5px;
+    }
+    .field label .req { color: #ef4444; margin-left: 2px; }
+    input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #1f2937;
+      outline: none;
+      background: #fff;
+      transition: border-color .2s;
+    }
+    input:focus      { border-color: #ea580c; }
+    input.highlight  { border-color: #f59e0b; }
+    .hint { font-size: 10px; color: #9ca3af; margin-top: 4px; }
+    .hint.orange { color: #ea580c; font-weight: 600; }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Error */
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #b91c1c;
+      margin-bottom: 14px;
+      display: none;
+    }
+
+    /* Button */
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #ea580c, #c2410c);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      margin-top: 4px;
+    }
+    .btn:hover    { opacity: .92; }
+    .btn:active   { transform: scale(.99); }
+    .btn:disabled { background: #9ca3af; cursor: not-allowed; transform: none; opacity: 1; }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2.5px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Success state */
+    .success {
+      text-align: center;
+      padding: 40px 24px;
+      display: none;
+    }
+    .success .tick { font-size: 64px; margin-bottom: 16px; }
+    .success h2    { font-size: 20px; font-weight: 800; color: #059669; margin-bottom: 8px; }
+    .success p     { font-size: 13px; color: #6b7280; line-height: 1.6; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">🎬</div>
+    <h1>EduCampus Recorder</h1>
+    <p>Windows Classroom Recorder — One-time Setup</p>
+  </div>
+
+  <div id="mainForm">
+    <!-- Auto-detected device info -->
+    <div class="device-box" id="deviceBox">
+      <div class="label">Detected Device</div>
+      <span id="deviceText">Detecting…</span>
+    </div>
+
+    <div class="form">
+
+      <!-- Backend URL -->
+      <div class="field">
+        <label>Backend URL <span class="req">*</span></label>
+        <input id="apiUrl" type="url"
+          placeholder="https://phisical-class.onrender.com/api" />
+        <p class="hint">Production URL ya local IP (e.g. http://192.168.1.100:4000/api)</p>
+      </div>
+
+      <!-- Campus + Block -->
+      <div class="row2">
+        <div class="field">
+          <label>Campus <span class="req">*</span></label>
+          <input id="campus" type="text" placeholder="e.g. KIIT Campus" />
+        </div>
+        <div class="field">
+          <label>Block <span class="req">*</span></label>
+          <input id="block" type="text" placeholder="e.g. Block 14" />
+        </div>
+      </div>
+
+      <!-- Floor + Room Number -->
+      <div class="row2">
+        <div class="field">
+          <label>Floor</label>
+          <input id="floor" type="text" placeholder="e.g. 2nd Floor" />
+        </div>
+        <div class="field">
+          <label>Room Number <span class="req">*</span></label>
+          <input id="roomNumber" type="text" placeholder="e.g. 202" class="highlight" />
+          <p class="hint orange">Admin portal se match karna chahiye</p>
+        </div>
+      </div>
+
+      <!-- Display Name -->
+      <div class="field">
+        <label>Display Name <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+        <input id="roomName" type="text" placeholder="e.g. Smart Class Room 1" />
+      </div>
+
+      <!-- Error -->
+      <div class="error" id="errBox"></div>
+
+      <!-- Submit -->
+      <button class="btn" id="btnSetup" onclick="doSetup()">Complete Setup →</button>
+
+    </div>
+  </div>
+
+  <!-- Success screen -->
+  <div class="success" id="successScreen">
+    <div class="tick">✅</div>
+    <h2>Setup Complete!</h2>
+    <p>EduCampus Recorder is now running in your system tray.<br/>
+       It will automatically record classes based on the schedule.<br/><br/>
+       <strong>App will start automatically when Windows boots.</strong></p>
+  </div>
+
+<script>
+// ── Detect machine info ───────────────────────────────────────────────────────
+window.onload = async () => {
+  const savedUrl = await window.electronAPI.getStore("apiUrl");
+  if (savedUrl && savedUrl !== "http://localhost:4000/api") {
+    document.getElementById("apiUrl").value = savedUrl;
+  }
+
+  // Show platform info
+  document.getElementById("deviceText").innerHTML =
+    `Platform: <span class="val-green">Windows</span> &nbsp;·&nbsp; ` +
+    `Agent: <span style="color:#374151">${navigator.platform}</span>`;
+};
+
+// ── Setup ─────────────────────────────────────────────────────────────────────
+async function doSetup() {
+  const btn      = document.getElementById("btnSetup");
+  const errBox   = document.getElementById("errBox");
+  errBox.style.display = "none";
+
+  const apiUrl     = document.getElementById("apiUrl").value.trim();
+  const campus     = document.getElementById("campus").value.trim();
+  const block      = document.getElementById("block").value.trim();
+  const floor      = document.getElementById("floor").value.trim();
+  const roomNumber = document.getElementById("roomNumber").value.trim();
+  const roomName   = document.getElementById("roomName").value.trim();
+
+  if (!apiUrl)     { return showErr("Backend URL zaroori hai"); }
+  if (!campus)     { return showErr("Campus naam zaroori hai"); }
+  if (!block)      { return showErr("Block naam zaroori hai"); }
+  if (!roomNumber) { return showErr("Room Number zaroori hai — admin portal se match karo"); }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering with backend…';
+
+  // Generate a stable device ID from hostname + random suffix
+  const macAddress = "WIN-" + btoa(navigator.userAgent).slice(0, 12).replace(/[^A-Z0-9]/gi, "X").toUpperCase();
+
+  const builtRoomName = roomName ||
+    [campus, block, floor ? "Floor " + floor : "", "Room " + roomNumber]
+      .filter(Boolean).join(" - ");
+
+  const result = await window.electronAPI.registerDevice({
+    apiUrl,
+    name:        "Windows PC - Room " + roomNumber,
+    macAddress,
+    campus,
+    block,
+    floor,
+    roomId:      campus || roomNumber,
+    roomName:    builtRoomName,
+    roomNumber,
+    ipAddress:   "",
+    deviceType:  "pc",
+    deviceModel: "Windows PC",
+    osVersion:   "Windows",
+  });
+
+  if (result.ok) {
+    // Show success, then signal main process
+    document.getElementById("mainForm").style.display    = "none";
+    document.getElementById("successScreen").style.display = "block";
+
+    // After 2s, tell main to start service and open status window
+    setTimeout(() => {
+      window.electronAPI.setupComplete();
+    }, 2000);
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = "Complete Setup →";
+    showErr("Registration failed: " + (result.error || "Unknown error. Check backend URL."));
+  }
+}
+
+function showErr(msg) {
+  const e = document.getElementById("errBox");
+  e.textContent = msg;
+  e.style.display = "block";
+}
+
+// Enter key submits
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter") doSetup();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+{
+  "name": "educampus-recorder",
+  "version": "1.0.0",
+  "description": "EduCampus Classroom Recorder for Windows",
+  "main": "main.js",
+  "author": "EduCampus",
+  "license": "MIT",
+  "scripts": {
+    "start":    "electron .",
+    "build":    "electron-builder --win",
+    "build:installer": "electron-builder --win nsis",
+    "build:portable":  "electron-builder --win portable"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "node-fetch":     "^2.7.0",
+    "form-data":      "^4.0.0"
+  },
+  "devDependencies": {
+    "electron":         "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId":       "in.educampus.recorder",
+    "productName": "EduCampus Recorder",
+    "copyright":   "© 2024 EduCampus",
+
+    "win": {
+      "target": [
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+
+    "nsis": {
+      "oneClick":                          false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut":             true,
+      "createStartMenuShortcut":           true,
+      "shortcutName":                      "EduCampus Recorder",
+      "installerIcon":                     "assets/icon.ico",
+      "uninstallerIcon":                   "assets/icon.ico",
+      "installerHeaderIcon":               "assets/icon.ico",
+      "deleteAppDataOnUninstall":          false
+    },
+
+    "portable": {
+      "artifactName": "EduCampus-Recorder-Portable.exe"
+    },
+
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "src/**/*",
+      "assets/**/*"
+    ],
+
+    "extraResources": [],
+
+    "publish": null
+  }
+}
