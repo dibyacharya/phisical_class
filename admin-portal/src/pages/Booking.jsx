@@ -144,7 +144,7 @@ export default function Booking() {
   const [hierarchy, setHierarchy]           = useState([]);
   const [hierarchyLoading, setHierarchyLoading] = useState(true);
   const [sel, setSel] = useState({
-    campus:"", campusName:"", block:"", blockName:"", room:null,
+    campus:"", campusName:"", block:"", blockName:"", floor:"", room:null,
     date: new Date().toISOString().split("T")[0],
     startTime:"09:00", endTime:"10:30",
     title:"", batch:"", batchName:"", course:"", courseName:"", courseCode:"",
@@ -201,9 +201,31 @@ export default function Booking() {
   }, [sel.room, sel.date, step]);
 
   // ── Space selector data ───────────────────────────────────────────────────
-  const campusData = hierarchy;
-  const blocks = sel.campus ? (campusData.find(c => c.campus === sel.campus)?.blocks || []) : [];
-  let rooms  = sel.block  ? (blocks.find(b => b.block === sel.block)?.rooms || []) : [];
+  const campusData  = hierarchy;
+  const blocks      = sel.campus ? (campusData.find(c => c.campus === sel.campus)?.blocks || []) : [];
+  const blockRooms  = sel.block  ? (blocks.find(b => b.block === sel.block)?.rooms || []) : [];
+
+  // Derive unique floors from the selected block's rooms
+  const floorSortKey = (f) => {
+    if (!f) return 999;
+    const lower = f.toLowerCase();
+    if (lower.includes("ground")) return 0;
+    if (lower.includes("basement")) return -1;
+    const n = lower.match(/(\d+)/);
+    return n ? parseInt(n[1]) : 500;
+  };
+  const uniqueFloors = sel.block
+    ? [...new Set(blockRooms.map(r => r.floor || "").filter(Boolean))]
+        .sort((a, b) => floorSortKey(a) - floorSortKey(b))
+    : [];
+  const hasFloors = uniqueFloors.length > 0;
+
+  // Rooms filtered by selected floor (or all if no floor data exists)
+  let rooms = sel.block
+    ? (hasFloors && sel.floor
+        ? blockRooms.filter(r => (r.floor || "") === sel.floor)
+        : (!hasFloors ? blockRooms : []))  // show all if no floor info at all
+    : [];
   if (onlineOnly) rooms = rooms.filter(r => r.device?.isOnline);
 
   // ── Batch → Course ────────────────────────────────────────────────────────
@@ -238,7 +260,7 @@ export default function Booking() {
   };
 
   const resetBooking = () => {
-    setSel({ campus:"", campusName:"", block:"", blockName:"", room:null,
+    setSel({ campus:"", campusName:"", block:"", blockName:"", floor:"", room:null,
       date: new Date().toISOString().split("T")[0], startTime:"09:00", endTime:"10:30",
       title:"", batch:"", batchName:"", course:"", courseName:"", courseCode:"",
       teacher:"", teacherName:"", notes:"" });
@@ -385,8 +407,7 @@ export default function Booking() {
             <div className="bg-gray-50 rounded-xl p-4 text-left mb-6 space-y-2">
               <p className="text-sm"><span className="text-gray-400">Class:</span> <strong className="text-gray-700">{sel.title}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Room:</span> <strong className="text-gray-700">{sel.room?.roomNumber} — {sel.room?.roomName}</strong></p>
-              <p className="text-sm"><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{sel.blockName}, {sel.campusName}</strong></p>
-              {sel.room?.floor    && <p className="text-sm"><span className="text-gray-400">Floor:</span> <strong className="text-gray-700">{sel.room.floor}</strong></p>}
+              <p className="text-sm"><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{sel.campusName} › {sel.blockName}{sel.floor ? ` › ${sel.floor}` : ""}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Date:</span> <strong className="text-gray-700">{fmtShort(sel.date)}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Time:</span> <strong className="text-gray-700">{sel.startTime} – {sel.endTime}</strong></p>
               {sel.teacherName && <p className="text-sm"><span className="text-gray-400">Faculty:</span> <strong className="text-gray-700">{sel.teacherName}</strong></p>}
@@ -437,7 +458,7 @@ export default function Booking() {
                         <div className="flex flex-wrap gap-3">
                           {blocks.map(b => (
                             <button key={b.block}
-                              onClick={() => setSel(s => ({ ...s, block:b.block, blockName:b.block, room:null }))}
+                              onClick={() => setSel(s => ({ ...s, block:b.block, blockName:b.block, floor:"", room:null }))}
                               className={`flex flex-col gap-1 p-4 rounded-xl border-2 text-left transition-all min-w-[150px] hover:shadow-sm
                                 ${sel.block===b.block ? "border-blue-500 bg-blue-50 shadow" : "border-gray-200 hover:border-blue-300 bg-white"}`}>
                               <span className="text-2xl">🏗️</span>
@@ -450,18 +471,60 @@ export default function Booking() {
                       </div>
                     )}
 
+                    {/* Floor — only shown when the selected block has floor data */}
+                    {sel.block && hasFloors && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">3. Floor</p>
+                        <div className="flex flex-wrap gap-3">
+                          {uniqueFloors.map(fl => {
+                            const flRooms   = blockRooms.filter(r => (r.floor || "") === fl);
+                            const flOnline  = flRooms.filter(r => r.device?.isOnline).length;
+                            const flRec     = flRooms.filter(r => r.device?.isRecording).length;
+                            const chosen    = sel.floor === fl;
+                            return (
+                              <button key={fl}
+                                onClick={() => setSel(s => ({ ...s, floor: fl, room: null }))}
+                                className={`flex flex-col gap-1.5 p-4 rounded-xl border-2 text-left transition-all min-w-[140px] hover:shadow-sm
+                                  ${chosen ? "border-blue-500 bg-blue-50 shadow" : "border-gray-200 hover:border-blue-300 bg-white"}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xl">🪜</span>
+                                  {chosen && <CheckCircle2 size={14} className="text-blue-500 ml-auto" />}
+                                </div>
+                                <span className="font-bold text-gray-800 text-sm">{fl}</span>
+                                <span className="text-xs text-gray-500">{flRooms.length} room{flRooms.length !== 1 ? "s" : ""}</span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {flOnline > 0 && (
+                                    <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                      <span className="w-1 h-1 bg-emerald-500 rounded-full" /> {flOnline} online
+                                    </span>
+                                  )}
+                                  {flRec > 0 && (
+                                    <span className="text-[10px] text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                                      ● {flRec} rec
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Room */}
-                    {sel.block && (
+                    {sel.block && (hasFloors ? !!sel.floor : true) && (
                       <div>
                         <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">3. Room / Space / Device</p>
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                            {hasFloors ? "4." : "3."} Room / Space / Device
+                          </p>
                           <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
                             <input type="checkbox" checked={onlineOnly} onChange={e => setOnlineOnly(e.target.checked)} className="rounded" />
                             Online devices only
                           </label>
                         </div>
                         {rooms.length === 0 ? (
-                          <p className="text-gray-400 text-sm py-4">No rooms{onlineOnly ? " with online devices" : ""} in this block.</p>
+                          <p className="text-gray-400 text-sm py-4">No rooms{onlineOnly ? " with online devices" : ""}{sel.floor ? ` on ${sel.floor}` : ""}.</p>
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                             {rooms.map(r => {
@@ -477,19 +540,14 @@ export default function Booking() {
                                   </div>
                                   <div>
                                     <p className="font-bold text-gray-800 text-lg leading-tight">{r.roomNumber}</p>
-                                    <p className="text-xs text-gray-500 leading-tight">{r.roomName}</p>
-                                    <p className="text-xs text-gray-400 mt-0.5">{r.capacity} seats</p>
-                                    {r.floor && (
-                                      <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium mt-1 inline-block">
-                                        ⬆ {r.floor}
-                                      </span>
-                                    )}
+                                    <p className="text-xs text-gray-500 leading-tight truncate">{r.roomName}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">{r.capacity > 0 ? `${r.capacity} seats` : "—"}</p>
                                   </div>
                                   <div className="flex flex-col gap-1 border-t pt-2">
                                     <DeviceBadge device={r.device} size="xs" />
                                     {r.device?.health?.disk && (
                                       <span className="text-xs text-gray-400">
-                                        Disk: {r.device.health.disk.usedPercent}% · CPU: {r.device.health.cpu?.usagePercent}%
+                                        Disk: {r.device.health.disk.usedPercent}% · CPU: {r.device.health.cpu?.usagePercent ?? "—"}%
                                       </span>
                                     )}
                                   </div>
@@ -510,12 +568,15 @@ export default function Booking() {
                       <span className="text-2xl">{spMeta(sel.room.spaceType).icon}</span>
                       <div>
                         <p className="font-bold text-blue-800">{sel.room.roomNumber} — {sel.room.roomName}</p>
-                        <p className="text-xs text-blue-600">{sel.blockName} · {sel.campusName} · {sel.room.capacity} seats</p>
-                        {sel.room.floor && (
-                          <div className="flex gap-1.5 mt-1">
-                            <span className="text-[10px] bg-white/60 text-indigo-600 px-2 py-0.5 rounded-full font-medium">⬆ {sel.room.floor}</span>
-                          </div>
-                        )}
+                        <p className="text-xs text-blue-600 flex items-center flex-wrap gap-1">
+                          <span>{sel.campusName}</span>
+                          <span className="text-blue-300">›</span>
+                          <span>{sel.blockName}</span>
+                          {sel.floor && <><span className="text-blue-300">›</span><span>{sel.floor}</span></>}
+                          <span className="text-blue-300">›</span>
+                          <span className="font-semibold">Room {sel.room.roomNumber}</span>
+                          {sel.room.capacity > 0 && <span className="text-blue-400 ml-1">· {sel.room.capacity} seats</span>}
+                        </p>
                       </div>
                     </div>
                     <DeviceBadge device={sel.room.device} />
