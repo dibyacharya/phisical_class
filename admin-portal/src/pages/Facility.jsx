@@ -48,7 +48,7 @@ function CameraPreview({ space, compact }) {
   const canvasRef   = useRef(null);
   const rafRef      = useRef(null);
 
-  // Silent animated noise canvas — gives "live feed" feel
+  // Animated noise canvas — live camera feed feel (vivid version)
   useEffect(() => {
     if (compact || !canvasRef.current) return;
     if (!isOnline && !isRecording) return;
@@ -59,34 +59,79 @@ function CameraPreview({ space, compact }) {
     const draw = () => {
       frame++;
       const W = canvas.width, H = canvas.height;
-      // Dark base
-      ctx.fillStyle = isRecording ? "#0d0a0a" : "#0a0e16";
+
+      // Dark base tinted towards rec-red or standby-green
+      ctx.fillStyle = isRecording ? "#110808" : "#080e10";
       ctx.fillRect(0, 0, W, H);
 
-      // Very subtle noise pixels (sparse)
+      // Film-grain noise — denser + colour-tinted pixels
       const imgData = ctx.createImageData(W, H);
       const d       = imgData.data;
       for (let i = 0; i < d.length; i += 4) {
-        const v = Math.random() < 0.03 ? Math.random() * 60 : 0;
-        d[i] = d[i+1] = d[i+2] = v;
-        d[i+3] = 255;
+        if (Math.random() < 0.09) {
+          const v = Math.random() * 120 + 20;          // brightness 20-140
+          if (isRecording) {
+            d[i]   = v;                                 // R strong
+            d[i+1] = v * 0.25;                         // G dim
+            d[i+2] = v * 0.25;                         // B dim
+          } else {
+            d[i]   = v * 0.20;                         // R dim
+            d[i+1] = v * 0.85;                         // G strong
+            d[i+2] = v * 0.45;                         // B medium
+          }
+          d[i+3] = 255;
+        } else {
+          d[i] = d[i+1] = d[i+2] = 0;
+          d[i+3] = 255;
+        }
       }
       ctx.putImageData(imgData, 0, 0);
 
-      // Horizontal scanline sweep
-      const scanY = ((frame * 1.2) % H);
-      const grad  = ctx.createLinearGradient(0, scanY - 10, 0, scanY + 10);
-      grad.addColorStop(0, "transparent");
-      grad.addColorStop(0.5, isRecording ? "rgba(255,60,60,0.07)" : "rgba(100,200,120,0.07)");
-      grad.addColorStop(1, "transparent");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, scanY - 10, W, 20);
+      // Bright horizontal scanline sweep
+      const scanY = ((frame * 1.8) % (H + 20)) - 10;
+      const scanGrad = ctx.createLinearGradient(0, scanY - 14, 0, scanY + 14);
+      scanGrad.addColorStop(0,   "transparent");
+      scanGrad.addColorStop(0.3, isRecording ? "rgba(255,60,60,0.18)" : "rgba(80,230,140,0.18)");
+      scanGrad.addColorStop(0.5, isRecording ? "rgba(255,80,80,0.30)" : "rgba(100,255,160,0.30)");
+      scanGrad.addColorStop(0.7, isRecording ? "rgba(255,60,60,0.18)" : "rgba(80,230,140,0.18)");
+      scanGrad.addColorStop(1,   "transparent");
+      ctx.fillStyle = scanGrad;
+      ctx.fillRect(0, scanY - 14, W, 28);
 
-      // Slow vertical scan line
-      const lineX = ((frame * 0.3) % W);
-      ctx.strokeStyle = isRecording ? "rgba(255,80,80,0.04)" : "rgba(80,200,120,0.04)";
-      ctx.lineWidth   = 1;
-      ctx.beginPath(); ctx.moveTo(lineX, 0); ctx.lineTo(lineX, H); ctx.stroke();
+      // Second faster scanline (echo)
+      const scanY2 = ((frame * 1.8 + H * 0.55) % (H + 20)) - 10;
+      const scanGrad2 = ctx.createLinearGradient(0, scanY2 - 8, 0, scanY2 + 8);
+      scanGrad2.addColorStop(0,   "transparent");
+      scanGrad2.addColorStop(0.5, isRecording ? "rgba(255,60,60,0.10)" : "rgba(80,230,140,0.10)");
+      scanGrad2.addColorStop(1,   "transparent");
+      ctx.fillStyle = scanGrad2;
+      ctx.fillRect(0, scanY2 - 8, W, 16);
+
+      // Slow vertical scan bar
+      const lineX = ((frame * 0.5) % (W + 20)) - 10;
+      const vGrad = ctx.createLinearGradient(lineX - 6, 0, lineX + 6, 0);
+      vGrad.addColorStop(0,   "transparent");
+      vGrad.addColorStop(0.5, isRecording ? "rgba(255,80,80,0.10)" : "rgba(80,220,130,0.10)");
+      vGrad.addColorStop(1,   "transparent");
+      ctx.fillStyle = vGrad;
+      ctx.fillRect(lineX - 6, 0, 12, H);
+
+      // Occasional bright flicker pixel clusters
+      if (frame % 8 === 0) {
+        for (let n = 0; n < 4; n++) {
+          const fx = Math.random() * W;
+          const fy = Math.random() * H;
+          ctx.fillStyle = isRecording ? "rgba(255,120,120,0.6)" : "rgba(100,255,160,0.6)";
+          ctx.fillRect(fx, fy, 2, 2);
+        }
+      }
+
+      // Dark vignette overlay (edges darker — cinematic look)
+      const vig = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H*0.85);
+      vig.addColorStop(0, "transparent");
+      vig.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = vig;
+      ctx.fillRect(0, 0, W, H);
 
       rafRef.current = requestAnimationFrame(draw);
     };
@@ -524,6 +569,90 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
   );
 }
 
+// ── Floor sort helper ─────────────────────────────────────────────────────────
+function floorSortKey(floorStr) {
+  if (!floorStr || floorStr === "__no_floor__") return 999;
+  const lower = floorStr.toLowerCase();
+  if (lower.includes("ground") || lower === "g") return 0;
+  if (lower.includes("basement") || lower.startsWith("b")) return -1;
+  const num = lower.match(/(\d+)/);
+  return num ? parseInt(num[1]) : 500;
+}
+
+function floorLabel(key) {
+  return key === "__no_floor__" ? "Other" : key;
+}
+
+// ── Floor Row (inside a block) ────────────────────────────────────────────────
+function FloorRow({ floorKey, rooms, onPlay, onNavigate, compact, showFloorHeader }) {
+  const [open, setOpen] = useState(true);
+  const onlineCount    = rooms.filter(r => r.device?.isOnline).length;
+  const recCount       = rooms.filter(r => r.device?.isRecording).length;
+
+  const gridCols = compact
+    ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8"
+    : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
+
+  if (!showFloorHeader) {
+    // Single floor — render grid directly, no sub-header needed
+    return (
+      <div className={`grid ${gridCols} gap-3`}>
+        {rooms.map((space) => (
+          <SpaceCard key={space._id} space={space} onPlay={onPlay} onNavigate={onNavigate} compact={compact} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3">
+      {/* Floor sub-header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 mb-2 rounded-lg
+          bg-white border border-slate-200 hover:border-blue-200 hover:bg-blue-50/50
+          transition-all text-left group"
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {open
+            ? <ChevronDown size={13} className="text-slate-400 group-hover:text-blue-500 shrink-0" />
+            : <ChevronRight size={13} className="text-slate-400 group-hover:text-blue-500 shrink-0" />}
+          {/* Floor icon */}
+          <div className="w-5 h-5 bg-slate-100 rounded flex items-center justify-center shrink-0">
+            <Layers size={11} className="text-slate-500" />
+          </div>
+          <span className="text-[12px] font-bold text-slate-600 group-hover:text-blue-700">
+            {floorLabel(floorKey)}
+          </span>
+          <span className="text-[10px] text-slate-400 font-normal">
+            {rooms.length} room{rooms.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onlineCount > 0 && (
+            <span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1 h-1 bg-emerald-500 rounded-full" /> {onlineCount}
+            </span>
+          )}
+          {recCount > 0 && (
+            <span className="text-[10px] bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+              <CircleDot size={8} /> {recCount} rec
+            </span>
+          )}
+        </div>
+      </button>
+
+      {open && (
+        <div className={`grid ${gridCols} gap-3 pl-2`}>
+          {rooms.map((space) => (
+            <SpaceCard key={space._id} space={space} onPlay={onPlay} onNavigate={onNavigate} compact={compact} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Block Section ─────────────────────────────────────────────────────────────
 function BlockSection({ blockData, onPlay, onNavigate, compact }) {
   const [open, setOpen] = useState(true);
@@ -536,12 +665,24 @@ function BlockSection({ blockData, onPlay, onNavigate, compact }) {
     )
   ).length;
 
-  const gridCols = compact
-    ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8"
-    : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
+  // ── Group rooms by floor ──────────────────────────────────────────────────
+  const floorGroupMap = blockData.rooms.reduce((acc, room) => {
+    const key = (room.floor || "").trim() || "__no_floor__";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(room);
+    return acc;
+  }, {});
+
+  const floorGroups = Object.entries(floorGroupMap)
+    .sort(([a], [b]) => floorSortKey(a) - floorSortKey(b));
+
+  // Show floor sub-headers only when there are multiple distinct floors
+  const showFloorHeaders = floorGroups.length > 1 ||
+    (floorGroups.length === 1 && floorGroups[0][0] !== "__no_floor__");
 
   return (
     <div className="mb-5">
+      {/* Block header */}
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-slate-50 to-gray-50
@@ -553,7 +694,10 @@ function BlockSection({ blockData, onPlay, onNavigate, compact }) {
             ? <ChevronDown size={15} className="text-gray-400 group-hover:text-blue-500 shrink-0" />
             : <ChevronRight size={15} className="text-gray-400 group-hover:text-blue-500 shrink-0" />}
           <span className="font-bold text-gray-700 group-hover:text-blue-700">{blockData.block}</span>
-          <span className="text-xs text-gray-400">{blockData.totalRooms} space{blockData.totalRooms !== 1 ? "s" : ""}</span>
+          <span className="text-xs text-gray-400">
+            {blockData.totalRooms} space{blockData.totalRooms !== 1 ? "s" : ""}
+            {showFloorHeaders && ` · ${floorGroups.length} floor${floorGroups.length !== 1 ? "s" : ""}`}
+          </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {blockData.onlineDevices > 0 && (
@@ -574,15 +718,18 @@ function BlockSection({ blockData, onPlay, onNavigate, compact }) {
         </div>
       </button>
 
+      {/* Floor groups */}
       {open && (
-        <div className={`mt-3 grid ${gridCols} gap-3 pl-1`}>
-          {blockData.rooms.map((space) => (
-            <SpaceCard
-              key={space._id}
-              space={space}
+        <div className="mt-3 pl-1 space-y-1">
+          {floorGroups.map(([floorKey, rooms]) => (
+            <FloorRow
+              key={floorKey}
+              floorKey={floorKey}
+              rooms={rooms}
               onPlay={onPlay}
               onNavigate={onNavigate}
               compact={compact}
+              showFloorHeader={showFloorHeaders}
             />
           ))}
         </div>
