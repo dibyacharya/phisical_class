@@ -36,73 +36,124 @@ function MiniBar({ value, warn = 75, danger = 90 }) {
   );
 }
 
-// ── Camera Preview Area ────────────────────────────────────────────────────────
+// ── Animated scanline + noise preview (simulates live camera feed silently) ────
 function CameraPreview({ space, compact }) {
-  const dev = space.device;
-  const h   = dev?.health || {};
+  const dev         = space.device;
+  const h           = dev?.health || {};
   const isRecording = dev?.isRecording;
   const isOnline    = dev?.isOnline;
   const meta        = spaceTypeMeta(space.spaceType);
-  const height      = compact ? "h-20" : "h-28";
+  const height      = compact ? "h-20" : "h-36";
+  const tick        = useRef(0);
+  const canvasRef   = useRef(null);
+  const rafRef      = useRef(null);
+
+  // Silent animated noise canvas — gives "live feed" feel
+  useEffect(() => {
+    if (compact || !canvasRef.current) return;
+    if (!isOnline && !isRecording) return;
+    const canvas = canvasRef.current;
+    const ctx    = canvas.getContext("2d");
+    let frame    = 0;
+
+    const draw = () => {
+      frame++;
+      const W = canvas.width, H = canvas.height;
+      // Dark base
+      ctx.fillStyle = isRecording ? "#0d0a0a" : "#0a0e16";
+      ctx.fillRect(0, 0, W, H);
+
+      // Very subtle noise pixels (sparse)
+      const imgData = ctx.createImageData(W, H);
+      const d       = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const v = Math.random() < 0.03 ? Math.random() * 60 : 0;
+        d[i] = d[i+1] = d[i+2] = v;
+        d[i+3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      // Horizontal scanline sweep
+      const scanY = ((frame * 1.2) % H);
+      const grad  = ctx.createLinearGradient(0, scanY - 10, 0, scanY + 10);
+      grad.addColorStop(0, "transparent");
+      grad.addColorStop(0.5, isRecording ? "rgba(255,60,60,0.07)" : "rgba(100,200,120,0.07)");
+      grad.addColorStop(1, "transparent");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, scanY - 10, W, 20);
+
+      // Slow vertical scan line
+      const lineX = ((frame * 0.3) % W);
+      ctx.strokeStyle = isRecording ? "rgba(255,80,80,0.04)" : "rgba(80,200,120,0.04)";
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.moveTo(lineX, 0); ctx.lineTo(lineX, H); ctx.stroke();
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isOnline, isRecording, compact]);
 
   if (!dev) return (
     <div className={`${height} bg-gradient-to-br from-gray-100 to-gray-200 flex flex-col items-center justify-center gap-1`}>
-      <CameraOff size={compact ? 14 : 20} className="text-gray-400" />
-      {!compact && <span className="text-[9px] text-gray-400 font-medium">No Device</span>}
+      <CameraOff size={compact ? 14 : 22} className="text-gray-400" />
+      {!compact && <span className="text-[10px] text-gray-400 font-medium mt-1">No Device</span>}
     </div>
   );
 
   if (isRecording) return (
-    <div className={`${height} relative bg-gradient-to-br ${meta.camBg} flex flex-col items-center justify-center overflow-hidden`}>
-      {/* Scanlines effect */}
-      <div className="absolute inset-0 opacity-10"
-        style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.15) 2px, rgba(255,255,255,0.15) 3px)" }} />
-      {/* Pulsing red frame */}
-      <div className="absolute inset-0 border-2 border-red-500 animate-pulse rounded-t-2xl pointer-events-none" />
-      {/* Center camera icon */}
-      <Camera size={compact ? 14 : 22} className="text-white/70 mb-1" />
+    <div className={`${height} relative overflow-hidden`}>
+      {/* Animated canvas background */}
+      <canvas ref={canvasRef} width={240} height={compact ? 80 : 144}
+        className="absolute inset-0 w-full h-full object-cover" />
+      {/* Red pulsing border overlay */}
+      <div className="absolute inset-0 border-2 border-red-500/80 animate-pulse pointer-events-none" />
       {/* REC badge */}
-      <div className="flex items-center gap-1 bg-red-600/90 backdrop-blur-sm px-2 py-0.5 rounded-full">
+      <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600 px-2 py-0.5 rounded-full shadow-lg">
         <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-        <span className="text-[9px] font-black text-white tracking-wider">● REC</span>
+        <span className="text-[9px] font-black text-white tracking-widest">REC</span>
       </div>
-      {/* Frame drop indicator */}
-      {h.recording?.frameDrop > 0 && !compact && (
-        <span className="absolute top-1.5 right-1.5 text-[8px] text-amber-300 bg-black/40 px-1.5 py-0.5 rounded">
-          {h.recording.frameDrop} drops
-        </span>
-      )}
-      {/* Play hint */}
+      {/* LIVE badge */}
+      <div className="absolute top-2 right-2">
+        <span className="text-[9px] font-bold text-green-400 bg-black/50 px-1.5 py-0.5 rounded">● LIVE</span>
+      </div>
       {!compact && (
-        <div className="absolute bottom-1.5 inset-x-0 flex justify-center">
-          <span className="text-[8px] text-white/50 bg-black/30 px-2 py-0.5 rounded-full">
-            ▶ Click to play recording
-          </span>
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent py-2 px-2 flex items-center justify-center">
+          <span className="text-[9px] text-white/60">Click to view latest recording</span>
         </div>
       )}
     </div>
   );
 
   if (isOnline) return (
-    <div className={`${height} relative bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center overflow-hidden`}>
-      <div className="absolute inset-0 opacity-5"
-        style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 4px)" }} />
-      {/* Subtle green pulse ring */}
+    <div className={`${height} relative overflow-hidden`}>
+      <canvas ref={canvasRef} width={240} height={compact ? 80 : 144}
+        className="absolute inset-0 w-full h-full object-cover" />
+      {/* LIVE indicator */}
       <div className="absolute top-2 right-2 flex items-center gap-1">
         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-        {!compact && <span className="text-[8px] text-emerald-400">LIVE</span>}
+        {!compact && <span className="text-[9px] text-emerald-300 font-semibold">LIVE</span>}
       </div>
-      <Camera size={compact ? 14 : 20} className="text-emerald-400/60 mb-1" />
-      {!compact && <span className="text-[9px] text-slate-400">Standby</span>}
-      {h.network?.ssid && !compact && (
-        <span className="absolute bottom-1.5 text-[8px] text-slate-500">📶 {h.network.ssid}</span>
+      {/* Camera icon center */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        <Camera size={compact ? 14 : 22} className="text-emerald-400/50 mb-1" />
+        {!compact && <span className="text-[9px] text-slate-400">Standby</span>}
+        {h.network?.ssid && !compact && (
+          <span className="text-[8px] text-slate-500 mt-0.5">📶 {h.network.ssid}</span>
+        )}
+      </div>
+      {!compact && (
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent py-2 px-2 flex items-center justify-center">
+          <span className="text-[9px] text-white/50">Click to play latest recording</span>
+        </div>
       )}
     </div>
   );
 
+  // Offline
   return (
     <div className={`${height} bg-gradient-to-br from-slate-900 to-gray-900 flex flex-col items-center justify-center gap-1`}>
-      <CameraOff size={compact ? 12 : 18} className="text-slate-600" />
+      <CameraOff size={compact ? 12 : 20} className="text-slate-600" />
       {!compact && <span className="text-[9px] text-slate-600 font-medium">Offline</span>}
     </div>
   );
@@ -110,16 +161,19 @@ function CameraPreview({ space, compact }) {
 
 // ── Video Modal ───────────────────────────────────────────────────────────────
 function VideoModal({ space, onClose, onViewDetail }) {
-  const [videos, setVideos]   = useState([]);
+  const [videos,  setVideos]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(0);
   const videoRef = useRef(null);
-  const meta = spaceTypeMeta(space.spaceType);
+  const meta     = spaceTypeMeta(space.spaceType);
+  const dev      = space.device;
+  const isLive   = dev?.isRecording;
 
   useEffect(() => {
     if (!space._id) return;
-    api.get(`/rooms/${space._id}/utilization`)
-      .then(({ data }) => setVideos(data.rows.filter(r => r.hasVideo && r.videoUrl)))
+    // fetch latest recordings for this room (sorted newest first)
+    api.get(`/rooms/${space._id}/recordings`)
+      .then(({ data }) => setVideos((data.rows || []).filter(r => r.videoUrl)))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [space._id]);
@@ -130,40 +184,45 @@ function VideoModal({ space, onClose, onViewDetail }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const dev = space.device;
-  const h   = dev?.health || {};
-  const vid = videos[current];
+  const vid      = videos[current];
   const videoSrc = vid ? `${MEDIA_BASE}${vid.videoUrl}` : null;
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "–";
+  const fmtDate  = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" }) : "–";
+  const fmtDur   = (s) => { if (!s) return "–"; const h = Math.floor(s/3600), m = Math.floor((s%3600)/60); return h ? `${h}h ${m}m` : `${m}m`; };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
       <div className="relative bg-gray-900 rounded-2xl overflow-hidden shadow-2xl w-full max-w-3xl border border-white/10 z-10">
 
         {/* Header */}
         <div className={`bg-gradient-to-r ${meta.gradient} px-5 py-3 flex items-center justify-between`}>
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{meta.icon}</span>
-            <div>
-              <p className="font-bold text-white text-base leading-tight">{space.roomName || space.roomNumber}</p>
-              <p className="text-xs text-white/70">{space.campus} · {space.block} · Room {space.roomNumber}</p>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-2xl shrink-0">{meta.icon}</span>
+            <div className="min-w-0">
+              <p className="font-bold text-white text-sm leading-tight truncate">{space.roomName || space.roomNumber}</p>
+              {/* Campus > Block > Floor > Room breadcrumb */}
+              <p className="text-[10px] text-white/60 mt-0.5 flex items-center gap-1 flex-wrap">
+                <span>{space.campus}</span>
+                <span className="text-white/30">›</span>
+                <span>{space.block}</span>
+                {space.floor && <><span className="text-white/30">›</span><span>{space.floor}</span></>}
+                <span className="text-white/30">›</span>
+                <span className="font-semibold text-white/80">{space.roomNumber}</span>
+              </p>
             </div>
-            {dev?.isRecording && (
-              <span className="flex items-center gap-1 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse ml-2">
-                <span className="w-1.5 h-1.5 bg-white rounded-full" /> LIVE · REC
+            {isLive && (
+              <span className="flex items-center gap-1 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse shrink-0 ml-2">
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" /> LIVE · REC
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 ml-3">
             <button onClick={onViewDetail}
-              className="flex items-center gap-1.5 text-xs bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg transition">
-              <ExternalLink size={12} /> Full Details
+              className="flex items-center gap-1.5 text-[11px] bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg transition">
+              <ExternalLink size={11} /> Full Details
             </button>
             <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition">
               <X size={18} />
@@ -172,45 +231,71 @@ function VideoModal({ space, onClose, onViewDetail }) {
         </div>
 
         <div className="flex flex-col md:flex-row">
-          {/* Video player */}
-          <div className="flex-1 bg-black">
-            {loading ? (
+          {/* ── Video / State area ──────────────────────────────────────── */}
+          <div className="flex-1 bg-black min-h-[200px]">
+
+            {/* CASE 1 — class is LIVE right now */}
+            {isLive ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-4 px-8 text-center">
+                {/* Animated red pulse circles */}
+                <div className="relative flex items-center justify-center">
+                  <span className="absolute w-20 h-20 rounded-full bg-red-600/20 animate-ping" />
+                  <span className="absolute w-14 h-14 rounded-full bg-red-600/30 animate-ping" style={{ animationDelay: "0.3s" }} />
+                  <div className="relative w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg shadow-red-900">
+                    <CircleDot size={28} className="text-white" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-white font-bold text-base">Class is Recording Now</p>
+                  <p className="text-gray-400 text-sm mt-1">Recording is in progress. The video will be available once the class ends.</p>
+                </div>
+                <div className="flex items-center gap-2 bg-red-950/50 border border-red-800/50 rounded-xl px-4 py-2">
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                  <span className="text-red-300 text-xs font-medium">Please wait for the class to complete</span>
+                </div>
+              </div>
+            ) : loading ? (
+              /* CASE 2 — loading */
               <div className="flex flex-col items-center justify-center h-56 gap-3 text-gray-500">
                 <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm">Loading recordings...</span>
+                <span className="text-sm">Loading recordings…</span>
               </div>
             ) : videoSrc ? (
+              /* CASE 3 — latest recording available, autoplay */
               <div className="relative">
                 <video
                   ref={videoRef}
+                  key={videoSrc}
                   src={videoSrc}
                   controls
                   autoPlay
-                  className="w-full max-h-72 bg-black object-contain"
-                  style={{ aspectRatio: "16/9" }}
+                  muted={false}
+                  className="w-full bg-black object-contain"
+                  style={{ maxHeight: 280, aspectRatio: "16/9" }}
                 />
-                <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[10px] px-2 py-1 rounded-lg">
-                  <Volume2 size={10} /> Audio On
-                </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-56 gap-3 text-gray-500">
+              /* CASE 4 — no recordings yet */
+              <div className="flex flex-col items-center justify-center h-56 gap-3 text-gray-500 px-8 text-center">
                 <Camera size={40} className="text-gray-600" />
-                <p className="text-sm font-medium text-gray-400">No recordings available</p>
-                <p className="text-xs text-gray-600">Recordings will appear here after classes</p>
+                <p className="text-sm font-medium text-gray-400">No recordings yet</p>
+                <p className="text-xs text-gray-600">Recordings will appear here after classes are completed</p>
               </div>
             )}
 
-            {/* Video navigation */}
-            {videos.length > 1 && (
-              <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-white/5">
+            {/* Navigation bar for multiple recordings */}
+            {!isLive && videos.length > 1 && (
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800 border-t border-white/5">
                 <button onClick={() => setCurrent(c => Math.max(0, c - 1))} disabled={current === 0}
                   className="p-1 text-gray-400 hover:text-white disabled:opacity-30 transition">
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-xs text-gray-400">
-                  Recording {current + 1} of {videos.length}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Recording {current + 1} of {videos.length}</span>
+                  {current === 0 && (
+                    <span className="text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-semibold">LATEST</span>
+                  )}
+                </div>
                 <button onClick={() => setCurrent(c => Math.min(videos.length - 1, c + 1))} disabled={current === videos.length - 1}
                   className="p-1 text-gray-400 hover:text-white disabled:opacity-30 transition">
                   <ChevronRightIcon size={16} />
@@ -219,65 +304,74 @@ function VideoModal({ space, onClose, onViewDetail }) {
             )}
           </div>
 
-          {/* Info panel */}
-          <div className="w-full md:w-52 bg-gray-800/80 p-4 space-y-4 shrink-0 border-t md:border-t-0 md:border-l border-white/10">
-            {/* Current video info */}
-            {vid && (
+          {/* ── Info Panel ──────────────────────────────────────────────── */}
+          <div className="w-full md:w-56 bg-gray-800/90 p-4 space-y-4 shrink-0 border-t md:border-t-0 md:border-l border-white/10">
+
+            {/* Recording info */}
+            {!isLive && vid && (
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Recording Info</p>
-                <p className="text-sm font-semibold text-white leading-snug mb-1">{vid.courseName}</p>
-                <p className="text-xs text-gray-400">{fmtDate(vid.date)}</p>
-                <p className="text-xs text-gray-400">{vid.startTime} – {vid.endTime}</p>
-                <p className="text-xs text-gray-400 mt-1">👤 {vid.facultyName}</p>
-                {vid.duration > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">⏱ {Math.round(vid.duration / 60)} min</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2.5">Recording</p>
+                <p className="text-sm font-semibold text-white leading-snug mb-1.5 line-clamp-2">
+                  {vid.courseName !== "–" ? vid.courseName : vid.title}
+                </p>
+                {vid.courseCode && (
+                  <span className="inline-block text-[9px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded mb-2">
+                    {vid.courseCode}
+                  </span>
                 )}
+                <div className="space-y-1 text-xs text-gray-400">
+                  <p>📅 {fmtDate(vid.date)}</p>
+                  <p>⏰ {vid.startTime || "–"} – {vid.endTime || "–"}</p>
+                  <p>👤 {vid.teacherName || "–"}</p>
+                  {vid.duration > 0 && <p>⏱ {fmtDur(vid.duration)}</p>}
+                  {vid.fileSize > 0 && (
+                    <p>💾 {vid.fileSize > 1e9 ? (vid.fileSize/1e9).toFixed(1)+" GB" : (vid.fileSize/1e6).toFixed(1)+" MB"}</p>
+                  )}
+                </div>
               </div>
             )}
 
-            {/* Device health */}
+            {/* Device health — compact */}
             <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Device Health</p>
-              {[
-                { label: "Camera", ok: h.camera?.ok },
-                { label: "Mic",    ok: h.mic?.ok    },
-                { label: "Screen", ok: h.screen?.ok },
-              ].map(({ label, ok }) => (
-                <div key={label} className="flex items-center justify-between py-0.5">
-                  <span className="text-xs text-gray-400">{label}</span>
-                  <span className={`text-[10px] font-semibold ${ok === true ? "text-emerald-400" : ok === false ? "text-red-400" : "text-gray-500"}`}>
-                    {ok === true ? "✓ OK" : ok === false ? "✗ ERR" : "–"}
-                  </span>
-                </div>
-              ))}
-              {h.cpu?.usagePercent != null && (
-                <div className="mt-2 space-y-1">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Device</p>
+              {dev ? (
+                <div className="space-y-1">
                   {[
-                    { l: "CPU",  v: h.cpu?.usagePercent  },
-                    { l: "RAM",  v: h.ram?.usedPercent   },
-                    { l: "Disk", v: h.disk?.usedPercent  },
-                  ].map(({ l, v }) => v != null && (
-                    <div key={l} className="flex items-center gap-2">
-                      <span className="text-[9px] text-gray-500 w-6">{l}</span>
-                      <div className="flex-1 bg-gray-700 rounded-full h-1">
-                        <div className={`h-1 rounded-full ${v >= 90 ? "bg-red-500" : v >= 75 ? "bg-amber-400" : "bg-emerald-500"}`}
-                          style={{ width: `${Math.min(v, 100)}%` }} />
-                      </div>
-                      <span className="text-[9px] text-gray-500">{v}%</span>
+                    { label: "Camera", ok: dev.health?.camera?.ok },
+                    { label: "Mic",    ok: dev.health?.mic?.ok    },
+                    { label: "Screen", ok: dev.health?.screen?.ok },
+                  ].map(({ label, ok }) => (
+                    <div key={label} className="flex items-center justify-between">
+                      <span className="text-[11px] text-gray-400">{label}</span>
+                      <span className={`text-[10px] font-semibold ${ok === true ? "text-emerald-400" : ok === false ? "text-red-400" : "text-gray-600"}`}>
+                        {ok === true ? "✓ OK" : ok === false ? "✗ ERR" : "—"}
+                      </span>
                     </div>
                   ))}
+                  {/* CPU/RAM/Disk in modal only */}
+                  {dev.health?.cpu?.usagePercent != null && (
+                    <div className="pt-2 mt-2 border-t border-white/10 space-y-1.5">
+                      {[
+                        { l: "CPU",  v: dev.health.cpu?.usagePercent },
+                        { l: "RAM",  v: dev.health.ram?.usedPercent  },
+                        { l: "Disk", v: dev.health.disk?.usedPercent },
+                      ].map(({ l, v }) => v != null && (
+                        <div key={l} className="flex items-center gap-2">
+                          <span className="text-[9px] text-gray-500 w-6">{l}</span>
+                          <div className="flex-1 bg-gray-700 rounded-full h-1">
+                            <div className={`h-1 rounded-full ${v >= 90 ? "bg-red-500" : v >= 75 ? "bg-amber-400" : "bg-emerald-500"}`}
+                              style={{ width: `${Math.min(v, 100)}%` }} />
+                          </div>
+                          <span className="text-[9px] text-gray-500 w-7 text-right">{v}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              ) : (
+                <p className="text-xs text-gray-600">No device</p>
               )}
             </div>
-
-            {/* Network */}
-            {h.network?.latencyMs != null && (
-              <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Network</p>
-                <p className="text-xs text-gray-400">{h.network.ssid || "–"}</p>
-                <p className="text-xs text-gray-400">📶 {h.network.wifiSignal} dBm · {h.network.latencyMs}ms</p>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -319,13 +413,12 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
           ) : null}
         </div>
         <p className="text-[9px] text-gray-400 truncate">{space.roomName}</p>
-        {dev && (h.cpu?.usagePercent != null) && (
-          <div className="flex items-center gap-1 mt-1">
-            <span className="text-[8px] text-gray-400">CPU</span>
-            <MiniBar value={h.cpu.usagePercent} />
-            <span className="text-[8px] text-gray-500">{h.cpu.usagePercent}%</span>
-          </div>
-        )}
+        <p className="text-[8px] text-gray-300 mt-0.5 flex items-center gap-0.5 flex-wrap leading-none">
+          <span>{space.campus}</span>
+          <ChevronRight size={8} className="text-gray-300" />
+          <span>{space.block}</span>
+          {space.floor && <><ChevronRight size={8} className="text-gray-300" /><span>{space.floor}</span></>}
+        </p>
       </div>
     </div>
   );
@@ -383,77 +476,32 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
           </div>
         </div>
 
-        {/* Room name */}
+        {/* Room number + name */}
         <p className="font-black text-gray-800 text-sm leading-tight">{space.roomNumber}</p>
         {space.roomName && <p className="text-[10px] text-gray-500 truncate mt-0.5">{space.roomName}</p>}
-        {/* Building + Floor badges */}
-        {(space.building || space.floor) && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {space.building && (
-              <span className="flex items-center gap-0.5 text-[9px] bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
-                🏢 {space.building}
-              </span>
-            )}
-            {space.floor && (
-              <span className="flex items-center gap-0.5 text-[9px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
-                <Layers size={7} /> {space.floor}
-              </span>
-            )}
-          </div>
-        )}
+
+        {/* Campus › Block › Floor › Room breadcrumb */}
+        <p className="flex items-center flex-wrap gap-0.5 mt-1.5 text-[9px] text-gray-400 leading-none">
+          <span>{space.campus}</span>
+          <ChevronRight size={9} className="text-gray-300" />
+          <span>{space.block}</span>
+          {space.floor && (
+            <>
+              <ChevronRight size={9} className="text-gray-300" />
+              <span>{space.floor}</span>
+            </>
+          )}
+          <ChevronRight size={9} className="text-gray-300" />
+          <span className="font-semibold text-gray-600">{space.roomNumber}</span>
+        </p>
 
         {/* Space type badge */}
-        <span className={`inline-block text-[9px] font-semibold px-2 py-0.5 rounded-full mt-1.5 ${meta.badge}`}>
+        <span className={`inline-block text-[9px] font-semibold px-2 py-0.5 rounded-full mt-2 ${meta.badge}`}>
           {meta.label}
         </span>
 
-        {/* Hardware chips */}
-        {dev && (
-          <div className="flex gap-1 mt-2 flex-wrap">
-            {[
-              { emoji: "📷", ok: h.camera?.ok },
-              { emoji: "🎤", ok: h.mic?.ok    },
-              { emoji: "🖥",  ok: h.screen?.ok },
-            ].map(({ emoji, ok }, i) => (
-              <span key={i} className={`text-[8px] px-1.5 py-0.5 rounded font-medium
-                ${ok === true ? "bg-emerald-100 text-emerald-700"
-                : ok === false ? "bg-red-100 text-red-600"
-                :                "bg-gray-100 text-gray-400"}`}>
-                {emoji} {ok === true ? "✓" : ok === false ? "✗" : "–"}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Resource bars */}
-        {dev && (h.cpu?.usagePercent != null || h.ram?.usedPercent != null) && (
-          <div className="mt-2 space-y-1">
-            {h.cpu?.usagePercent  != null && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[8px] text-gray-400 w-6">CPU</span>
-                <MiniBar value={h.cpu.usagePercent} />
-                <span className="text-[8px] text-gray-500 w-5 text-right">{h.cpu.usagePercent}%</span>
-              </div>
-            )}
-            {h.ram?.usedPercent  != null && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[8px] text-gray-400 w-6">RAM</span>
-                <MiniBar value={h.ram.usedPercent} />
-                <span className="text-[8px] text-gray-500 w-5 text-right">{h.ram.usedPercent}%</span>
-              </div>
-            )}
-            {h.disk?.usedPercent != null && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[8px] text-gray-400 w-6">Disk</span>
-                <MiniBar value={h.disk.usedPercent} warn={80} danger={90} />
-                <span className="text-[8px] text-gray-500 w-5 text-right">{h.disk.usedPercent}%</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+        {/* Footer: latency + capacity */}
+        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-gray-50">
           {h.network?.latencyMs != null ? (
             <span className={`text-[8px] ${h.network.latencyMs > 200 ? "text-amber-500" : "text-emerald-600"}`}>
               📶 {h.network.latencyMs}ms
@@ -468,7 +516,7 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
         <button
           onClick={(e) => { e.stopPropagation(); onNavigate(space); }}
           className="mt-2 w-full text-[9px] text-gray-400 hover:text-blue-600 hover:bg-blue-50
-            py-1 rounded-lg border border-transparent hover:border-blue-200 transition text-center">
+            py-1.5 rounded-lg border border-transparent hover:border-blue-200 transition text-center font-medium">
           View Full Details →
         </button>
       </div>
