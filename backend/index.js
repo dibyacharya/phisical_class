@@ -37,6 +37,7 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/batches", require("./routes/batches"));
 app.use("/api/courses", require("./routes/courses"));
 app.use("/api/rooms", require("./routes/rooms"));
+app.use("/api/licenses", require("./routes/licenses"));
 
 // Start
 const PORT = process.env.PORT || 4000;

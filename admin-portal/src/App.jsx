@@ -10,6 +10,7 @@ import RoomDetail from "./pages/RoomDetail";
 import AttendanceView from "./pages/AttendanceView";
 import Users from "./pages/Users";
 import Batches from "./pages/Batches";
+import Licenses from "./pages/Licenses";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -66,6 +67,7 @@ export default function App() {
                   <Route path="/facility/room/:id" element={<RoomDetail />} />
                   <Route path="/users" element={<Users />} />
                   <Route path="/batches" element={<Batches />} />
+                  <Route path="/licenses" element={<Licenses />} />
                   <Route path="/attendance/:classId" element={<AttendanceView />} />
                 </Routes>
               </Layout>

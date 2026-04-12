@@ -6,6 +6,7 @@ const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
 const Attendance = require("../models/Attendance");
 const Room = require("../models/Room");
+const License = require("../models/License");
 
 // ============ DEVICE ENDPOINTS ============
 
@@ -15,8 +16,8 @@ exports.registerDevice = async (req, res) => {
     const {
       name, roomId, roomName, floor, roomNumber,
       ipAddress, deviceType, deviceModel, osVersion, macAddress,
-      // Space/facility fields sent during device setup
       campus, block, spaceType, capacity,
+      licenseKey,   // ← NEW: required for first-time registration
     } = req.body;
 
     // ── Validate required fields ─────────────────────────────────────────────
@@ -27,9 +28,36 @@ exports.registerDevice = async (req, res) => {
     const resolvedCampus = campus || "Default Campus";
     const resolvedBlock  = block  || "Block A";
 
+    // ── License check ─────────────────────────────────────────────────────────
+    const existingDevice = macAddress ? await ClassroomDevice.findOne({ macAddress }) : null;
+    const isReRegistration = !!existingDevice; // same MAC = same device re-registering
+
+    let license = null;
+    if (!isReRegistration) {
+      // First-time registration — license key REQUIRED
+      if (!licenseKey) {
+        return res.status(403).json({ error: "License key is required to register a new device" });
+      }
+
+      license = await License.findOne({ key: licenseKey.trim().toUpperCase() });
+
+      if (!license || !license.isActive) {
+        return res.status(404).json({ error: "Invalid license key" });
+      }
+      if (license.expiresAt && new Date() > license.expiresAt) {
+        return res.status(403).json({ error: "License key has expired" });
+      }
+      if (license.isActivated && license.deviceMac !== macAddress) {
+        return res.status(409).json({
+          error: "This license key is already activated on another device",
+          activatedOn: license.deviceModel || "another device",
+          activatedAt: license.activatedAt,
+        });
+      }
+    }
+
     // ── 1. Register / update device ──────────────────────────────────────────
-    let device = null;
-    if (macAddress) device = await ClassroomDevice.findOne({ macAddress });
+    let device = existingDevice;
 
     if (device) {
       device.name        = name        || device.name;
@@ -56,6 +84,20 @@ exports.registerDevice = async (req, res) => {
         osVersion,
         macAddress,
       });
+
+      // ── Bind license to this device ─────────────────────────────────────────
+      if (license) {
+        await License.findByIdAndUpdate(license._id, {
+          isActivated: true,
+          activatedAt: new Date(),
+          deviceMac:   macAddress,
+          deviceId:    device.deviceId,
+          deviceModel: deviceModel || "",
+          roomNumber:  resolvedRoomNumber,
+          campus:      resolvedCampus,
+          block:       resolvedBlock,
+        });
+      }
     }
 
     // ── 2. Auto-create / update Room in facility hierarchy ───────────────────

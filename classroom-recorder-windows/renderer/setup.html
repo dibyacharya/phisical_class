@@ -183,6 +183,16 @@
         <input id="roomName" type="text" placeholder="e.g. Smart Class Room 1" />
       </div>
 
+      <!-- License Key -->
+      <div class="field">
+        <label>License Key <span class="req">*</span></label>
+        <input id="licenseKey" type="text"
+          placeholder="EDUC-XXXX-XXXX-XXXX"
+          style="font-family: monospace; letter-spacing: .05em; text-transform: uppercase;"
+          oninput="this.value = this.value.toUpperCase()" />
+        <p class="hint orange">Admin portal se license key milegi — ek device pe ek hi baar use ho sakta hai</p>
+      </div>
+
       <!-- Error -->
       <div class="error" id="errBox"></div>
 
@@ -227,11 +237,13 @@ async function doSetup() {
   const floor      = document.getElementById("floor").value.trim();
   const roomNumber = document.getElementById("roomNumber").value.trim();
   const roomName   = document.getElementById("roomName").value.trim();
+  const licenseKey = document.getElementById("licenseKey").value.trim().toUpperCase();
 
-  if (!apiUrl)     { return showErr("Backend URL zaroori hai"); }
-  if (!campus)     { return showErr("Campus naam zaroori hai"); }
-  if (!block)      { return showErr("Block naam zaroori hai"); }
-  if (!roomNumber) { return showErr("Room Number zaroori hai — admin portal se match karo"); }
+  if (!apiUrl)      { return showErr("Backend URL zaroori hai"); }
+  if (!campus)      { return showErr("Campus naam zaroori hai"); }
+  if (!block)       { return showErr("Block naam zaroori hai"); }
+  if (!roomNumber)  { return showErr("Room Number zaroori hai — admin portal se match karo"); }
+  if (!licenseKey)  { return showErr("License Key zaroori hai — admin se maango (EDUC-XXXX-XXXX-XXXX)"); }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Registering with backend…';
@@ -246,6 +258,7 @@ async function doSetup() {
   const result = await window.electronAPI.registerDevice({
     apiUrl,
     name:        "Windows PC - Room " + roomNumber,
+    licenseKey,
     macAddress,
     campus,
     block,

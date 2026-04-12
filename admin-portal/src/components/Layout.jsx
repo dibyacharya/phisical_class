@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut, KeyRound } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -8,6 +8,7 @@ const navItems = [
   { to: "/batches", label: "Batches", icon: Layers },
   { to: "/recordings", label: "Recordings", icon: Video },
   { to: "/users", label: "Users", icon: Users },
+  { to: "/licenses", label: "Licenses", icon: KeyRound },
 ];
 
 export default function Layout({ user, onLogout, children }) {
