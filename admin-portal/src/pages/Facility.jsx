@@ -25,6 +25,33 @@ const SPACE_TYPES = [
 ];
 const spaceTypeMeta = (t) => SPACE_TYPES.find((s) => s.value === t) || SPACE_TYPES[0];
 
+// ── Smart display formatters ───────────────────────────────────────────────────
+// "2"  → "Block 2"      "Block 14" → "Block 14"  (unchanged)
+function fmtBlock(b) {
+  if (!b) return b;
+  const t = b.trim();
+  return /^\d+$/.test(t) ? `Block ${t}` : t;
+}
+
+// "3"  → "3rd Floor"    "1st Floor" → "1st Floor" (unchanged)
+// "0"  → "Ground Floor" "g" → "Ground Floor"
+function fmtFloor(f) {
+  if (!f) return f;
+  const t = f.trim();
+  // Pure number
+  if (/^\d+$/.test(t)) {
+    const n = parseInt(t, 10);
+    if (n === 0) return "Ground Floor";
+    const sfx = n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th";
+    return `${n}${sfx} Floor`;
+  }
+  // Shorthand "g" / "ground"
+  if (/^g(round)?$/i.test(t)) return "Ground Floor";
+  if (/^b(asement)?$/i.test(t)) return "Basement";
+  // Already has "Floor" keyword → return as-is
+  return t;
+}
+
 // ── Mini progress bar ──────────────────────────────────────────────────────────
 function MiniBar({ value, warn = 75, danger = 90 }) {
   if (value == null) return null;
@@ -183,7 +210,7 @@ function CameraPreview({ space, compact }) {
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
         <Camera size={compact ? 14 : 22} className="text-emerald-400/50 mb-1" />
         {!compact && <span className="text-[9px] text-slate-400">Standby</span>}
-        {h.network?.ssid && !compact && (
+        {h.network?.ssid && h.network.ssid !== "<unknown ssid>" && !compact && (
           <span className="text-[8px] text-slate-500 mt-0.5">📶 {h.network.ssid}</span>
         )}
       </div>
@@ -252,10 +279,10 @@ function VideoModal({ space, onClose, onViewDetail }) {
               <p className="text-[10px] text-white/60 mt-0.5 flex items-center gap-1 flex-wrap">
                 <span>{space.campus}</span>
                 <span className="text-white/30">›</span>
-                <span>{space.block}</span>
-                {space.floor && <><span className="text-white/30">›</span><span>{space.floor}</span></>}
+                <span>{fmtBlock(space.block)}</span>
+                {space.floor && <><span className="text-white/30">›</span><span>{fmtFloor(space.floor)}</span></>}
                 <span className="text-white/30">›</span>
-                <span className="font-semibold text-white/80">{space.roomNumber}</span>
+                <span className="font-semibold text-white/80">Room {space.roomNumber}</span>
               </p>
             </div>
             {isLive && (
@@ -461,8 +488,8 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
         <p className="text-[8px] text-gray-300 mt-0.5 flex items-center gap-0.5 flex-wrap leading-none">
           <span>{space.campus}</span>
           <ChevronRight size={8} className="text-gray-300" />
-          <span>{space.block}</span>
-          {space.floor && <><ChevronRight size={8} className="text-gray-300" /><span>{space.floor}</span></>}
+          <span>{fmtBlock(space.block)}</span>
+          {space.floor && <><ChevronRight size={8} className="text-gray-300" /><span>{fmtFloor(space.floor)}</span></>}
         </p>
       </div>
     </div>
@@ -529,11 +556,11 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
         <p className="flex items-center flex-wrap gap-0.5 mt-1.5 text-[9px] text-gray-400 leading-none">
           <span>{space.campus}</span>
           <ChevronRight size={9} className="text-gray-300" />
-          <span>{space.block}</span>
+          <span>{fmtBlock(space.block)}</span>
           {space.floor && (
             <>
               <ChevronRight size={9} className="text-gray-300" />
-              <span>{space.floor}</span>
+              <span>{fmtFloor(space.floor)}</span>
             </>
           )}
           <ChevronRight size={9} className="text-gray-300" />
@@ -580,7 +607,8 @@ function floorSortKey(floorStr) {
 }
 
 function floorLabel(key) {
-  return key === "__no_floor__" ? "Other" : key;
+  if (key === "__no_floor__") return "Other";
+  return fmtFloor(key); // "3" → "3rd Floor", "1st Floor" stays as-is
 }
 
 // ── Floor Row (inside a block) ────────────────────────────────────────────────
@@ -693,7 +721,7 @@ function BlockSection({ blockData, onPlay, onNavigate, compact }) {
           {open
             ? <ChevronDown size={15} className="text-gray-400 group-hover:text-blue-500 shrink-0" />
             : <ChevronRight size={15} className="text-gray-400 group-hover:text-blue-500 shrink-0" />}
-          <span className="font-bold text-gray-700 group-hover:text-blue-700">{blockData.block}</span>
+          <span className="font-bold text-gray-700 group-hover:text-blue-700">{fmtBlock(blockData.block)}</span>
           <span className="text-xs text-gray-400">
             {blockData.totalRooms} space{blockData.totalRooms !== 1 ? "s" : ""}
             {showFloorHeaders && ` · ${floorGroups.length} floor${floorGroups.length !== 1 ? "s" : ""}`}

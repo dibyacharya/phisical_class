@@ -251,8 +251,12 @@ async function doSetup() {
   // Generate a stable device ID from hostname + random suffix
   const macAddress = "WIN-" + btoa(navigator.userAgent).slice(0, 12).replace(/[^A-Z0-9]/gi, "X").toUpperCase();
 
+  // Format block/floor for user-friendly display ("2" → "Block 2", "3" → "3rd Floor")
+  const fmtedBlock = fmtBlock(block);
+  const fmtedFloor = fmtFloor(floor);
+
   const builtRoomName = roomName ||
-    [campus, block, floor ? "Floor " + floor : "", "Room " + roomNumber]
+    [campus, fmtedBlock, fmtedFloor, "Room " + roomNumber]
       .filter(Boolean).join(" - ");
 
   const result = await window.electronAPI.registerDevice({
@@ -261,8 +265,8 @@ async function doSetup() {
     licenseKey,
     macAddress,
     campus,
-    block,
-    floor,
+    block:       fmtedBlock,
+    floor:       fmtedFloor,
     roomId:      campus || roomNumber,
     roomName:    builtRoomName,
     roomNumber,
@@ -292,6 +296,27 @@ function showErr(msg) {
   const e = document.getElementById("errBox");
   e.textContent = msg;
   e.style.display = "block";
+}
+
+// ── Smart display formatters ──────────────────────────────────────────────────
+// "2" → "Block 2"   "Block 14" stays as-is
+function fmtBlock(b) {
+  const t = b.trim();
+  return /^\d+$/.test(t) ? `Block ${t}` : t;
+}
+// "3" → "3rd Floor"  "0"/"g"/"ground" → "Ground Floor"
+function fmtFloor(f) {
+  const t = f.trim();
+  if (!t) return t;
+  if (/^\d+$/.test(t)) {
+    const n = parseInt(t, 10);
+    if (n === 0) return "Ground Floor";
+    const s = n===1?"st":n===2?"nd":n===3?"rd":"th";
+    return `${n}${s} Floor`;
+  }
+  if (/^g(round)?$/i.test(t)) return "Ground Floor";
+  if (/^b(asement)?$/i.test(t)) return "Basement";
+  return t;
 }
 
 // Enter key submits
