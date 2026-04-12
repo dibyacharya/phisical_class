@@ -676,7 +676,7 @@ function CampusSection({ campusData, idx, onPlay, onNavigate, compact }) {
 }
 
 // ── Add Space Modal ───────────────────────────────────────────────────────────
-const EMPTY_FORM = { campus:"", block:"", building:"", floor:"", roomNumber:"", roomName:"", spaceType:"room", capacity:"" };
+const EMPTY_FORM = { campus:"", block:"", floor:"", roomNumber:"", roomName:"", spaceType:"room", capacity:"" };
 
 function AddSpaceModal({ onClose, onSaved }) {
   const [form, setForm]     = useState(EMPTY_FORM);
@@ -696,8 +696,7 @@ function AddSpaceModal({ onClose, onSaved }) {
       await api.post("/rooms", {
         campus: form.campus.trim(),
         block:  form.block.trim(),
-        building: form.building.trim() || undefined,
-        floor:    form.floor.trim()    || undefined,
+        floor:  form.floor.trim() || undefined,
         roomNumber: form.roomNumber.trim(),
         roomName:   form.roomName.trim() || undefined,
         spaceType:  form.spaceType,
@@ -759,24 +758,14 @@ function AddSpaceModal({ onClose, onSaved }) {
             </div>
           </div>
 
-          {/* Building + Floor */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
-                Building
-              </label>
-              <input value={form.building} onChange={e => set("building", e.target.value)}
-                placeholder="e.g. Main Building"
-                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
-                Floor
-              </label>
-              <input value={form.floor} onChange={e => set("floor", e.target.value)}
-                placeholder="e.g. 2nd Floor"
-                className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
-            </div>
+          {/* Floor */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+              Floor
+            </label>
+            <input value={form.floor} onChange={e => set("floor", e.target.value)}
+              placeholder="e.g. 2nd Floor"
+              className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
           </div>
 
           {/* Room Number + Name */}

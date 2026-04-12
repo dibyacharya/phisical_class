@@ -111,7 +111,7 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
           {/* Room + IP */}
           <p className="text-sm text-gray-500">
             Room {device.roomNumber || device.roomId}
-            {device.building ? ` · ${device.building}` : ""}
+            {device.floor ? ` · ${device.floor}` : ""}
             {device.ipAddress ? ` · ${device.ipAddress}` : ""}
             {device.deviceModel ? ` · ${device.deviceModel}` : ""}
           </p>

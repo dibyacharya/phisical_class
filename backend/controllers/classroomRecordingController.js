@@ -13,7 +13,7 @@ const Room = require("../models/Room");
 exports.registerDevice = async (req, res) => {
   try {
     const {
-      name, roomId, roomName, building, floor, roomNumber,
+      name, roomId, roomName, floor, roomNumber,
       ipAddress, deviceType, deviceModel, osVersion, macAddress,
       // Space/facility fields sent during device setup
       campus, block, spaceType, capacity,
@@ -24,8 +24,8 @@ exports.registerDevice = async (req, res) => {
     if (!resolvedRoomNumber) return res.status(400).json({ error: "roomNumber (or roomId) is required" });
     if (!macAddress)         return res.status(400).json({ error: "macAddress is required for device registration" });
 
-    const resolvedCampus = campus   || building || "Default Campus";
-    const resolvedBlock  = block    || "Block A";
+    const resolvedCampus = campus || "Default Campus";
+    const resolvedBlock  = block  || "Block A";
 
     // ── 1. Register / update device ──────────────────────────────────────────
     let device = null;
@@ -36,7 +36,6 @@ exports.registerDevice = async (req, res) => {
       device.roomId      = roomId      || device.roomId;
       device.roomName    = roomName    || device.roomName;
       device.roomNumber  = resolvedRoomNumber || device.roomNumber;
-      device.building    = resolvedCampus;
       device.floor       = floor       || device.floor;
       device.ipAddress   = ipAddress   || device.ipAddress;
       device.deviceType  = deviceType  || device.deviceType;
@@ -50,7 +49,6 @@ exports.registerDevice = async (req, res) => {
         roomId:      roomId,
         roomName:    roomName || `Room ${resolvedRoomNumber}`,
         roomNumber:  resolvedRoomNumber,
-        building:    resolvedCampus,
         floor,
         ipAddress,
         deviceType:  deviceType || "android",
@@ -69,7 +67,6 @@ exports.registerDevice = async (req, res) => {
           $set: {
             campus:     resolvedCampus,
             block:      resolvedBlock,
-            building:   building  || undefined,
             floor:      floor     || "",
             roomNumber: resolvedRoomNumber,
             roomName:   roomName || name || `Room ${resolvedRoomNumber}`,

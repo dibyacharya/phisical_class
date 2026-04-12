@@ -64,7 +64,6 @@ const classroomDeviceSchema = new mongoose.Schema(
     roomId: { type: String },
     roomName: { type: String },
     roomNumber: { type: String },
-    building: { type: String },
     floor: { type: String },
     ipAddress: { type: String },
     deviceType: { type: String, enum: ["pc", "android"], default: "android" },

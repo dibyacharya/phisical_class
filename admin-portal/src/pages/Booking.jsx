@@ -386,7 +386,6 @@ export default function Booking() {
               <p className="text-sm"><span className="text-gray-400">Class:</span> <strong className="text-gray-700">{sel.title}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Room:</span> <strong className="text-gray-700">{sel.room?.roomNumber} — {sel.room?.roomName}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{sel.blockName}, {sel.campusName}</strong></p>
-              {sel.room?.building && <p className="text-sm"><span className="text-gray-400">Building:</span> <strong className="text-gray-700">{sel.room.building}</strong></p>}
               {sel.room?.floor    && <p className="text-sm"><span className="text-gray-400">Floor:</span> <strong className="text-gray-700">{sel.room.floor}</strong></p>}
               <p className="text-sm"><span className="text-gray-400">Date:</span> <strong className="text-gray-700">{fmtShort(sel.date)}</strong></p>
               <p className="text-sm"><span className="text-gray-400">Time:</span> <strong className="text-gray-700">{sel.startTime} – {sel.endTime}</strong></p>
@@ -480,20 +479,10 @@ export default function Booking() {
                                     <p className="font-bold text-gray-800 text-lg leading-tight">{r.roomNumber}</p>
                                     <p className="text-xs text-gray-500 leading-tight">{r.roomName}</p>
                                     <p className="text-xs text-gray-400 mt-0.5">{r.capacity} seats</p>
-                                    {/* Building + Floor tags */}
-                                    {(r.building || r.floor) && (
-                                      <div className="flex flex-wrap gap-1 mt-1.5">
-                                        {r.building && (
-                                          <span className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
-                                            🏢 {r.building}
-                                          </span>
-                                        )}
-                                        {r.floor && (
-                                          <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
-                                            ⬆ {r.floor}
-                                          </span>
-                                        )}
-                                      </div>
+                                    {r.floor && (
+                                      <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium mt-1 inline-block">
+                                        ⬆ {r.floor}
+                                      </span>
                                     )}
                                   </div>
                                   <div className="flex flex-col gap-1 border-t pt-2">
@@ -522,10 +511,9 @@ export default function Booking() {
                       <div>
                         <p className="font-bold text-blue-800">{sel.room.roomNumber} — {sel.room.roomName}</p>
                         <p className="text-xs text-blue-600">{sel.blockName} · {sel.campusName} · {sel.room.capacity} seats</p>
-                        {(sel.room.building || sel.room.floor) && (
+                        {sel.room.floor && (
                           <div className="flex gap-1.5 mt-1">
-                            {sel.room.building && <span className="text-[10px] bg-white/60 text-slate-600 px-2 py-0.5 rounded-full font-medium">🏢 {sel.room.building}</span>}
-                            {sel.room.floor    && <span className="text-[10px] bg-white/60 text-indigo-600 px-2 py-0.5 rounded-full font-medium">⬆ {sel.room.floor}</span>}
+                            <span className="text-[10px] bg-white/60 text-indigo-600 px-2 py-0.5 rounded-full font-medium">⬆ {sel.room.floor}</span>
                           </div>
                         )}
                       </div>
@@ -838,19 +826,11 @@ export default function Booking() {
                         <p className="font-black text-lg">{sel.room?.roomNumber}</p>
                       </div>
                     </div>
-                    {/* Building + Floor sub-line */}
-                    {(sel.room?.building || sel.room?.floor) && (
+                    {sel.room?.floor && (
                       <div className="mt-2 flex items-center gap-3 justify-center">
-                        {sel.room?.building && (
-                          <span className="flex items-center gap-1 text-xs text-blue-200 bg-white/10 px-3 py-1 rounded-full">
-                            🏢 {sel.room.building}
-                          </span>
-                        )}
-                        {sel.room?.floor && (
-                          <span className="flex items-center gap-1 text-xs text-blue-200 bg-white/10 px-3 py-1 rounded-full">
-                            ⬆ {sel.room.floor}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1 text-xs text-blue-200 bg-white/10 px-3 py-1 rounded-full">
+                          ⬆ {sel.room.floor}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -863,8 +843,7 @@ export default function Booking() {
                         { label:"TIME",    value: `${sel.startTime} → ${sel.endTime}` },
                         { label:"DURATION",value: `${toMin(sel.endTime)-toMin(sel.startTime)} min` },
                         { label:"CAPACITY",value: `${sel.room?.capacity} seats` },
-                        ...(sel.room?.building ? [{ label:"BUILDING", value: sel.room.building }] : []),
-                        ...(sel.room?.floor    ? [{ label:"FLOOR",    value: sel.room.floor    }] : []),
+                        ...(sel.room?.floor ? [{ label:"FLOOR", value: sel.room.floor }] : []),
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{label}</p>
