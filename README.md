@@ -17,6 +17,8 @@
 ## Dibyakanta Acharya
 ### Founder & CEO — D&R AI Solutions Pvt. Ltd.
 
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-D%26R%20AI%20Solutions-blue?style=flat&logo=linkedin)](https://www.linkedin.com/company/dr-ai-solutions/)
+
 *First public disclosure: April 2026*
 
 </div>
