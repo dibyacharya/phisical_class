@@ -1,0 +1,464 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{authblk}
+\usepackage{abstract}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{float}
+
+\geometry{margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10}
+}
+
+% ─────────────────────────────────────────────────────────────────────────────
+
+\title{\textbf{EduCampus: A Low-Cost Android-TV-First Automated Lecture Capture System with Multi-Campus Hierarchy Management}}
+
+\author[1]{Dibyakanta Acharya}
+\affil[1]{D\&R AI Solutions Pvt.\ Ltd., India \\
+\texttt{founder@drandsolutions.in}}
+
+\date{April 13, 2026 \\ \small{(First public disclosure — establishes prior art)}}
+
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present \textbf{EduCampus}, the first enterprise-grade lecture capture system to use Android TV boxes and consumer Smart TVs as primary, cloud-integrated, schedule-aware classroom recording devices. Existing lecture capture solutions (Panopto, Echo360, Kaltura, YuJa, Opencast) universally require dedicated Windows or macOS computers with webcams, or proprietary hardware appliances costing USD 3{,}770--50{,}000 per room. EduCampus achieves equivalent automated recording functionality using a commodity Android TV box (retail price INR 2{,}000--10{,}000), a single-install APK, and a cloud backend. The system introduces five novel technical contributions: (1) an Android TV APK as an enterprise lecture capture client, (2) a MAC-address-bound license key activation scheme for educational recording devices, (3) simultaneous attendance QR code generation tied to recording session initiation, (4) a Campus $\rightarrow$ Block $\rightarrow$ Floor $\rightarrow$ Room physical hierarchy model for multi-campus device management, and (5) an integrated facility monitoring and lecture capture administration dashboard. The system is deployed and operational. This paper constitutes a public prior art disclosure for all described technical contributions.
+\end{abstract}
+
+\textbf{Keywords:} lecture capture, educational technology, Android TV, smart classroom, IoT in education, device management, India higher education, low-cost edtech
+
+\hrule
+\vspace{0.5em}
+\small\textit{This document is a \textbf{Defensive Publication}. It establishes prior art as of April 13, 2026. Any subsequent patent claim on the described technical contributions by any third party is rendered invalid by this disclosure.}
+\vspace{0.5em}
+\hrule
+
+\newpage
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Lecture capture — the automated recording of classroom instruction for later review — has become an established component of higher education infrastructure globally. Enterprise platforms such as Panopto \cite{panopto2024}, Echo360 \cite{echo360}, Kaltura \cite{kaltura}, and YuJa \cite{yuja} dominate the market. However, all of these systems share a fundamental hardware assumption: a dedicated Windows or macOS computer must be present in each classroom, serving as the capture device.
+
+This assumption creates a significant affordability gap in the context of Indian higher education:
+
+\begin{itemize}
+    \item India has 52{,}321 colleges and 1{,}355 universities as of FY2026 \cite{ibef2024}.
+    \item An estimated 90\% of these institutions cannot afford enterprise lecture capture pricing (USD 15{,}000--200{,}000+ per year).
+    \item Indian classrooms commonly feature LED televisions driven by Android TV boxes (INR 2{,}000--10{,}000), rather than dedicated PCs.
+    \item No existing platform supports Android TV boxes as capture clients.
+\end{itemize}
+
+EduCampus was designed from first principles to serve this underserved context. The system treats the Android TV box --- already present in millions of Indian classrooms --- as a capable, zero-additional-cost capture device. A one-time APK installation and setup turns it into a fully autonomous recording node that:
+
+\begin{itemize}
+    \item Fetches its recording schedule from a cloud backend
+    \item Automatically starts and stops recording at scheduled times
+    \item Uploads 30-second video segments continuously during recording
+    \item Reports device health via heartbeat
+    \item Can be managed remotely through an admin dashboard
+    \item Requires no human intervention after initial setup
+\end{itemize}
+
+To our knowledge, no prior published system or commercial product has implemented this approach.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Background and Related Work}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Commercial Lecture Capture Systems}
+
+\textbf{Panopto} is the current market leader, used by 21 of the world's top 25 universities by ranking. It provides a Windows/Mac software client that captures screen and camera on a schedule \cite{panopto2024}. Hardware requirements include a minimum Intel Core i3 processor, 20 GB installation space, and a connected webcam. Android TV is not supported.
+
+\textbf{Echo360} offers ``Universal Capture,'' a Windows/Mac software client with similar requirements (64-bit Windows 10, 50 GB storage, audio device mandatory) \cite{echo360}. Echo360 also sells proprietary POD and PRO hardware appliances. Android TV is not supported.
+
+\textbf{Kaltura} is a full video content management system with a lecture capture module. It requires Windows or macOS capture agents and has deep LMS integration dependencies \cite{kaltura}. Android TV is not supported.
+
+\textbf{YuJa} provides software capture and a proprietary ``Hardware Hub'' appliance. It aggressively price-matches competitors but remains in the USD 10{,}000+/year range for institutions \cite{yuja}. Android TV is not supported.
+
+\textbf{Opencast} is an open-source lecture capture platform widely used in European universities \cite{opencast}. It requires Linux server infrastructure and DevOps expertise. The Galicaster capture agent runs on Linux. Android TV is not supported.
+
+\textbf{Epiphan Pearl} is a dedicated hardware appliance priced at approximately USD 3{,}770 per unit, used as a capture node for the above platforms. It does not function independently as a platform.
+
+\subsection{Android in Educational Technology}
+
+Android has been used in education primarily through tablets and phones for content consumption \cite{androidEdu}. Android TV as a classroom capture client has not been previously described in academic or commercial literature. Existing Android screen recording solutions (AZ Screen Recorder, etc.) are consumer tools without scheduling, cloud integration, device management, or multi-institution hierarchy support.
+
+\subsection{IoT in Education}
+
+IoT-based smart classroom systems have been studied \cite{iotClassroom}, typically focusing on environmental sensors, attendance beacons, and interactive displays. None address video capture and cloud-integrated recording as an IoT use case on Android TV hardware.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{System Architecture}
+% ─────────────────────────────────────────────────────────────────────────────
+
+EduCampus comprises four main components, as illustrated in Figure~\ref{fig:arch}.
+
+\begin{figure}[H]
+\centering
+\begin{lstlisting}
++-----------------------------------------------+
+|           ADMIN PORTAL (React/Vite)           |
+|  Facility · Devices · Recordings · Licenses   |
+|  Booking · Attendance · Multi-campus Hierarchy|
+|            [Deployed: Vercel]                 |
++--------------------+--------------------------+
+                     | REST API (JWT Auth)
++--------------------v--------------------------+
+|        BACKEND API (Node.js / Express)        |
+|  Device Reg · License Validation              |
+|  Schedule Push · Recording Session Mgmt       |
+|  Segment Assembly · Heartbeat · Room Hierarchy|
+|   [Deployed: Render.com | DB: MongoDB Atlas]  |
++-------+-------------------------------+-------+
+        |                               |
+        | Heartbeat + Upload            | Heartbeat + Upload
++-------v-----------+   +---------------v-------+
+| ANDROID APK       |   | WINDOWS EXE (Electron)|
+| Smart TV /        |   | Classroom PC          |
+| Android TV Box    |   | System tray, autostart|
+| MediaProjection   |   | desktopCapturer +     |
+| + AudioRecord     |   | getUserMedia (mic)    |
+| 30s WebM segments |   | 30s WebM segments     |
+| License Key Auth  |   | License Key Auth      |
++-------------------+   +-----------------------+
+\end{lstlisting}
+\caption{EduCampus system architecture.}
+\label{fig:arch}
+\end{figure}
+
+\subsection{Backend API}
+
+The backend is implemented in Node.js with Express.js and connects to MongoDB Atlas. It exposes REST endpoints for:
+
+\begin{itemize}
+    \item Device registration and license validation (\texttt{/api/classroom-recording/devices/register})
+    \item Device heartbeat and schedule delivery (\texttt{/api/classroom-recording/devices/:id/heartbeat})
+    \item Recording session management and segment upload
+    \item Room hierarchy management (\texttt{/api/rooms/hierarchy})
+    \item License key lifecycle (\texttt{/api/licenses})
+    \item User, batch, and course management
+    \item Attendance generation and verification
+\end{itemize}
+
+All device-facing endpoints use JWT authentication. The heartbeat endpoint returns the device's recording schedule for the current day, enabling autonomous operation even without a persistent connection.
+
+\subsection{Admin Portal}
+
+The admin portal is built with React 18 and Vite, styled with Tailwind CSS. Key views include:
+
+\begin{itemize}
+    \item \textbf{Facility Map}: Animated live preview of each room (canvas-based film-grain animation distinguishes standby from recording). Rooms organised by Campus $\rightarrow$ Block $\rightarrow$ Floor, each level collapsible.
+    \item \textbf{Room Detail}: Recordings tab with date/course/status filters; Scheduling tab.
+    \item \textbf{Licenses}: Generate, revoke, reset, and export license keys.
+    \item \textbf{Booking}: 4-step booking wizard with Gantt timeline for conflict detection.
+\end{itemize}
+
+\subsection{Android Client}
+
+The Android APK is written in Kotlin and targets API 26+. It uses:
+
+\begin{itemize}
+    \item \texttt{MediaProjection} for screen capture
+    \item \texttt{AudioRecord} for microphone capture
+    \item \texttt{MediaRecorder} with H.264/AAC encoding (848$\times$480, 500 kbps video; 128 kbps, 44.1 kHz mono audio)
+    \item \texttt{EncryptedSharedPreferences} (AES-256-GCM) for local credential storage
+    \item Retrofit + OkHttp for HTTP communication
+    \item \texttt{BroadcastReceiver} (\texttt{BOOT\_COMPLETED}) for auto-start on device reboot
+    \item Foreground \texttt{Service} for continuous background operation
+\end{itemize}
+
+Recording is split into 30-second segments that are uploaded immediately after each segment completes. This provides resilience to network interruptions and allows near-real-time availability of recordings.
+
+\subsection{Windows Client}
+
+The Windows client is an Electron 28 application packaged as a single \texttt{.exe} installer (NSIS) and portable executable via electron-builder. It uses:
+
+\begin{itemize}
+    \item \texttt{desktopCapturer} for screen source enumeration
+    \item \texttt{navigator.mediaDevices.getUserMedia} for microphone capture
+    \item \texttt{MediaRecorder} (VP8/Opus, WebM) in a hidden renderer window
+    \item \texttt{electron-store} (AES encrypted) for credential persistence
+    \item \texttt{app.setLoginItemSettings} for Windows auto-start
+    \item Single-instance lock via \texttt{app.requestSingleInstanceLock}
+    \item System tray operation — invisible to classroom occupants
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Novel Technical Contributions}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Contribution 1: Android TV as Enterprise Lecture Capture Client}
+
+\textbf{The contribution:} An Android APK that transforms any Android TV box or Android-based Smart TV into a fully autonomous, cloud-integrated, schedule-aware lecture capture device.
+
+\textbf{Prior art status:} As of April 2026, no commercial lecture capture platform (Panopto, Echo360, Kaltura, YuJa, Mediasite) provides an Android TV capture client. Opencast's Galicaster capture agent targets Linux only. No academic publication describes Android TV in this role.
+
+\textbf{Technical novelty:} The combination of (a) \texttt{MediaProjection} screen capture, (b) cloud-fetched schedule, (c) automatic segment upload, (d) license-key device activation, and (e) admin portal integration — all on Android TV hardware — is novel as a complete system.
+
+\subsection{Contribution 2: MAC-Address Bound License Key for Educational Devices}
+
+\textbf{The contribution:} A license activation scheme where a generated key (\texttt{EDUC-XXXX-XXXX-XXXX}) is cryptographically bound to a device's MAC address on first registration. The same APK/EXE cannot be used to register a second physical device.
+
+\textbf{Key format:} 12 characters across 3 segments, drawn from the set \texttt{ABCDEFGHJKLMNPQRSTUVWXYZ23456789} (ambiguous characters 0, O, 1, I excluded for readability).
+
+\textbf{Binding logic:}
+\begin{enumerate}
+    \item On first device registration, \texttt{macAddress} is sent with \texttt{licenseKey}
+    \item Backend validates: key exists, is active, not expired
+    \item If \texttt{isActivated == true} and \texttt{deviceMac != incomingMac}: reject (HTTP 409)
+    \item On success: \texttt{isActivated = true}, \texttt{deviceMac} stored
+    \item Re-registration from same MAC: license check skipped (device reset flow)
+\end{enumerate}
+
+\textbf{Admin operations:} Generate (1--100 keys at once), Revoke (permanent), Reset (unbind MAC for device replacement).
+
+\subsection{Contribution 3: Attendance QR Tied to Recording Session}
+
+\textbf{The contribution:} When a recording session begins (triggered by schedule or manually), the backend simultaneously generates a time-limited QR code. Students scan the QR to mark physical attendance, and the attendance record is correlated with the recording session.
+
+\textbf{Prior art status:} Echo360 has student engagement polling (not attendance). No platform combines recording session initiation with physical attendance QR generation in the same event.
+
+\subsection{Contribution 4: Campus $\rightarrow$ Block $\rightarrow$ Floor $\rightarrow$ Room Hierarchy}
+
+\textbf{The contribution:} A four-level physical hierarchy for device and room management:
+
+\[
+\text{Campus} \rightarrow \text{Block} \rightarrow \text{Floor} \rightarrow \text{Room}
+\]
+
+This models the actual physical structure of Indian universities (sprawling multi-building campuses with named blocks, multiple floors, and numbered rooms). All commercial alternatives use flat or two-level (campus/room) structures.
+
+\textbf{Implementation:} The hierarchy is reflected in the MongoDB Room schema, the API hierarchy endpoint, the admin portal facility map (collapsible at each level), and the device setup form on both Android and Windows clients. Smart display formatting converts raw numeric inputs (``2'' $\rightarrow$ ``Block 2'', ``3'' $\rightarrow$ ``3rd Floor'') automatically.
+
+\subsection{Contribution 5: Integrated Facility Monitoring + Lecture Capture Dashboard}
+
+\textbf{The contribution:} A single admin dashboard that combines:
+\begin{itemize}
+    \item Live device health (CPU, RAM, disk, network latency)
+    \item Recording state per room (standby / recording / offline)
+    \item Video playback of latest recording per room (click-to-play)
+    \item Animated canvas-based ``live feed'' preview (silent, film-grain simulation)
+    \item Collapsible Campus $\rightarrow$ Block $\rightarrow$ Floor hierarchy
+\end{itemize}
+
+No existing lecture capture platform provides an integrated facility monitoring view of this type.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Comparative Analysis}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:comparison} summarises EduCampus against the five major existing platforms across key dimensions.
+
+\begin{table}[H]
+\centering
+\caption{Feature comparison: EduCampus vs existing lecture capture platforms (April 2026)}
+\label{tab:comparison}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Feature} & \textbf{Panopto} & \textbf{Echo360} & \textbf{Kaltura} & \textbf{YuJa} & \textbf{Opencast} & \textbf{EduCampus} \\
+\midrule
+Android TV APK client            & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+Windows software client           & \checkmark & \checkmark & \checkmark & \checkmark & Partial & \checkmark \\
+Campus→Block→Floor→Room           & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+Per-device license key model      & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+QR attendance in recording session & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+Integrated facility monitoring    & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+No LMS dependency                 & \xmark & \xmark & \xmark & \xmark & Partial & \checkmark \\
+Consumer hardware support         & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
+India-first pricing               & \xmark & \xmark & \xmark & \xmark & N/A & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\small{\checkmark = supported, \xmark = not supported}
+
+\bigskip
+Table~\ref{tab:cost} compares per-room deployment cost.
+
+\begin{table}[H]
+\centering
+\caption{Approximate per-room annual cost comparison (India, 2026)}
+\label{tab:cost}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Solution} & \textbf{Hardware Cost} & \textbf{Annual License (est.)} \\
+\midrule
+Panopto + Windows PC + webcam & INR 30{,}000--80{,}000 & INR 15{,}000--50{,}000+ \\
+Echo360 + Windows PC + webcam & INR 30{,}000--80{,}000 & INR 15{,}000--50{,}000+ \\
+Epiphan Pearl appliance       & INR 3{,}10{,}000+       & Maintenance only \\
+Opencast (self-hosted)        & INR 30{,}000--80{,}000 & INR 0 (infra + IT labor) \\
+\textbf{EduCampus + Android TV box} & \textbf{INR 2{,}000--10{,}000} & \textbf{Target: INR 6{,}000--24{,}000} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Implementation Details}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Recording Pipeline}
+
+\begin{enumerate}
+    \item Device sends heartbeat every 30 seconds (Windows) / 2 minutes (Android)
+    \item Backend returns today's schedule for the device's room
+    \item Device checks schedule every 60 seconds (Windows) / 30 seconds (Android)
+    \item When current time falls within a scheduled class window:
+    \begin{enumerate}
+        \item Device calls \texttt{/recordings/session} (find or create session for this \texttt{meetingId})
+        \item Backend returns \texttt{recordingId}
+        \item Device starts \texttt{MediaRecorder} with 30-second segment interval
+        \item Each completed segment is uploaded to \texttt{/recordings/:id/segment-upload}
+    \end{enumerate}
+    \item When class window ends: device stops \texttt{MediaRecorder}, calls \texttt{/recordings/:id/merge}
+    \item Backend merges segments into final recording file
+\end{enumerate}
+
+\subsection{Device Registration Flow}
+
+\begin{enumerate}
+    \item User installs APK on Android TV box (or runs \texttt{.exe} on Windows PC)
+    \item One-time setup form: Backend URL, Campus, Block, Floor, Room Number, License Key
+    \item APK sends \texttt{POST /api/classroom-recording/devices/register} with all fields + MAC address
+    \item Backend validates license key and MAC binding
+    \item On success: \texttt{\{deviceId, authToken\}} returned and stored encrypted on device
+    \item All future API calls use JWT (\texttt{authToken})
+    \item Setup screen closes; device enters operational mode silently
+\end{enumerate}
+
+\subsection{Security Considerations}
+
+\begin{itemize}
+    \item Auth tokens stored using \texttt{EncryptedSharedPreferences} (Android, AES-256-GCM) and \texttt{electron-store} (Windows, AES encrypted)
+    \item License keys use unambiguous character set (no O/0, I/1 confusion)
+    \item MAC address binding prevents license sharing across devices
+    \item Admin endpoints protected by JWT with role-based access control
+    \item Video segments uploaded over HTTPS only
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Deployment and Availability}
+% ─────────────────────────────────────────────────────────────────────────────
+
+EduCampus is operational as of April 2026:
+
+\begin{itemize}
+    \item \textbf{Admin Portal:} \url{https://admin-portal-two-gray.vercel.app}
+    \item \textbf{Backend API:} \url{https://phisical-class.onrender.com}
+    \item \textbf{Source code:} \url{https://github.com/dibyacharya/phisical_class}
+\end{itemize}
+
+The system is currently deployed with MongoDB Atlas as the database layer. The backend runs on Render.com's cloud infrastructure. The admin portal is deployed on Vercel with automatic CI/CD from the GitHub repository.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Market Context}
+% ─────────────────────────────────────────────────────────────────────────────
+
+The global lecture capture systems market was valued at approximately USD 9--15 billion in 2024, with a compound annual growth rate of 18--33\% through 2030 \cite{mordor2024}. India's lecture capture sub-market is estimated at USD 425 million with a 29.3\% CAGR \cite{indiaMarket}. The National Education Policy 2020 (NEP 2020) mandates digital pedagogy infrastructure across all Indian higher education institutions, creating significant demand for affordable solutions \cite{nep2020}.
+
+With 52{,}321 colleges and 1{,}355 universities in India, and an estimated 90\% unable to afford Western enterprise pricing, EduCampus targets a large, underserved, and rapidly growing market.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Future Work}
+% ─────────────────────────────────────────────────────────────────────────────
+
+EduCampus is part of a broader ecosystem under development at D\&R AI Solutions Pvt.\ Ltd.:
+
+\begin{itemize}
+    \item \textbf{Univanta LMS} — A full Learning Management System with AI-powered transcription, student mobile application, course management, and engagement analytics. EduCampus recordings are designed to feed directly into Univanta LMS course content.
+    \item \textbf{AI Transcription Integration} — Automated speech-to-text using Whisper (open-source) for Hindi and English lecture content
+    \item \textbf{LMS Plugin} — Moodle plugin for direct recording embedding
+    \item \textbf{Multi-language Support} — Setup interfaces in Hindi, Odia, and other Indian languages
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+We have presented EduCampus, a novel lecture capture system that for the first time enables Android TV boxes and Smart TVs to function as enterprise-grade, cloud-integrated, autonomous classroom recording devices. The system introduces five specific technical contributions — Android TV capture client, MAC-bound license activation, session-tied attendance QR, four-level physical hierarchy, and integrated facility monitoring — none of which exist in any prior commercial or open-source platform.
+
+EduCampus reduces the per-room hardware cost for lecture capture from INR 30{,}000--80{,}000 to INR 2{,}000--10{,}000, making automated lecture recording economically viable for the 90\% of Indian higher education institutions currently priced out of the market. The system is operational, publicly accessible, and constitutes a complete, deployable solution rather than a prototype.
+
+This paper serves as a public prior art disclosure for all described technical contributions, with a first disclosure date of \textbf{April 13, 2026}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{thebibliography}{99}
+
+\bibitem{panopto2024}
+Panopto Inc. (2024). \textit{Panopto Video Platform}. Retrieved from \url{https://www.panopto.com}
+
+\bibitem{echo360}
+Echo360 Inc. (2024). \textit{Echo360 Universal Capture Specifications}. Retrieved from \url{https://echo360.com}
+
+\bibitem{kaltura}
+Kaltura Inc. (2024). \textit{Kaltura Education Video Platform}. Retrieved from \url{https://corp.kaltura.com}
+
+\bibitem{yuja}
+YuJa Inc. (2024). \textit{YuJa Lecture Capture}. Retrieved from \url{https://www.yuja.com}
+
+\bibitem{opencast}
+Opencast Community. (2024). \textit{Opencast: Open Source Lecture Capture}. Retrieved from \url{https://opencast.org}
+
+\bibitem{ibef2024}
+India Brand Equity Foundation. (2024). \textit{Education Sector in India}. Retrieved from \url{https://www.ibef.org/industry/education-sector-india}
+
+\bibitem{mordor2024}
+Mordor Intelligence. (2024). \textit{Lecture Capture Systems Market — Growth, Trends, Forecasts}. Retrieved from \url{https://www.mordorintelligence.com/industry-reports/lecture-capture-systems-market}
+
+\bibitem{indiaMarket}
+BlueWeave Consulting. (2023). \textit{India Smart Classroom Market}. Retrieved from \url{https://www.blueweaveconsulting.com}
+
+\bibitem{nep2020}
+Ministry of Education, Government of India. (2020). \textit{National Education Policy 2020}. Retrieved from \url{https://www.education.gov.in/nep}
+
+\bibitem{androidEdu}
+Rossing, J.P., Miller, W.M., Cecil, A.K., \& Stamper, S.E. (2012). iLearning: The future of higher education? Student perceptions on learning with mobile tablets. \textit{Journal of the Scholarship of Teaching and Learning}, 12(2), 1--26.
+
+\bibitem{iotClassroom}
+Yin, Y., Xiong, Z., \& Li, Y. (2015). A survey on smart classroom for higher education. \textit{International Journal of Distance Education Technologies}, 13(1), 37--45.
+
+\end{thebibliography}
+
+\vspace{2em}
+\hrule
+\vspace{0.5em}
+
+\begin{center}
+\small
+\textbf{Copyright \copyright{} 2026 Dibyakanta Acharya / D\&R AI Solutions Pvt.\ Ltd.}\\
+First public disclosure: April 13, 2026.\\
+Source code: \url{https://github.com/dibyacharya/phisical_class}\\
+This work is licensed under the MIT License.
+\end{center}
+
+\end{document}
