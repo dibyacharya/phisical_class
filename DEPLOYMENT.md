@@ -211,7 +211,7 @@ MONGODB_URI="mongodb+srv://dibyacharya_db_user:LCS2024secure@cluster0.033f2jt.mo
 
 ## Android APK (Classroom Recorder)
 
-- **Latest APK:** `/Users/dibyakantaacharya/Downloads/EduCampus-Recorder-v15.apk`
+- **Latest APK:** `/Users/dibyakantaacharya/Downloads/LectureLens-Recorder-v15.apk`
 - **Source Code:** `/Users/dibyakantaacharya/ADMIN_PORTAL_with_phisical class/classroom-recorder-android/`
 
 ### APK Setup Values

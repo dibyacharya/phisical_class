@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>EduCampus Recorder — Setup</title>
+  <title>LectureLens Recorder — Setup</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -131,7 +131,7 @@
 
   <div class="header">
     <div class="logo">🎬</div>
-    <h1>EduCampus Recorder</h1>
+    <h1>LectureLens Recorder</h1>
     <p>Windows Classroom Recorder — One-time Setup</p>
   </div>
 
@@ -187,7 +187,7 @@
       <div class="field">
         <label>License Key <span class="req">*</span></label>
         <input id="licenseKey" type="text"
-          placeholder="EDUC-XXXX-XXXX-XXXX"
+          placeholder="LENS-XXXX-XXXX-XXXX"
           style="font-family: monospace; letter-spacing: .05em; text-transform: uppercase;"
           oninput="this.value = this.value.toUpperCase()" />
         <p class="hint orange">Admin portal se license key milegi — ek device pe ek hi baar use ho sakta hai</p>
@@ -206,7 +206,7 @@
   <div class="success" id="successScreen">
     <div class="tick">✅</div>
     <h2>Setup Complete!</h2>
-    <p>EduCampus Recorder is now running in your system tray.<br/>
+    <p>LectureLens Recorder is now running in your system tray.<br/>
        It will automatically record classes based on the schedule.<br/><br/>
        <strong>App will start automatically when Windows boots.</strong></p>
   </div>
@@ -243,7 +243,7 @@ async function doSetup() {
   if (!campus)      { return showErr("Campus naam zaroori hai"); }
   if (!block)       { return showErr("Block naam zaroori hai"); }
   if (!roomNumber)  { return showErr("Room Number zaroori hai — admin portal se match karo"); }
-  if (!licenseKey)  { return showErr("License Key zaroori hai — admin se maango (EDUC-XXXX-XXXX-XXXX)"); }
+  if (!licenseKey)  { return showErr("License Key zaroori hai — admin se maango (LENS-XXXX-XXXX-XXXX)"); }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Registering with backend…';

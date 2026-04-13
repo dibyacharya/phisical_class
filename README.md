@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/EduCampus-Lecture%20Capture-blue?style=for-the-badge&logo=video&logoColor=white" alt="EduCampus" />
+<img src="https://img.shields.io/badge/LectureLens-Lecture%20Capture-blue?style=for-the-badge&logo=video&logoColor=white" alt="LectureLens" />
 
-# EduCampus Lecture Capture System
+# LectureLens Lecture Capture System
 
 ### *Automated, Low-Cost, Android-TV-First Classroom Recording Platform*
 
@@ -25,7 +25,7 @@
 
 ## Abstract
 
-EduCampus is the world's first enterprise-grade lecture capture system that uses **Android TV boxes and Smart TVs as first-class capture clients**. It enables Indian educational institutions to deploy automated, schedule-aware classroom recording at a fraction of the cost of existing solutions (Panopto, Echo360, Kaltura, YuJa) — using consumer-grade hardware already present in most classrooms.
+LectureLens is the world's first enterprise-grade lecture capture system that uses **Android TV boxes and Smart TVs as first-class capture clients**. It enables Indian educational institutions to deploy automated, schedule-aware classroom recording at a fraction of the cost of existing solutions (Panopto, Echo360, Kaltura, YuJa) — using consumer-grade hardware already present in most classrooms.
 
 No existing commercial or open-source lecture capture platform (as of April 2026) provides an Android TV APK as a native, cloud-integrated, schedule-aware capture client. This system constitutes a novel technical contribution to the educational technology domain.
 
@@ -39,7 +39,7 @@ No existing commercial or open-source lecture capture platform (as of April 2026
 - No solution combines: auto-recording + cloud push + multi-campus hierarchy + attendance QR + facility monitoring in one system
 - 52,000+ Indian colleges cannot afford Western enterprise pricing
 
-### Solution — EduCampus
+### Solution — LectureLens
 A ₹3,000 Android box drives a classroom Smart TV **and simultaneously** auto-records lectures, pushes video to cloud, tracks attendance, and reports device health — all visible from a single admin dashboard.
 
 ---
@@ -55,7 +55,7 @@ A ₹3,000 Android box drives a classroom Smart TV **and simultaneously** auto-r
 - **No equivalent exists in any commercial or open-source platform**
 
 ### 2. License-Key Based Device Activation
-- Format: `EDUC-XXXX-XXXX-XXXX` (unambiguous character set)
+- Format: `LENS-XXXX-XXXX-XXXX` (unambiguous character set)
 - Cryptographically bound to device MAC address on first registration
 - One license = one physical device (cannot be copied to another device)
 - Admin portal: generate, revoke, reset, export licenses
@@ -165,7 +165,7 @@ Campus → Block → Floor → Room
 
 ## Competitive Differentiation
 
-| Feature | Panopto | Echo360 | Kaltura | YuJa | Opencast | **EduCampus** |
+| Feature | Panopto | Echo360 | Kaltura | YuJa | Opencast | **LectureLens** |
 |---------|---------|---------|---------|------|----------|---------------|
 | Android TV APK capture client | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Windows software capture | ✅ | ✅ | ✅ | ✅ | Partial | ✅ |
@@ -229,7 +229,7 @@ lecture-capture-system/
 This public disclosure establishes prior art for the following novel technical contributions:
 
 1. Use of Android TV / Smart TV boxes as enterprise-grade, cloud-integrated, schedule-aware lecture capture clients
-2. MAC-address bound license key activation system for educational recording devices (`EDUC-XXXX-XXXX-XXXX` format)
+2. MAC-address bound license key activation system for educational recording devices (`LENS-XXXX-XXXX-XXXX` format)
 3. Integration of physical attendance QR generation with cloud recording session initiation
 4. Combined facility monitoring + lecture capture + device health dashboard for multi-campus educational institutions
 5. Campus → Block → Floor → Room physical hierarchy model for educational facility and device management
@@ -271,9 +271,9 @@ SOFTWARE.
 If you use or reference this work, please cite:
 
 ```bibtex
-@software{acharya2026educampus,
+@software{acharya2026lecturelens,
   author    = {Acharya, Dibyakanta},
-  title     = {EduCampus: A Low-Cost Android-TV-First Automated Lecture Capture System
+  title     = {LectureLens: A Low-Cost Android-TV-First Automated Lecture Capture System
                with Multi-Campus Hierarchy Management},
   year      = {2026},
   month     = {April},

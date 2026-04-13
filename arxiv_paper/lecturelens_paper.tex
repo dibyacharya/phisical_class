@@ -33,7 +33,7 @@
 
 % ─────────────────────────────────────────────────────────────────────────────
 
-\title{\textbf{EduCampus: A Low-Cost Android-TV-First Automated Lecture Capture System with Multi-Campus Hierarchy Management}}
+\title{\textbf{LectureLens: A Low-Cost Android-TV-First Automated Lecture Capture System with Multi-Campus Hierarchy Management}}
 
 \author[1]{Dibyakanta Acharya}
 \affil[1]{D\&R AI Solutions Pvt.\ Ltd., India \\
@@ -48,7 +48,7 @@
 \maketitle
 
 \begin{abstract}
-We present \textbf{EduCampus}, the first enterprise-grade lecture capture system to use Android TV boxes and consumer Smart TVs as primary, cloud-integrated, schedule-aware classroom recording devices. Existing lecture capture solutions (Panopto, Echo360, Kaltura, YuJa, Opencast) universally require dedicated Windows or macOS computers with webcams, or proprietary hardware appliances costing USD 3{,}770--50{,}000 per room. EduCampus achieves equivalent automated recording functionality using a commodity Android TV box (retail price INR 2{,}000--10{,}000), a single-install APK, and a cloud backend. The system introduces five novel technical contributions: (1) an Android TV APK as an enterprise lecture capture client, (2) a MAC-address-bound license key activation scheme for educational recording devices, (3) simultaneous attendance QR code generation tied to recording session initiation, (4) a Campus $\rightarrow$ Block $\rightarrow$ Floor $\rightarrow$ Room physical hierarchy model for multi-campus device management, and (5) an integrated facility monitoring and lecture capture administration dashboard. The system is deployed and operational. This paper constitutes a public prior art disclosure for all described technical contributions.
+We present \textbf{LectureLens}, the first enterprise-grade lecture capture system to use Android TV boxes and consumer Smart TVs as primary, cloud-integrated, schedule-aware classroom recording devices. Existing lecture capture solutions (Panopto, Echo360, Kaltura, YuJa, Opencast) universally require dedicated Windows or macOS computers with webcams, or proprietary hardware appliances costing USD 3{,}770--50{,}000 per room. LectureLens achieves equivalent automated recording functionality using a commodity Android TV box (retail price INR 2{,}000--10{,}000), a single-install APK, and a cloud backend. The system introduces five novel technical contributions: (1) an Android TV APK as an enterprise lecture capture client, (2) a MAC-address-bound license key activation scheme for educational recording devices, (3) simultaneous attendance QR code generation tied to recording session initiation, (4) a Campus $\rightarrow$ Block $\rightarrow$ Floor $\rightarrow$ Room physical hierarchy model for multi-campus device management, and (5) an integrated facility monitoring and lecture capture administration dashboard. The system is deployed and operational. This paper constitutes a public prior art disclosure for all described technical contributions.
 \end{abstract}
 
 \textbf{Keywords:} lecture capture, educational technology, Android TV, smart classroom, IoT in education, device management, India higher education, low-cost edtech
@@ -78,7 +78,7 @@ This assumption creates a significant affordability gap in the context of Indian
     \item No existing platform supports Android TV boxes as capture clients.
 \end{itemize}
 
-EduCampus was designed from first principles to serve this underserved context. The system treats the Android TV box --- already present in millions of Indian classrooms --- as a capable, zero-additional-cost capture device. A one-time APK installation and setup turns it into a fully autonomous recording node that:
+LectureLens was designed from first principles to serve this underserved context. The system treats the Android TV box --- already present in millions of Indian classrooms --- as a capable, zero-additional-cost capture device. A one-time APK installation and setup turns it into a fully autonomous recording node that:
 
 \begin{itemize}
     \item Fetches its recording schedule from a cloud backend
@@ -121,7 +121,7 @@ IoT-based smart classroom systems have been studied \cite{iotClassroom}, typical
 \section{System Architecture}
 % ─────────────────────────────────────────────────────────────────────────────
 
-EduCampus comprises four main components, as illustrated in Figure~\ref{fig:arch}.
+LectureLens comprises four main components, as illustrated in Figure~\ref{fig:arch}.
 
 \begin{figure}[H]
 \centering
@@ -152,7 +152,7 @@ EduCampus comprises four main components, as illustrated in Figure~\ref{fig:arch
 | License Key Auth  |   | License Key Auth      |
 +-------------------+   +-----------------------+
 \end{lstlisting}
-\caption{EduCampus system architecture.}
+\caption{LectureLens system architecture.}
 \label{fig:arch}
 \end{figure}
 
@@ -227,7 +227,7 @@ The Windows client is an Electron 28 application packaged as a single \texttt{.e
 
 \subsection{Contribution 2: MAC-Address Bound License Key for Educational Devices}
 
-\textbf{The contribution:} A license activation scheme where a generated key (\texttt{EDUC-XXXX-XXXX-XXXX}) is cryptographically bound to a device's MAC address on first registration. The same APK/EXE cannot be used to register a second physical device.
+\textbf{The contribution:} A license activation scheme where a generated key (\texttt{LENS-XXXX-XXXX-XXXX}) is cryptographically bound to a device's MAC address on first registration. The same APK/EXE cannot be used to register a second physical device.
 
 \textbf{Key format:} 12 characters across 3 segments, drawn from the set \texttt{ABCDEFGHJKLMNPQRSTUVWXYZ23456789} (ambiguous characters 0, O, 1, I excluded for readability).
 
@@ -277,16 +277,16 @@ No existing lecture capture platform provides an integrated facility monitoring 
 \section{Comparative Analysis}
 % ─────────────────────────────────────────────────────────────────────────────
 
-Table~\ref{tab:comparison} summarises EduCampus against the five major existing platforms across key dimensions.
+Table~\ref{tab:comparison} summarises LectureLens against the five major existing platforms across key dimensions.
 
 \begin{table}[H]
 \centering
-\caption{Feature comparison: EduCampus vs existing lecture capture platforms (April 2026)}
+\caption{Feature comparison: LectureLens vs existing lecture capture platforms (April 2026)}
 \label{tab:comparison}
 \small
 \begin{tabular}{lcccccc}
 \toprule
-\textbf{Feature} & \textbf{Panopto} & \textbf{Echo360} & \textbf{Kaltura} & \textbf{YuJa} & \textbf{Opencast} & \textbf{EduCampus} \\
+\textbf{Feature} & \textbf{Panopto} & \textbf{Echo360} & \textbf{Kaltura} & \textbf{YuJa} & \textbf{Opencast} & \textbf{LectureLens} \\
 \midrule
 Android TV APK client            & \xmark & \xmark & \xmark & \xmark & \xmark & \checkmark \\
 Windows software client           & \checkmark & \checkmark & \checkmark & \checkmark & Partial & \checkmark \\
@@ -318,7 +318,7 @@ Panopto + Windows PC + webcam & INR 30{,}000--80{,}000 & INR 15{,}000--50{,}000+
 Echo360 + Windows PC + webcam & INR 30{,}000--80{,}000 & INR 15{,}000--50{,}000+ \\
 Epiphan Pearl appliance       & INR 3{,}10{,}000+       & Maintenance only \\
 Opencast (self-hosted)        & INR 30{,}000--80{,}000 & INR 0 (infra + IT labor) \\
-\textbf{EduCampus + Android TV box} & \textbf{INR 2{,}000--10{,}000} & \textbf{Target: INR 6{,}000--24{,}000} \\
+\textbf{LectureLens + Android TV box} & \textbf{INR 2{,}000--10{,}000} & \textbf{Target: INR 6{,}000--24{,}000} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -370,7 +370,7 @@ Opencast (self-hosted)        & INR 30{,}000--80{,}000 & INR 0 (infra + IT labor
 \section{Deployment and Availability}
 % ─────────────────────────────────────────────────────────────────────────────
 
-EduCampus is operational as of April 2026:
+LectureLens is operational as of April 2026:
 
 \begin{itemize}
     \item \textbf{Admin Portal:} \url{https://admin-portal-two-gray.vercel.app}
@@ -386,16 +386,16 @@ The system is currently deployed with MongoDB Atlas as the database layer. The b
 
 The global lecture capture systems market was valued at approximately USD 9--15 billion in 2024, with a compound annual growth rate of 18--33\% through 2030 \cite{mordor2024}. India's lecture capture sub-market is estimated at USD 425 million with a 29.3\% CAGR \cite{indiaMarket}. The National Education Policy 2020 (NEP 2020) mandates digital pedagogy infrastructure across all Indian higher education institutions, creating significant demand for affordable solutions \cite{nep2020}.
 
-With 52{,}321 colleges and 1{,}355 universities in India, and an estimated 90\% unable to afford Western enterprise pricing, EduCampus targets a large, underserved, and rapidly growing market.
+With 52{,}321 colleges and 1{,}355 universities in India, and an estimated 90\% unable to afford Western enterprise pricing, LectureLens targets a large, underserved, and rapidly growing market.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Future Work}
 % ─────────────────────────────────────────────────────────────────────────────
 
-EduCampus is part of a broader ecosystem under development at D\&R AI Solutions Pvt.\ Ltd.:
+LectureLens is part of a broader ecosystem under development at D\&R AI Solutions Pvt.\ Ltd.:
 
 \begin{itemize}
-    \item \textbf{Univanta LMS} — A full Learning Management System with AI-powered transcription, student mobile application, course management, and engagement analytics. EduCampus recordings are designed to feed directly into Univanta LMS course content.
+    \item \textbf{Univanta LMS} — A full Learning Management System with AI-powered transcription, student mobile application, course management, and engagement analytics. LectureLens recordings are designed to feed directly into Univanta LMS course content.
     \item \textbf{AI Transcription Integration} — Automated speech-to-text using Whisper (open-source) for Hindi and English lecture content
     \item \textbf{LMS Plugin} — Moodle plugin for direct recording embedding
     \item \textbf{Multi-language Support} — Setup interfaces in Hindi, Odia, and other Indian languages
@@ -405,9 +405,9 @@ EduCampus is part of a broader ecosystem under development at D\&R AI Solutions 
 \section{Conclusion}
 % ─────────────────────────────────────────────────────────────────────────────
 
-We have presented EduCampus, a novel lecture capture system that for the first time enables Android TV boxes and Smart TVs to function as enterprise-grade, cloud-integrated, autonomous classroom recording devices. The system introduces five specific technical contributions — Android TV capture client, MAC-bound license activation, session-tied attendance QR, four-level physical hierarchy, and integrated facility monitoring — none of which exist in any prior commercial or open-source platform.
+We have presented LectureLens, a novel lecture capture system that for the first time enables Android TV boxes and Smart TVs to function as enterprise-grade, cloud-integrated, autonomous classroom recording devices. The system introduces five specific technical contributions — Android TV capture client, MAC-bound license activation, session-tied attendance QR, four-level physical hierarchy, and integrated facility monitoring — none of which exist in any prior commercial or open-source platform.
 
-EduCampus reduces the per-room hardware cost for lecture capture from INR 30{,}000--80{,}000 to INR 2{,}000--10{,}000, making automated lecture recording economically viable for the 90\% of Indian higher education institutions currently priced out of the market. The system is operational, publicly accessible, and constitutes a complete, deployable solution rather than a prototype.
+LectureLens reduces the per-room hardware cost for lecture capture from INR 30{,}000--80{,}000 to INR 2{,}000--10{,}000, making automated lecture recording economically viable for the 90\% of Indian higher education institutions currently priced out of the market. The system is operational, publicly accessible, and constitutes a complete, deployable solution rather than a prototype.
 
 This paper serves as a public prior art disclosure for all described technical contributions, with a first disclosure date of \textbf{April 13, 2026}.
 

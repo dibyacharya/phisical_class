@@ -9,7 +9,7 @@ const os    = require("os");
 const api   = require("./api");
 const store = require("./store");
 
-const SEGMENT_DIR = path.join(os.tmpdir(), "educampus-segments");
+const SEGMENT_DIR = path.join(os.tmpdir(), "lecturelens-segments");
 if (!fs.existsSync(SEGMENT_DIR)) fs.mkdirSync(SEGMENT_DIR, { recursive: true });
 
 let _state = {

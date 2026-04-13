@@ -1,4 +1,4 @@
-# EduCampus — Device Recorders & License System
+# LectureLens — Device Recorders & License System
 ## Complete Technical Reference
 
 > **Audience:** Developers working on this project in future.  
@@ -28,7 +28,7 @@
 │                   ADMIN PORTAL                      │
 │  (Vercel) → generate License Keys → share with tech │
 └─────────────────────┬───────────────────────────────┘
-                      │  EDUC-XXXX-XXXX-XXXX
+                      │  LENS-XXXX-XXXX-XXXX
                       ▼
           ┌───────────────────────┐
           │  Physical Classroom   │
@@ -72,14 +72,14 @@ Same APK/EXE copied to another device → registration rejected (HTTP 409).
 A one-time activation code of format:
 
 ```
-EDUC-XXXX-XXXX-XXXX
+LENS-XXXX-XXXX-XXXX
 ```
 
-- Prefix `EDUC-` always present
+- Prefix `LENS-` always present
 - 3 segments of 4 chars each
 - Characters: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`  
   (no ambiguous chars: no `0`, `O`, `1`, `I`)
-- Example: `EDUC-K7MN-QR4P-W2YZ`
+- Example: `LENS-K7MN-QR4P-W2YZ`
 
 ### 2.2 How Keys Are Generated
 
@@ -112,7 +112,7 @@ Admin Portal → /licenses page → "Generate Keys" button
 Collection: lcs_licenses
 
 {
-  key:         "EDUC-K7MN-QR4P-W2YZ",  // unique, uppercase
+  key:         "LENS-K7MN-QR4P-W2YZ",  // unique, uppercase
   label:       "Block 14 Room 202",      // admin's note
   isActive:    true,                     // false = revoked
   isActivated: false,                    // true = bound to a device
@@ -154,7 +154,7 @@ All admin endpoints require JWT token (`Authorization: Bearer <token>`).
 **Validate request body:**
 ```json
 {
-  "key":        "EDUC-K7MN-QR4P-W2YZ",
+  "key":        "LENS-K7MN-QR4P-W2YZ",
   "macAddress": "AA:BB:CC:DD:EE:FF"
 }
 ```
@@ -226,7 +226,7 @@ After reset, the same key can be used on the new device.
 ```
 classroom-recorder-android/
 ├── app/src/main/
-│   ├── java/in/educampus/recorder/
+│   ├── java/in/lecturelens/recorder/
 │   │   ├── RecorderApp.kt                    ← Application class
 │   │   ├── ui/setup/
 │   │   │   └── SetupActivity.kt              ← One-time setup wizard
@@ -282,7 +282,7 @@ End user (technician) fills this form ONCE when installing on a new device:
 | Block Name | `etRoomName` | ✅ | `Block 14` |
 | Floor | `etFloor` | Optional | `2nd Floor` |
 | Room Number | `etRoomNumber` | ✅ | `202` |
-| License Key | `etLicenseKey` | ✅ | `EDUC-K7MN-QR4P-W2YZ` |
+| License Key | `etLicenseKey` | ✅ | `LENS-K7MN-QR4P-W2YZ` |
 
 > **Important:** Room Number must exactly match what's in the admin portal's Facility section.
 
@@ -302,7 +302,7 @@ App launches (first time) →
 ### 3.7 Data Stored on Device (EncryptedSharedPreferences)
 
 ```kotlin
-// File: educampus_recorder_prefs (AES-256-GCM encrypted)
+// File: lecturelens_recorder_prefs (AES-256-GCM encrypted)
 
 setup_complete  → Boolean    // Is first-time setup done?
 api_url         → String     // Backend URL
@@ -447,7 +447,7 @@ Video: maxWidth 1920, maxHeight 1080, maxFrameRate 15
 Audio: microphone (getUserMedia, separate stream)
 Segments: 30 seconds each (30,000 ms)
 Format: WebM (VP8/VP9 video + Opus audio)
-Temp storage: OS temp dir → educampus-segments/
+Temp storage: OS temp dir → lecturelens-segments/
 ```
 
 ### 4.5 Setup Screen Fields
@@ -462,7 +462,7 @@ Same as Android — filled once by technician:
 | Floor | `#floor` | Optional | `2nd Floor` |
 | Room Number | `#roomNumber` | ✅ | `202` |
 | Display Name | `#roomName` | Optional | `Smart Class Room 1` |
-| License Key | `#licenseKey` | ✅ | `EDUC-K7MN-QR4P-W2YZ` |
+| License Key | `#licenseKey` | ✅ | `LENS-K7MN-QR4P-W2YZ` |
 
 ### 4.6 IPC Architecture (Electron)
 
@@ -491,7 +491,7 @@ renderer/recorder-worker.html (hidden window)
 ### 4.7 Data Stored on Machine (electron-store)
 
 ```
-File: %APPDATA%/educampus-recorder/config.json  (encrypted)
+File: %APPDATA%/lecturelens-recorder/config.json  (encrypted)
 
 isSetupComplete  → Boolean
 apiUrl           → String
@@ -505,14 +505,14 @@ roomName         → String
 roomNumber       → String
 ```
 
-**Encryption key** (hardcoded, not user-facing): `"educampus-recorder-2024-secure-key"`
+**Encryption key** (hardcoded, not user-facing): `"lecturelens-recorder-2024-secure-key"`
 
 ### 4.8 System Tray Menu
 
 Right-click on tray icon shows:
 
 ```
-EduCampus Recorder
+LectureLens Recorder
 Status: 🔴 Recording  (or 🟢 Standby)
 ─────────────────────
 Open Status Window
@@ -542,8 +542,8 @@ npm install
 npm run build
 
 :: Output in dist\ folder:
-::   EduCampus-Recorder-Setup.exe     ← Installer (creates Start Menu shortcut)
-::   EduCampus-Recorder-Portable.exe  ← No install needed, run anywhere
+::   LectureLens-Recorder-Setup.exe     ← Installer (creates Start Menu shortcut)
+::   LectureLens-Recorder-Portable.exe  ← No install needed, run anywhere
 ```
 
 **electron-builder config** (from `package.json`):
@@ -589,7 +589,7 @@ Content-Type: application/json
 ```json
 {
   "name":        "Smart TV - Room 202",
-  "licenseKey":  "EDUC-K7MN-QR4P-W2YZ",
+  "licenseKey":  "LENS-K7MN-QR4P-W2YZ",
   "macAddress":  "AA:BB:CC:DD:EE:FF",
   "campus":      "KIIT Campus",
   "block":       "Block 14",
@@ -671,7 +671,7 @@ Content-Type: application/json
 2. Click "Generate Keys"
 3. Fill label ("Block 14 Room 202"), count (1), expiry (optional)
 4. Keys created → appear in table as "Available"
-5. Copy the key (EDUC-XXXX-XXXX-XXXX)
+5. Copy the key (LENS-XXXX-XXXX-XXXX)
 6. Give key to technician via WhatsApp/email
 7. Technician installs APK/EXE on device, enters key in setup form
 8. Device registers → key turns "Activated" in admin portal
@@ -687,11 +687,11 @@ Content-Type: application/json
 ```
 Admin:
   1. Go to /licenses → Generate Keys (label: "Block 14 Room 202")
-  2. Copy key: EDUC-K7MN-QR4P-W2YZ
+  2. Copy key: LENS-K7MN-QR4P-W2YZ
   3. Share with technician
 
 Technician:
-  4. Install EduCampus-Recorder.apk on Smart TV (sideload)
+  4. Install LectureLens-Recorder.apk on Smart TV (sideload)
   5. Open app → permission dialogs → allow all
   6. Setup form appears:
      Backend URL: https://phisical-class.onrender.com/api
@@ -699,7 +699,7 @@ Technician:
      Block: Block 14
      Floor: 2nd Floor
      Room Number: 202
-     License Key: EDUC-K7MN-QR4P-W2YZ
+     License Key: LENS-K7MN-QR4P-W2YZ
   7. Tap "Complete Setup"
   8. Screen capture permission dialog → allow
   9. App disappears, notification shows in status bar
@@ -718,17 +718,17 @@ Admin:
 
 Developer:
   2. On a Windows machine: cd classroom-recorder-windows && build.bat
-  3. Share dist/EduCampus-Recorder-Setup.exe (or Portable.exe)
+  3. Share dist/LectureLens-Recorder-Setup.exe (or Portable.exe)
 
 Technician:
-  4. Run EduCampus-Recorder-Setup.exe on classroom PC → install
+  4. Run LectureLens-Recorder-Setup.exe on classroom PC → install
   5. App opens setup window:
      Backend URL: https://phisical-class.onrender.com/api
      Campus: KIIT Campus
      Block: Block 14
      Floor: 2nd Floor
      Room Number: 202
-     License Key: EDUC-XXXX-XXXX-XXXX
+     License Key: LENS-XXXX-XXXX-XXXX
   6. Click "Complete Setup →"
   7. Success screen shows for 2 seconds
   8. Tray icon appears 🎬 in system tray
@@ -786,7 +786,7 @@ When technician enters a DIFFERENT license key:
 
 ### "Invalid license key" (404)
 
-- Key doesn't exist → re-check for typos (EDUC-XXXX-XXXX-XXXX format)
+- Key doesn't exist → re-check for typos (LENS-XXXX-XXXX-XXXX format)
 - Key was revoked → admin must generate a new key
 - Key is not uppercase → setup form auto-uppercases, but verify
 
@@ -809,14 +809,14 @@ When technician enters a DIFFERENT license key:
 
 ### Windows EXE — tray icon not appearing
 
-- Check Task Manager → EduCampus Recorder should be running
+- Check Task Manager → LectureLens Recorder should be running
 - If crash → open DevTools: main.js add `setupWindow.webContents.openDevTools()`
-- electron-store permission issue → delete `%APPDATA%/educampus-recorder/`
+- electron-store permission issue → delete `%APPDATA%/lecturelens-recorder/`
 
 ### Android APK — app not auto-starting on boot
 
-- Device has battery optimization enabled → disable for EduCampus app
-- Check: Settings → Apps → EduCampus → Battery → Unrestricted
+- Device has battery optimization enabled → disable for LectureLens app
+- Check: Settings → Apps → LectureLens → Battery → Unrestricted
 
 ### Heartbeat failing / device shows offline in portal
 

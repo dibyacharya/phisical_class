@@ -362,7 +362,7 @@ export default function Devices() {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
         <h4 className="font-medium text-blue-800 mb-1">Setup New Device</h4>
         <p className="text-sm text-blue-600">
-          Install <strong>EduCampus-Recorder APK</strong> on Smart TV / Android, or run{" "}
+          Install <strong>LectureLens-Recorder APK</strong> on Smart TV / Android, or run{" "}
           <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">node recorder-service.js --setup</code> on Windows PC.
           API URL: <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">http://&lt;server-ip&gt;:4000/api</code>
         </p>

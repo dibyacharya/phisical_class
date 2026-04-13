@@ -1,11 +1,11 @@
-# EduCampus Recorder — Windows
+# LectureLens Recorder — Windows
 
 Android APK ka Windows equivalent. Ek single `.exe` file — install karo, setup karo, bas.
 
 ## End User Experience (Classroom PC pe)
 
 ```
-1. EduCampus-Recorder-Setup.exe download karo
+1. LectureLens-Recorder-Setup.exe download karo
 2. Double-click → install ho jata hai
 3. Setup screen khulta hai (sirf ek baar)
 4. Enter karo:  Backend URL / Campus / Block / Floor / Room Number
@@ -45,8 +45,8 @@ classroom-recorder-windows/
 build.bat
 
 # Output:
-# dist/EduCampus-Recorder-Setup.exe     ← Installer
-# dist/EduCampus-Recorder-Portable.exe  ← No install needed
+# dist/LectureLens-Recorder-Setup.exe     ← Installer
+# dist/LectureLens-Recorder-Portable.exe  ← No install needed
 ```
 
 ## Android APK vs Windows EXE Comparison

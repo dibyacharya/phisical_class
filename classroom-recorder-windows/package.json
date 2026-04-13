@@ -1,9 +1,9 @@
 {
-  "name": "educampus-recorder",
+  "name": "lecturelens-recorder",
   "version": "1.0.0",
-  "description": "EduCampus Classroom Recorder for Windows",
+  "description": "LectureLens Classroom Recorder for Windows",
   "main": "main.js",
-  "author": "EduCampus",
+  "author": "LectureLens",
   "license": "MIT",
   "scripts": {
     "start":    "electron .",
@@ -21,9 +21,9 @@
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId":       "in.educampus.recorder",
-    "productName": "EduCampus Recorder",
-    "copyright":   "© 2024 EduCampus",
+    "appId":       "in.lecturelens.recorder",
+    "productName": "LectureLens Recorder",
+    "copyright":   "© 2024 LectureLens",
 
     "win": {
       "target": [
@@ -39,7 +39,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut":             true,
       "createStartMenuShortcut":           true,
-      "shortcutName":                      "EduCampus Recorder",
+      "shortcutName":                      "LectureLens Recorder",
       "installerIcon":                     "assets/icon.ico",
       "uninstallerIcon":                   "assets/icon.ico",
       "installerHeaderIcon":               "assets/icon.ico",
@@ -47,7 +47,7 @@
     },
 
     "portable": {
-      "artifactName": "EduCampus-Recorder-Portable.exe"
+      "artifactName": "LectureLens-Recorder-Portable.exe"
     },
 
     "files": [

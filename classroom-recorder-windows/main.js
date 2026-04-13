@@ -1,5 +1,5 @@
 /**
- * main.js — EduCampus Recorder (Windows) — Electron main process
+ * main.js — LectureLens Recorder (Windows) — Electron main process
  *
  * Android APK equivalent:
  *   SetupActivity       → openSetup()
@@ -67,7 +67,7 @@ function openSetup() {
     width:     500,
     height:    620,
     resizable: false,
-    title:     "EduCampus Recorder — Setup",
+    title:     "LectureLens Recorder — Setup",
     icon:      iconPath(),
     webPreferences: {
       preload:          path.join(__dirname, "preload.js"),
@@ -90,7 +90,7 @@ function openStatus() {
     width:     420,
     height:    580,
     resizable: false,
-    title:     "EduCampus Recorder",
+    title:     "LectureLens Recorder",
     icon:      iconPath(),
     webPreferences: {
       preload:          path.join(__dirname, "preload.js"),
@@ -136,7 +136,7 @@ function initService() {
   scheduler.start({
     onStatus: (msg) => {
       broadcastTo(statusWindow, "status:update", msg);
-      tray?.setToolTip(`EduCampus Recorder\n${recorder.isRecording() ? "🔴 RECORDING" : "🟢 Ready"}\n${msg}`);
+      tray?.setToolTip(`LectureLens Recorder\n${recorder.isRecording() ? "🔴 RECORDING" : "🟢 Ready"}\n${msg}`);
       updateTrayMenu();
     },
     onSchedule: (schedule) => {
@@ -190,7 +190,7 @@ function checkAutoRecord(schedule) {
 function setupTray() {
   const img = nativeImage.createFromPath(iconPath());
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
-  tray.setToolTip("EduCampus Recorder — Ready");
+  tray.setToolTip("LectureLens Recorder — Ready");
   tray.on("click",        openStatus);
   tray.on("double-click", openStatus);
   updateTrayMenu();
@@ -199,7 +199,7 @@ function setupTray() {
 function updateTrayMenu() {
   const rec = recorder.isRecording();
   const menu = Menu.buildFromTemplate([
-    { label: "EduCampus Recorder",  enabled: false },
+    { label: "LectureLens Recorder",  enabled: false },
     { label: `Status: ${rec ? "🔴 Recording" : "🟢 Standby"}`, enabled: false },
     { type: "separator" },
     { label: "Open Status Window",  click: openStatus },

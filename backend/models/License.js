@@ -9,10 +9,10 @@ const mongoose = require("mongoose");
 const crypto   = require("crypto");
 
 function generateKey() {
-  // Format: EDUC-XXXX-XXXX-XXXX (uppercase alphanumeric, no ambiguous chars)
+  // Format: LENS-XXXX-XXXX-XXXX (uppercase alphanumeric, no ambiguous chars)
   const chars  = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0,O,1,I
   const seg    = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `EDUC-${seg()}-${seg()}-${seg()}`;
+  return `LENS-${seg()}-${seg()}-${seg()}`;
 }
 
 const licenseSchema = new mongoose.Schema(

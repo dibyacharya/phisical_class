@@ -5,8 +5,8 @@
 const Store = require("electron-store");
 
 const store = new Store({
-  name: "educampus-recorder",
-  encryptionKey: "educampus-recorder-2024-secure-key",
+  name: "lecturelens-recorder",
+  encryptionKey: "lecturelens-recorder-2024-secure-key",
   schema: {
     isSetupComplete: { type: "boolean", default: false },
     apiUrl:          { type: "string",  default: "http://localhost:4000/api" },
