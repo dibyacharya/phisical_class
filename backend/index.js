@@ -26,7 +26,8 @@ app.use(fileUpload({
 // Serve uploaded recordings
 app.use("/uploads", express.static(uploadsDir));
 
-// Health check
+// Root & Health check (Render health check hits "/" by default)
+app.get("/", (_req, res) => res.json({ status: "ok", service: "LectureLens API" }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 
@@ -48,4 +49,7 @@ connectDB().then(() => {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });
+}).catch((err) => {
+  console.error("Failed to start server:", err.message);
+  process.exit(1);
 });
