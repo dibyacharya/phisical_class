@@ -1,21 +1,26 @@
 /**
- * Licenses.jsx — License Key Management
+ * Licenses.jsx — License Key Viewer (Read-Only for Client Admin)
  *
  * Admin can:
- *  • Generate 1–100 license keys at once (with optional label + expiry)
- *  • See full list: key, label, status, bound device, created date
+ *  • See full list: key, label, status, bound device, location, expiry
  *  • Copy key to clipboard
- *  • Revoke a key (permanently disable)
- *  • Reset a key (unbind device, allow re-use)
+ *  • Filter by status (available, activated, revoked, expired)
+ *  • Search by key, label, device, room
+ *  • Export to CSV
+ *
+ * Admin CANNOT:
+ *  • Generate new licenses (Super Admin only)
+ *  • Revoke licenses (Super Admin only)
+ *  • Reset licenses (Super Admin only)
  */
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Key, Plus, Copy, Trash2, RefreshCw, CheckCircle2,
-  XCircle, Clock, Monitor, Search, Filter, Download,
+  Key, Copy, CheckCircle2, XCircle, Clock, Monitor,
+  Search, Filter, Download, RefreshCw, ShieldAlert,
 } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const API = import.meta.env.VITE_API_URL || "http://localhost:5020/api";
 
 function token() {
   return localStorage.getItem("lcs_admin_token") || "";
@@ -61,7 +66,6 @@ function CopyBtn({ text }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback for non-HTTPS contexts
       const el = document.createElement("textarea");
       el.value = text;
       document.body.appendChild(el);
@@ -88,143 +92,15 @@ function CopyBtn({ text }) {
   );
 }
 
-// ── Generate modal ────────────────────────────────────────────────────────────
-function GenerateModal({ onClose, onGenerated }) {
-  const [label, setLabel] = useState("");
-  const [count, setCount] = useState(1);
-  const [expiresAt, setExpiresAt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`${API}/licenses`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token()}`,
-        },
-        body: JSON.stringify({
-          label: label.trim(),
-          count: parseInt(count) || 1,
-          expiresAt: expiresAt || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to generate");
-      onGenerated(data);
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <Key size={16} className="text-blue-600" />
-            </div>
-            <h2 className="font-semibold text-slate-800">Generate License Key(s)</h2>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
-        </div>
-
-        {/* Body */}
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Label <span className="text-slate-400 font-normal">(optional — e.g. "Block 14 Room 202")</span>
-            </label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Block 14 Room 202"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Number of Keys <span className="text-slate-400 font-normal">(1–100)</span>
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={count}
-              onChange={(e) => setCount(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Expiry Date <span className="text-slate-400 font-normal">(optional — leave blank for no expiry)</span>
-            </label>
-            <input
-              type="date"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
-              {error}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-60"
-          >
-            {loading ? (
-              <RefreshCw size={14} className="animate-spin" />
-            ) : (
-              <Plus size={14} />
-            )}
-            {loading ? "Generating…" : `Generate ${count > 1 ? `${count} Keys` : "Key"}`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Licenses() {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showGenerate, setShowGenerate] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // all | available | activated | revoked | expired
-
-  // Action in progress (id → "revoke"|"reset")
-  const [actionLoading, setActionLoading] = useState(null);
-  const [actionError, setActionError] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const fetchLicenses = useCallback(async () => {
     setLoading(true);
@@ -247,62 +123,21 @@ export default function Licenses() {
     fetchLicenses();
   }, [fetchLicenses]);
 
-  const handleRevoke = async (id) => {
-    if (!window.confirm("Permanently revoke this license? The bound device will stop working.")) return;
-    setActionLoading(id + ":revoke");
-    setActionError("");
-    try {
-      const res = await fetch(`${API}/licenses/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token()}` },
-      });
-      if (!res.ok) throw new Error("Failed to revoke");
-      setLicenses((prev) =>
-        prev.map((l) => (l._id === id ? { ...l, isActive: false } : l))
-      );
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleReset = async (id) => {
-    if (!window.confirm("Reset this license? The device binding will be removed and the key can be used again on a new device.")) return;
-    setActionLoading(id + ":reset");
-    setActionError("");
-    try {
-      const res = await fetch(`${API}/licenses/${id}/reset`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token()}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to reset");
-      setLicenses((prev) => prev.map((l) => (l._id === id ? data : l)));
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleGenerated = (newLicenses) => {
-    setLicenses((prev) => [...newLicenses, ...prev]);
-  };
-
   // ── Export CSV ──────────────────────────────────────────────────────────────
   const exportCSV = () => {
     const rows = [
-      ["Key", "Label", "Status", "Device MAC", "Room", "Campus", "Block", "Created"],
+      ["Key", "Label", "Status", "Device MAC", "Device Model", "Room", "Campus", "Block", "Created", "Expires"],
       ...licenses.map((l) => [
         l.key,
         l.label || "",
-        !l.isActive ? "Revoked" : l.isActivated ? "Activated" : "Available",
+        !l.isActive ? "Revoked" : (l.expiresAt && new Date() > new Date(l.expiresAt)) ? "Expired" : l.isActivated ? "Activated" : "Available",
         l.deviceMac || "",
+        l.deviceModel || "",
         l.roomNumber || "",
         l.campus || "",
         l.block || "",
         new Date(l.createdAt).toLocaleDateString(),
+        l.expiresAt ? new Date(l.expiresAt).toLocaleDateString() : "Never",
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
@@ -352,7 +187,7 @@ export default function Licenses() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">License Keys</h1>
           <p className="text-slate-500 text-sm mt-1">
-            One-time activation codes for classroom recorder devices
+            Activation codes for classroom recorder devices
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -364,12 +199,23 @@ export default function Licenses() {
             Export CSV
           </button>
           <button
-            onClick={() => setShowGenerate(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            onClick={fetchLicenses}
+            className="flex items-center gap-2 px-4 py-2 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
           >
-            <Plus size={15} />
-            Generate Keys
+            <RefreshCw size={15} />
+            Refresh
           </button>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-xl">
+        <ShieldAlert size={18} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="font-medium">License keys are managed by LectureLens (D&R AI Solutions)</p>
+          <p className="text-amber-600 mt-0.5">
+            To request new licenses or manage existing ones, please contact your LectureLens account manager.
+          </p>
         </div>
       </div>
 
@@ -391,9 +237,7 @@ export default function Licenses() {
             }
           >
             <p className="text-sm text-slate-500">{label}</p>
-            <p
-              className={`text-2xl font-bold mt-1 text-${color}-600`}
-            >
+            <p className={`text-2xl font-bold mt-1 text-${color}-600`}>
               {value}
             </p>
           </div>
@@ -406,7 +250,7 @@ export default function Licenses() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search key, label, device, room…"
+            placeholder="Search key, label, device, room..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -431,9 +275,9 @@ export default function Licenses() {
       </div>
 
       {/* Error */}
-      {(error || actionError) && (
+      {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
-          {error || actionError}
+          {error}
         </div>
       )}
 
@@ -441,7 +285,7 @@ export default function Licenses() {
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-slate-400">
-            <RefreshCw size={20} className="animate-spin mr-2" /> Loading licenses…
+            <RefreshCw size={20} className="animate-spin mr-2" /> Loading licenses...
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -449,7 +293,7 @@ export default function Licenses() {
             <p className="font-medium">No licenses found</p>
             <p className="text-sm mt-1">
               {licenses.length === 0
-                ? 'Click "Generate Keys" to create your first license.'
+                ? "No licenses have been assigned yet. Contact your LectureLens account manager."
                 : "Try changing the filter or search term."}
             </p>
           </div>
@@ -465,144 +309,97 @@ export default function Licenses() {
                   <th className="text-left px-4 py-3 text-slate-500 font-medium">Location</th>
                   <th className="text-left px-4 py-3 text-slate-500 font-medium">Created</th>
                   <th className="text-left px-4 py-3 text-slate-500 font-medium">Expires</th>
-                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((lic) => {
-                  const isActionPending =
-                    actionLoading === lic._id + ":revoke" ||
-                    actionLoading === lic._id + ":reset";
+                {filtered.map((lic) => (
+                  <tr
+                    key={lic._id}
+                    className={`hover:bg-slate-50 transition-colors ${
+                      !lic.isActive ? "opacity-60" : ""
+                    }`}
+                  >
+                    {/* Key */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono text-sm font-semibold tracking-wide text-slate-800">
+                          {lic.key}
+                        </span>
+                        <CopyBtn text={lic.key} />
+                      </div>
+                    </td>
 
-                  return (
-                    <tr
-                      key={lic._id}
-                      className={`hover:bg-slate-50 transition-colors ${
-                        !lic.isActive ? "opacity-60" : ""
-                      }`}
-                    >
-                      {/* Key */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <span className="font-mono text-sm font-semibold tracking-wide text-slate-800">
-                            {lic.key}
-                          </span>
-                          <CopyBtn text={lic.key} />
-                        </div>
-                      </td>
+                    {/* Label */}
+                    <td className="px-4 py-3 text-slate-600">
+                      {lic.label || <span className="text-slate-300 italic">—</span>}
+                    </td>
 
-                      {/* Label */}
-                      <td className="px-4 py-3 text-slate-600">
-                        {lic.label || <span className="text-slate-300 italic">—</span>}
-                      </td>
+                    {/* Status */}
+                    <td className="px-4 py-3">
+                      <StatusBadge lic={lic} />
+                    </td>
 
-                      {/* Status */}
-                      <td className="px-4 py-3">
-                        <StatusBadge lic={lic} />
-                      </td>
-
-                      {/* Bound device */}
-                      <td className="px-4 py-3">
-                        {lic.deviceMac ? (
-                          <div className="flex items-center gap-1.5 text-slate-600">
-                            <Monitor size={13} className="text-slate-400" />
-                            <div>
-                              <div className="font-mono text-xs">{lic.deviceMac}</div>
-                              {lic.deviceModel && (
-                                <div className="text-xs text-slate-400">{lic.deviceModel}</div>
-                              )}
-                            </div>
+                    {/* Bound device */}
+                    <td className="px-4 py-3">
+                      {lic.deviceMac ? (
+                        <div className="flex items-center gap-1.5 text-slate-600">
+                          <Monitor size={13} className="text-slate-400" />
+                          <div>
+                            <div className="font-mono text-xs">{lic.deviceMac}</div>
+                            {lic.deviceModel && (
+                              <div className="text-xs text-slate-400">{lic.deviceModel}</div>
+                            )}
                           </div>
-                        ) : (
-                          <span className="text-slate-300 text-xs italic">Not bound</span>
-                        )}
-                      </td>
-
-                      {/* Location */}
-                      <td className="px-4 py-3 text-slate-600 text-xs">
-                        {lic.campus || lic.block || lic.roomNumber ? (
-                          <span>
-                            {[lic.campus, lic.block, lic.roomNumber]
-                              .filter(Boolean)
-                              .join(" › ")}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 italic">—</span>
-                        )}
-                      </td>
-
-                      {/* Created */}
-                      <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
-                        {new Date(lic.createdAt).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                        <div className="text-slate-400">
-                          by {lic.createdBy?.name || "Admin"}
                         </div>
-                      </td>
+                      ) : (
+                        <span className="text-slate-300 text-xs italic">Not bound</span>
+                      )}
+                    </td>
 
-                      {/* Expires */}
-                      <td className="px-4 py-3 text-xs">
-                        {lic.expiresAt ? (
-                          <span
-                            className={
-                              new Date() > new Date(lic.expiresAt)
-                                ? "text-red-500"
-                                : "text-slate-500"
-                            }
-                          >
-                            {new Date(lic.expiresAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 italic">Never</span>
-                        )}
-                      </td>
+                    {/* Location */}
+                    <td className="px-4 py-3 text-slate-600 text-xs">
+                      {lic.campus || lic.block || lic.roomNumber ? (
+                        <span>
+                          {[lic.campus, lic.block, lic.roomNumber]
+                            .filter(Boolean)
+                            .join(" > ")}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 italic">—</span>
+                      )}
+                    </td>
 
-                      {/* Actions */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          {/* Reset — only if activated or revoked */}
-                          {(lic.isActivated || !lic.isActive) && (
-                            <button
-                              onClick={() => handleReset(lic._id)}
-                              disabled={isActionPending}
-                              title="Reset (unbind device, allow re-use)"
-                              className="p-1.5 rounded text-amber-500 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                            >
-                              {actionLoading === lic._id + ":reset" ? (
-                                <RefreshCw size={14} className="animate-spin" />
-                              ) : (
-                                <RefreshCw size={14} />
-                              )}
-                            </button>
-                          )}
+                    {/* Created */}
+                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                      {new Date(lic.createdAt).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </td>
 
-                          {/* Revoke — only if still active */}
-                          {lic.isActive && (
-                            <button
-                              onClick={() => handleRevoke(lic._id)}
-                              disabled={isActionPending}
-                              title="Revoke (permanently disable)"
-                              className="p-1.5 rounded text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            >
-                              {actionLoading === lic._id + ":revoke" ? (
-                                <RefreshCw size={14} className="animate-spin" />
-                              ) : (
-                                <Trash2 size={14} />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                    {/* Expires */}
+                    <td className="px-4 py-3 text-xs">
+                      {lic.expiresAt ? (
+                        <span
+                          className={
+                            new Date() > new Date(lic.expiresAt)
+                              ? "text-red-500"
+                              : "text-slate-500"
+                          }
+                        >
+                          {new Date(lic.expiresAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 italic">Never</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
 
@@ -613,14 +410,6 @@ export default function Licenses() {
           </div>
         )}
       </div>
-
-      {/* Generate modal */}
-      {showGenerate && (
-        <GenerateModal
-          onClose={() => setShowGenerate(false)}
-          onGenerated={handleGenerated}
-        />
-      )}
     </div>
   );
 }

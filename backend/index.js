@@ -8,11 +8,7 @@ const connectDB = require("./config/database");
 const app = express();
 
 // Middleware
-const allowedOrigins = process.env.ALLOWED_ORIGINS === "*" ? true : (process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:5174", "http://localhost:5175"]);
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(fileUpload({
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
@@ -40,9 +36,9 @@ app.use("/api/rooms", require("./routes/rooms"));
 app.use("/api/licenses", require("./routes/licenses"));
 
 // Start
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5020;
 connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Lecture Capture Backend running on http://localhost:${PORT}`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });
 });

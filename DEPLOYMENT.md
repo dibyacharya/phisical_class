@@ -60,7 +60,7 @@ git add -A && git commit -m "message" && git push origin main
 - **Dashboard:** https://dashboard.render.com/web/srv-d71s38kr85hc739umnm0
 - **Plan:** Free (spins down after 15 min inactivity, cold start ~50s)
 - **Build Command:** `cd backend && npm install`
-- **Start Command:** `cd backend && node server.js`
+- **Start Command:** `cd backend && node index.js`
 - **Root Directory:** (repo root)
 - **Deploy Mode:** Manual — click "Manual Deploy → Deploy latest commit" on dashboard
 
@@ -68,7 +68,7 @@ git add -A && git commit -m "message" && git push origin main
 Set these in Render dashboard → Environment tab:
 
 ```
-PORT=4000
+PORT=5020
 MONGODB_URI=mongodb+srv://dibyacharya_db_user:LCS2024secure@cluster0.033f2jt.mongodb.net/lecture_capture?retryWrites=true&w=majority&appName=Cluster0
 JWT_SECRET=lecture-capture-prod-secret-2026
 ALLOWED_ORIGINS=*
@@ -217,7 +217,7 @@ MONGODB_URI="mongodb+srv://dibyacharya_db_user:LCS2024secure@cluster0.033f2jt.mo
 ### APK Setup Values
 | Field | Value |
 |-------|-------|
-| Backend URL (local) | `http://<laptop-IP>:4000/api` |
+| Backend URL (local) | `http://<laptop-IP>:5020/api` |
 | Backend URL (production) | `https://phisical-class.onrender.com/api` |
 
 ### APK Build Command
@@ -237,21 +237,21 @@ cd "/Users/dibyakantaacharya/ADMIN_PORTAL_with_phisical class/classroom-recorder
 cd "/Users/dibyakantaacharya/ADMIN_PORTAL_with_phisical class/lecture-capture-system/backend"
 npm run dev
 
-# Terminal 2: Admin Portal (port 5174)
+# Terminal 2: Admin Portal (port 3020)
 cd "/Users/dibyakantaacharya/ADMIN_PORTAL_with_phisical class/lecture-capture-system/admin-portal"
 npm run dev
 
-# Terminal 3: Student Portal (port 5175)
+# Terminal 3: Student Portal (port 3021)
 cd "/Users/dibyakantaacharya/ADMIN_PORTAL_with_phisical class/lecture-capture-system/student-portal"
 npm run dev
 ```
 
 ### Local .env (backend)
 ```
-PORT=4000
+PORT=5020
 MONGODB_URI=mongodb://127.0.0.1:27017/lecture_capture
 JWT_SECRET=lecture-capture-demo-secret-2024
-ALLOWED_ORIGINS=http://localhost:5174,http://localhost:5175
+ALLOWED_ORIGINS=http://localhost:3020,http://localhost:3021
 ```
 
 ### Preview Servers (.claude/launch.json)
@@ -259,9 +259,9 @@ ALLOWED_ORIGINS=http://localhost:5174,http://localhost:5175
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "lcs-backend", "runtimeExecutable": "node", "runtimeArgs": ["server.js"], "port": 4000, "cwd": "lecture-capture-system/backend" },
-    { "name": "lcs-admin",   "runtimeExecutable": "npm",  "runtimeArgs": ["run", "dev"], "port": 5174, "cwd": "lecture-capture-system/admin-portal" },
-    { "name": "lcs-student", "runtimeExecutable": "npm",  "runtimeArgs": ["run", "dev"], "port": 5175, "cwd": "lecture-capture-system/student-portal" }
+    { "name": "lcs-backend", "runtimeExecutable": "node", "runtimeArgs": ["index.js"], "port": 5020, "cwd": "lecture-capture-system/backend" },
+    { "name": "lcs-admin",   "runtimeExecutable": "npm",  "runtimeArgs": ["run", "dev"], "port": 3020, "cwd": "lecture-capture-system/admin-portal" },
+    { "name": "lcs-student", "runtimeExecutable": "npm",  "runtimeArgs": ["run", "dev"], "port": 3021, "cwd": "lecture-capture-system/student-portal" }
   ]
 }
 ```

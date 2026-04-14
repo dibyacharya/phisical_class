@@ -1,11 +1,13 @@
 /**
  * licenses.js — License management routes
  *
- * Admin routes:
+ * Super Admin routes (only D&R AI Solutions):
  *   POST   /api/licenses              — generate new license key(s)
- *   GET    /api/licenses              — list all licenses
  *   DELETE /api/licenses/:id          — revoke a license
  *   POST   /api/licenses/:id/reset    — de-activate (unbind device, allow re-use)
+ *
+ * Admin routes (client admin — read-only):
+ *   GET    /api/licenses              — list all licenses (view status only)
  *
  * Public (called by device during setup):
  *   POST   /api/licenses/validate     — check if key is valid + unused
@@ -13,7 +15,7 @@
 
 const router  = require("express").Router();
 const License = require("../models/License");
-const { auth, adminOnly } = require("../middleware/auth");
+const { auth, adminOnly, superAdminOnly } = require("../middleware/auth");
 
 // ── Validate (public — called from device setup before registration) ──────────
 router.post("/validate", async (req, res) => {
@@ -46,8 +48,8 @@ router.post("/validate", async (req, res) => {
   }
 });
 
-// ── Generate license(s) ───────────────────────────────────────────────────────
-router.post("/", auth, adminOnly, async (req, res) => {
+// ── Generate license(s) — SUPER ADMIN ONLY ──────────────────────────────────
+router.post("/", auth, superAdminOnly, async (req, res) => {
   try {
     const { label = "", count = 1, expiresAt } = req.body;
     const qty   = Math.min(Math.max(parseInt(count) || 1, 1), 100); // max 100 at once
@@ -66,7 +68,7 @@ router.post("/", auth, adminOnly, async (req, res) => {
   }
 });
 
-// ── List all licenses ─────────────────────────────────────────────────────────
+// ── List all licenses — Admin can view (read-only) ───────────────────────────
 router.get("/", auth, adminOnly, async (req, res) => {
   try {
     const licenses = await License.find()
@@ -78,8 +80,8 @@ router.get("/", auth, adminOnly, async (req, res) => {
   }
 });
 
-// ── Revoke (permanently disable) ─────────────────────────────────────────────
-router.delete("/:id", auth, adminOnly, async (req, res) => {
+// ── Revoke (permanently disable) — SUPER ADMIN ONLY ─────────────────────────
+router.delete("/:id", auth, superAdminOnly, async (req, res) => {
   try {
     await License.findByIdAndUpdate(req.params.id, { isActive: false });
     res.json({ message: "License revoked" });
@@ -88,8 +90,8 @@ router.delete("/:id", auth, adminOnly, async (req, res) => {
   }
 });
 
-// ── Reset (de-activate — allow to be used again) ──────────────────────────────
-router.post("/:id/reset", auth, adminOnly, async (req, res) => {
+// ── Reset (de-activate — allow to be used again) — SUPER ADMIN ONLY ─────────
+router.post("/:id/reset", auth, superAdminOnly, async (req, res) => {
   try {
     const lic = await License.findByIdAndUpdate(
       req.params.id,

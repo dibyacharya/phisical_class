@@ -27,10 +27,8 @@
 
     "win": {
       "target": [
-        { "target": "nsis",     "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }
       ],
-      "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker"
     },
 
@@ -40,9 +38,6 @@
       "createDesktopShortcut":             true,
       "createStartMenuShortcut":           true,
       "shortcutName":                      "LectureLens Recorder",
-      "installerIcon":                     "assets/icon.ico",
-      "uninstallerIcon":                   "assets/icon.ico",
-      "installerHeaderIcon":               "assets/icon.ico",
       "deleteAppDataOnUninstall":          false
     },
 

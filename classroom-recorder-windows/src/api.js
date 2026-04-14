@@ -6,7 +6,7 @@ const fetch    = require("node-fetch");
 const FormData = require("form-data");
 const fs       = require("fs");
 
-let _baseUrl   = "http://localhost:4000/api";
+let _baseUrl   = "http://localhost:5020/api";
 let _deviceId  = "";
 let _authToken = "";
 

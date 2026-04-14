@@ -94,7 +94,7 @@ function HardwareRow({ ok, Icon, label, detail, error }) {
 
 // ── Video Popup Modal ─────────────────────────────────────────────────────────
 function VideoModal({ row, onClose }) {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:4000";
+  const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:5020";
   const videoSrc = row.videoUrl ? `${API_BASE}${row.videoUrl}` : null;
   const videoRef = useRef(null);
 
@@ -1126,7 +1126,7 @@ function RecordingCard({ row, API_BASE, onClick }) {
 }
 
 function TabRecordings({ roomId }) {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:4000";
+  const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:5020";
 
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);

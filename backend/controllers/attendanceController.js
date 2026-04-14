@@ -30,7 +30,7 @@ exports.generateQr = async (req, res) => {
     const token = Buffer.from(payload).toString("base64url") + "." + signature;
 
     // QR data points to student portal
-    const studentPortalUrl = process.env.STUDENT_PORTAL_URL || "http://localhost:5175";
+    const studentPortalUrl = process.env.STUDENT_PORTAL_URL || "http://localhost:3021";
     const qrData = `${studentPortalUrl}/attend?token=${token}`;
 
     const qrImageDataUrl = await QRCode.toDataURL(qrData, {

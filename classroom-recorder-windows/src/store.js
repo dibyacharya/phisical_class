@@ -9,7 +9,7 @@ const store = new Store({
   encryptionKey: "lecturelens-recorder-2024-secure-key",
   schema: {
     isSetupComplete: { type: "boolean", default: false },
-    apiUrl:          { type: "string",  default: "http://localhost:4000/api" },
+    apiUrl:          { type: "string",  default: "http://localhost:5020/api" },
     deviceId:        { type: "string",  default: "" },
     authToken:       { type: "string",  default: "" },
     campus:          { type: "string",  default: "" },

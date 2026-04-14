@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import api from "../services/api";
 
-const MEDIA_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api").replace("/api", "");
+const MEDIA_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5020/api").replace("/api", "");
 
 // ── Space type config ──────────────────────────────────────────────────────────
 const SPACE_TYPES = [

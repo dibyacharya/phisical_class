@@ -82,7 +82,15 @@ exports.seed = async (_req, res) => {
       await User.create({ ...s, password: "student123", role: "student", batch: batch._id, courses: allCourseIds });
     }
 
-    res.json({ message: "Seed complete — 1 batch, 3 courses, 2 teachers, 4 students, 1 admin" });
+    // 7. Create super admin (D&R AI Solutions master account)
+    await User.create({
+      name: "D&R AI Solutions",
+      email: "superadmin@lecturelens.in",
+      password: "SuperAdmin@2026",
+      role: "superadmin",
+    });
+
+    res.json({ message: "Seed complete — 1 batch, 3 courses, 2 teachers, 4 students, 1 admin, 1 superadmin" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -18,8 +18,15 @@ const auth = async (req, res, next) => {
 };
 
 const adminOnly = (req, res, next) => {
-  if (req.user.role !== "admin") {
+  if (req.user.role !== "admin" && req.user.role !== "superadmin") {
     return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
+const superAdminOnly = (req, res, next) => {
+  if (req.user.role !== "superadmin") {
+    return res.status(403).json({ error: "Super Admin access required" });
   }
   next();
 };
@@ -31,4 +38,4 @@ const studentOnly = (req, res, next) => {
   next();
 };
 
-module.exports = { auth, adminOnly, studentOnly };
+module.exports = { auth, adminOnly, superAdminOnly, studentOnly };

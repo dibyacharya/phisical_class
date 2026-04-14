@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ClipboardList, Video, QrCode, Play, X, Clock, HardDrive, CheckCircle, XCircle, Download } from "lucide-react";
 import api from "../services/api";
 
-const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:4000";
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:5020";
 
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);

@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true },
     password: { type: String, required: true },
-    role: { type: String, enum: ["admin", "student", "teacher"], required: true },
+    role: { type: String, enum: ["superadmin", "admin", "student", "teacher"], required: true },
     rollNumber: { type: String }, // for students
     employeeId: { type: String }, // for teachers
     batch: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_Batch" }, // for students
