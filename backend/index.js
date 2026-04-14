@@ -2,10 +2,17 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 const fileUpload = require("express-fileupload");
 const connectDB = require("./config/database");
 
 const app = express();
+
+// Ensure required directories exist
+const tmpDir = path.join(__dirname, "tmp");
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 // Middleware
 app.use(cors());
@@ -13,11 +20,11 @@ app.use(express.json({ limit: "10mb" }));
 app.use(fileUpload({
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
   useTempFiles: true,
-  tempFileDir: path.join(__dirname, "tmp"),
+  tempFileDir: tmpDir,
 }));
 
 // Serve uploaded recordings
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadsDir));
 
 // Health check
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
