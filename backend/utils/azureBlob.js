@@ -9,7 +9,8 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
 
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const containerName = process.env.AZURE_STORAGE_CONTAINER || "lecturelens-recordings";
+const containerName = process.env.AZURE_STORAGE_CONTAINER || "lms-storage";
+const blobPrefix = process.env.AZURE_BLOB_PREFIX || "physical-class-recordings";
 
 let containerClient = null;
 
@@ -37,11 +38,12 @@ async function uploadToBlob(fileBuffer, blobName, contentType = "video/mp4") {
   if (!client) return null;
 
   try {
-    const blockBlobClient = client.getBlockBlobClient(blobName);
+    const fullBlobPath = blobPrefix ? `${blobPrefix}/${blobName}` : blobName;
+    const blockBlobClient = client.getBlockBlobClient(fullBlobPath);
     await blockBlobClient.uploadData(fileBuffer, {
       blobHTTPHeaders: { blobContentType: contentType },
     });
-    console.log(`[AzureBlob] Uploaded: ${blobName} (${(fileBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
+    console.log(`[AzureBlob] Uploaded: ${fullBlobPath} (${(fileBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
     return blockBlobClient.url;
   } catch (err) {
     console.error("[AzureBlob] Upload failed:", err.message);
@@ -60,13 +62,14 @@ async function uploadFileToBlob(filePath, blobName) {
   if (!client) return null;
 
   try {
-    const blockBlobClient = client.getBlockBlobClient(blobName);
+    const fullBlobPath = blobPrefix ? `${blobPrefix}/${blobName}` : blobName;
+    const blockBlobClient = client.getBlockBlobClient(fullBlobPath);
     await blockBlobClient.uploadFile(filePath, {
       blobHTTPHeaders: { blobContentType: "video/mp4" },
     });
     const fs = require("fs");
     const stats = fs.statSync(filePath);
-    console.log(`[AzureBlob] Uploaded file: ${blobName} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
+    console.log(`[AzureBlob] Uploaded file: ${fullBlobPath} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
     return blockBlobClient.url;
   } catch (err) {
     console.error("[AzureBlob] File upload failed:", err.message);
@@ -82,8 +85,9 @@ async function deleteBlob(blobName) {
   const client = getContainerClient();
   if (!client) return;
   try {
-    await client.getBlockBlobClient(blobName).deleteIfExists();
-    console.log(`[AzureBlob] Deleted: ${blobName}`);
+    const fullBlobPath = blobPrefix ? `${blobPrefix}/${blobName}` : blobName;
+    await client.getBlockBlobClient(fullBlobPath).deleteIfExists();
+    console.log(`[AzureBlob] Deleted: ${fullBlobPath}`);
   } catch (err) {
     console.error("[AzureBlob] Delete failed:", err.message);
   }
