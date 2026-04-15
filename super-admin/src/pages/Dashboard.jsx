@@ -17,7 +17,7 @@ import {
   Shield, AlertTriangle,
 } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5020/api";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5020/api";
 
 function token() {
   return localStorage.getItem("ll_superadmin_token") || "";

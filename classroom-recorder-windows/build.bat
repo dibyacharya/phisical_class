@@ -1,11 +1,11 @@
 @echo off
-title EduCampus Recorder — Build
+title LectureLens Recorder — Build
 color 0A
 
 echo.
 echo  ╔═══════════════════════════════════════════╗
-echo  ║    EduCampus Recorder — Windows Build     ║
-echo  ║    Output: dist\EduCampus-Recorder*.exe   ║
+echo  ║    LectureLens Recorder — Windows Build     ║
+echo  ║    Output: dist\LectureLens-Recorder*.exe   ║
 echo  ╚═══════════════════════════════════════════╝
 echo.
 
@@ -56,8 +56,8 @@ echo.
 echo  ╔══════════════════════════════════════════════════════════╗
 echo  ║  Output files in dist\ folder:                          ║
 echo  ║                                                          ║
-echo  ║  EduCampus-Recorder-Setup.exe    ← Installer (.exe)     ║
-echo  ║  EduCampus-Recorder-Portable.exe ← No install needed    ║
+echo  ║  LectureLens-Recorder-Setup.exe    ← Installer (.exe)     ║
+echo  ║  LectureLens-Recorder-Portable.exe ← No install needed    ║
 echo  ║                                                          ║
 echo  ║  Distribute EITHER file to classrooms.                   ║
 echo  ║  No Node.js required on target machine!                  ║
