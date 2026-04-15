@@ -303,17 +303,29 @@ export default function Devices() {
   }, []);
 
   const handleForceStart = async (deviceId) => {
-    await api.post(`/classroom-recording/devices/${deviceId}/force-start`);
-    fetchDevices();
+    try {
+      await api.post(`/classroom-recording/devices/${deviceId}/force-start`);
+      fetchDevices();
+    } catch (err) {
+      alert("Force start failed: " + (err.response?.data?.error || err.message));
+    }
   };
   const handleForceStop = async (deviceId) => {
-    await api.post(`/classroom-recording/devices/${deviceId}/force-stop`);
-    fetchDevices();
+    try {
+      await api.post(`/classroom-recording/devices/${deviceId}/force-stop`);
+      fetchDevices();
+    } catch (err) {
+      alert("Force stop failed: " + (err.response?.data?.error || err.message));
+    }
   };
   const handleDelete = async (id) => {
     if (!confirm("Delete this device?")) return;
-    await api.delete(`/classroom-recording/devices/${id}`);
-    fetchDevices();
+    try {
+      await api.delete(`/classroom-recording/devices/${id}`);
+      fetchDevices();
+    } catch (err) {
+      alert("Delete failed: " + (err.response?.data?.error || err.message));
+    }
   };
 
   const online = devices.filter(isOnline);

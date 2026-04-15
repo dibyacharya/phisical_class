@@ -43,6 +43,12 @@ app.use("/api/courses", require("./routes/courses"));
 app.use("/api/rooms", require("./routes/rooms"));
 app.use("/api/licenses", require("./routes/licenses"));
 
+// Global error handler — returns JSON instead of ugly HTML stack traces
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err.message);
+  res.status(500).json({ error: "Internal server error" });
+});
+
 // Start
 const PORT = process.env.PORT || 5020;
 connectDB().then(() => {

@@ -19,7 +19,8 @@ function init(baseUrl, deviceId, authToken) {
 function headers(extra = {}) {
   return {
     "Content-Type": "application/json",
-    ...((_authToken) ? { "Authorization": `Bearer ${_authToken}` } : {}),
+    ...(_deviceId  ? { "x-device-id":    _deviceId }  : {}),
+    ...(_authToken ? { "x-device-token": _authToken } : {}),
     ...extra,
   };
 }
@@ -68,7 +69,8 @@ async function uploadSegment(recordingId, segmentPath, meta) {
     {
       method:  "POST",
       headers: {
-        ...(_authToken ? { Authorization: `Bearer ${_authToken}` } : {}),
+        ...(_deviceId  ? { "x-device-id":    _deviceId }  : {}),
+        ...(_authToken ? { "x-device-token": _authToken } : {}),
         ...form.getHeaders(),
       },
       body:    form,

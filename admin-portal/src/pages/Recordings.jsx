@@ -35,14 +35,22 @@ export default function Recordings() {
   useEffect(() => { fetchRecordings(); }, []);
 
   const togglePublish = async (id) => {
-    await api.put(`/recordings/${id}/toggle-publish`);
-    fetchRecordings();
+    try {
+      await api.put(`/recordings/${id}/toggle-publish`);
+      fetchRecordings();
+    } catch (err) {
+      alert("Failed: " + (err.response?.data?.error || err.message));
+    }
   };
 
   const handleDelete = async (id) => {
     if (!confirm("Delete this recording?")) return;
-    await api.delete(`/recordings/${id}`);
-    fetchRecordings();
+    try {
+      await api.delete(`/recordings/${id}`);
+      fetchRecordings();
+    } catch (err) {
+      alert("Delete failed: " + (err.response?.data?.error || err.message));
+    }
   };
 
   const getVideoUrl = (rec) => {

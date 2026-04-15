@@ -2,8 +2,8 @@ import { useState } from "react";
 import api from "../services/api";
 
 export default function Login({ onLogin }) {
-  const [email, setEmail] = useState("admin@kiit.ac.in");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -42,8 +42,8 @@ export default function Login({ onLogin }) {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <div className="text-4xl mb-2">🏫</div>
-          <h1 className="text-2xl font-bold text-gray-800">Facility Monitoring System</h1>
+          <div className="text-4xl mb-2">🎬</div>
+          <h1 className="text-2xl font-bold text-gray-800">LectureLens</h1>
           <p className="text-gray-500 mt-1">Admin Portal</p>
         </div>
 
@@ -80,15 +80,7 @@ export default function Login({ onLogin }) {
           </button>
         </form>
 
-        <div className="mt-6 pt-6 border-t text-center">
-          <button
-            onClick={handleSeed}
-            disabled={seeding}
-            className="text-sm text-gray-500 hover:text-blue-600 transition"
-          >
-            {seeding ? "Seeding..." : "First time? Click to seed demo data"}
-          </button>
-        </div>
+        {/* Seed button hidden in production */}
       </div>
     </div>
   );

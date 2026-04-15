@@ -141,7 +141,7 @@ export default function Users() {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="e.g. user@kiit.ac.in"
+                placeholder="e.g. user@university.edu"
                 required
               />
             </div>

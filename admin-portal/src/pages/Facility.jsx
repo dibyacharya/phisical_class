@@ -920,7 +920,7 @@ function AddSpaceModal({ onClose, onSaved }) {
                 Campus *
               </label>
               <input value={form.campus} onChange={e => set("campus", e.target.value)} required
-                placeholder="e.g. KIIT Campus"
+                placeholder="e.g. Main Campus"
                 className="w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none focus:border-blue-500 text-gray-800" />
             </div>
             <div>

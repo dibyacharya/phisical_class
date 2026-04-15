@@ -212,9 +212,9 @@ export default function Licenses() {
       <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-xl">
         <ShieldAlert size={18} className="mt-0.5 flex-shrink-0" />
         <div>
-          <p className="font-medium">License keys are managed by LectureLens (D&R AI Solutions)</p>
+          <p className="font-medium">License keys are managed by LectureLens</p>
           <p className="text-amber-600 mt-0.5">
-            To request new licenses or manage existing ones, please contact your LectureLens account manager.
+            To request new licenses or manage existing ones, please contact your system administrator.
           </p>
         </div>
       </div>
@@ -237,7 +237,12 @@ export default function Licenses() {
             }
           >
             <p className="text-sm text-slate-500">{label}</p>
-            <p className={`text-2xl font-bold mt-1 text-${color}-600`}>
+            <p className={`text-2xl font-bold mt-1 ${
+              color === "slate" ? "text-slate-600" :
+              color === "blue" ? "text-blue-600" :
+              color === "green" ? "text-green-600" :
+              color === "red" ? "text-red-600" : "text-gray-600"
+            }`}>
               {value}
             </p>
           </div>
@@ -293,7 +298,7 @@ export default function Licenses() {
             <p className="font-medium">No licenses found</p>
             <p className="text-sm mt-1">
               {licenses.length === 0
-                ? "No licenses have been assigned yet. Contact your LectureLens account manager."
+                ? "No licenses have been assigned yet. Contact your system administrator."
                 : "Try changing the filter or search term."}
             </p>
           </div>

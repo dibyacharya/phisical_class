@@ -2,8 +2,8 @@ import { useState } from "react";
 import api from "../services/api";
 
 export default function Login({ onLogin }) {
-  const [email, setEmail] = useState("rahul@kiit.ac.in");
-  const [password, setPassword] = useState("student123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -67,10 +67,7 @@ export default function Login({ onLogin }) {
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-400">Demo students: rahul / priya / amit / sneha @kiit.ac.in</p>
-          <p className="text-xs text-gray-400">Password: student123</p>
-        </div>
+        {/* Demo credentials hidden in production */}
       </div>
     </div>
   );

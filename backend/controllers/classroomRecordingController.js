@@ -357,7 +357,7 @@ exports.findOrCreateSession = async (req, res) => {
     }
 
     // Check if recording already exists for this meeting
-    let recording = await Recording.findOne({ scheduledClass: meetingId });
+    let recording = await Recording.findOne({ scheduledClass: meetingId, status: { $ne: "failed" } });
 
     // Generate HMAC secret for QR
     const hmacSecret = crypto.randomBytes(32).toString("hex");
