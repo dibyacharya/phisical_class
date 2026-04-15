@@ -7,6 +7,7 @@ const ScheduledClass = require("../models/ScheduledClass");
 const Attendance = require("../models/Attendance");
 const Room = require("../models/Room");
 const License = require("../models/License");
+const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
 
 // ============ DEVICE ENDPOINTS ============
 
@@ -449,21 +450,35 @@ exports.segmentUpload = async (req, res) => {
       return res.status(404).json({ error: "Recording not found" });
     }
 
-    // Handle file upload - store locally in uploads/
-    const uploadsDir = path.join(__dirname, "..", "uploads");
-    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
     let fileSize = 0;
-    let savedFilePath = "";
+    let videoUrl = "";
 
     if (req.files && req.files.video) {
       const videoFile = req.files.video;
-      savedFilePath = path.join(uploadsDir, `${recordingId}_${Date.now()}.mp4`);
-      await videoFile.mv(savedFilePath);
+      const blobName = `${recordingId}_${Date.now()}.mp4`;
       fileSize = videoFile.size;
+
+      // Try Azure Blob first, fallback to local
+      if (isAzureConfigured()) {
+        const azureUrl = await uploadToBlob(videoFile.data, blobName, "video/mp4");
+        if (azureUrl) {
+          videoUrl = azureUrl;
+          console.log(`[Upload] Azure Blob: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+        }
+      }
+
+      // Fallback: save locally if Azure not configured or failed
+      if (!videoUrl) {
+        const uploadsDir = path.join(__dirname, "..", "uploads");
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+        const localPath = path.join(uploadsDir, blobName);
+        await videoFile.mv(localPath);
+        videoUrl = `/uploads/${blobName}`;
+        console.log(`[Upload] Local: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+      }
     } else if (req.file) {
-      savedFilePath = req.file.path;
       fileSize = req.file.size;
+      videoUrl = `/uploads/${path.basename(req.file.path)}`;
     }
 
     // Update recording
@@ -473,8 +488,8 @@ exports.segmentUpload = async (req, res) => {
     recording.fileSize = (recording.fileSize || 0) + fileSize;
     recording.duration = (recording.duration || 0) + duration;
     recording.isPublished = true;
-    if (savedFilePath) {
-      recording.videoUrl = `/uploads/${path.basename(savedFilePath)}`;
+    if (videoUrl) {
+      recording.videoUrl = videoUrl;
     }
     await recording.save();
 
@@ -492,7 +507,7 @@ exports.segmentUpload = async (req, res) => {
       );
     }
 
-    res.json({ message: "Segment uploaded", recordingId });
+    res.json({ message: "Segment uploaded", recordingId, storage: videoUrl.startsWith("http") ? "azure" : "local" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

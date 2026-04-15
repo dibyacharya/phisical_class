@@ -1,4 +1,5 @@
 const Recording = require("../models/Recording");
+const Room = require("../models/Room");
 
 // GET /api/recordings
 exports.getAll = async (req, res) => {
@@ -17,7 +18,21 @@ exports.getAll = async (req, res) => {
           { path: "teacher", select: "name" },
         ],
       });
-    res.json(recordings);
+
+    // Enrich with room hierarchy (campus > block > floor)
+    const roomNumbers = [...new Set(recordings.map(r => r.scheduledClass?.roomNumber).filter(Boolean))];
+    const rooms = await Room.find({ roomNumber: { $in: roomNumbers } }).lean();
+    const roomMap = {};
+    rooms.forEach(r => { roomMap[r.roomNumber] = { campus: r.campus, block: r.block, floor: r.floor || "", roomName: r.roomName || "" }; });
+
+    const enriched = recordings.map(r => {
+      const obj = r.toObject();
+      const rn = obj.scheduledClass?.roomNumber;
+      obj.room = roomMap[rn] || { campus: "", block: "", floor: "", roomName: "" };
+      return obj;
+    });
+
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
