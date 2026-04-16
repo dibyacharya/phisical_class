@@ -258,7 +258,7 @@ exports.heartbeat = async (req, res) => {
         title: cls.title,
         courseName: cls.courseName,
         courseCode: cls.courseCode,
-        teacherName: cls.teacher,
+        teacherName: cls.teacherName || null,
         start: startISO,
         end: endISO,
         alreadyRecorded: recordedClassIds.has(cls._id.toString()),
