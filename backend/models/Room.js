@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const roomSchema = new mongoose.Schema(
   {
+    spaceCode: { type: String, unique: true, sparse: true, uppercase: true, trim: true },  // auto-generated e.g. C25-BA-F3-R101
     campus: { type: String, required: true },
     block: { type: String, required: true },
     floor: { type: String },

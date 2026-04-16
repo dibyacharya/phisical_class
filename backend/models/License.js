@@ -36,6 +36,7 @@ const licenseSchema = new mongoose.Schema(
     deviceMac:    { type: String, default: "" },
     deviceId:     { type: String, default: "" },  // ClassroomDevice._id
     deviceModel:  { type: String, default: "" },
+    spaceCode:    { type: String, default: "" },  // auto-generated e.g. C25-BA-F3-R101
     roomNumber:   { type: String, default: "" },
     campus:       { type: String, default: "" },
     block:        { type: String, default: "" },

@@ -61,6 +61,7 @@ const classroomDeviceSchema = new mongoose.Schema(
       default: () => "dev_" + crypto.randomBytes(8).toString("hex"),
     },
     name: { type: String, required: true },
+    spaceCode: { type: String, uppercase: true, trim: true },  // auto-generated e.g. C25-BA-F3-R101
     roomId: { type: String },
     roomName: { type: String },
     roomNumber: { type: String },

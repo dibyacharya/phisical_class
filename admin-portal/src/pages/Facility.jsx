@@ -274,7 +274,10 @@ function VideoModal({ space, onClose, onViewDetail }) {
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-2xl shrink-0">{meta.icon}</span>
             <div className="min-w-0">
-              <p className="font-bold text-white text-sm leading-tight truncate">{space.roomName || space.roomNumber}</p>
+              <p className="font-bold text-white text-sm leading-tight truncate">
+                {space.spaceCode && <span className="font-mono text-white/70 text-xs mr-1.5">[{space.spaceCode}]</span>}
+                {space.roomName || space.roomNumber}
+              </p>
               {/* Campus > Block > Floor > Room breadcrumb */}
               <p className="text-[10px] text-white/60 mt-0.5 flex items-center gap-1 flex-wrap">
                 <span>{space.campus}</span>
@@ -477,7 +480,7 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between">
-          <p className="font-bold text-gray-800 text-xs truncate">{space.roomNumber}</p>
+          <p className="font-bold text-gray-800 text-xs truncate">{space.spaceCode || space.roomNumber}</p>
           {isRecording ? (
             <span className="text-[8px] font-bold text-red-600 bg-red-50 px-1 py-0.5 rounded shrink-0 ml-1">REC</span>
           ) : isOnline ? (
@@ -548,7 +551,10 @@ function SpaceCard({ space, onPlay, onNavigate, compact }) {
           </div>
         </div>
 
-        {/* Room number + name */}
+        {/* Space code + Room number + name */}
+        {space.spaceCode && (
+          <span className="inline-block text-[9px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded mb-1">{space.spaceCode}</span>
+        )}
         <p className="font-black text-gray-800 text-sm leading-tight">{space.roomNumber}</p>
         {space.roomName && <p className="text-[10px] text-gray-500 truncate mt-0.5">{space.roomName}</p>}
 

@@ -18,7 +18,8 @@ exports.registerDevice = async (req, res) => {
       name, roomId, roomName, floor, roomNumber,
       ipAddress, deviceType, deviceModel, osVersion, macAddress,
       campus, block, spaceType, capacity,
-      licenseKey,   // ← NEW: required for first-time registration
+      spaceCode,    // auto-generated unique code e.g. C25-BA-F3-R101
+      licenseKey,   // required for first-time registration
     } = req.body;
 
     // ── Validate required fields ─────────────────────────────────────────────
@@ -62,6 +63,7 @@ exports.registerDevice = async (req, res) => {
 
     if (device) {
       device.name        = name        || device.name;
+      device.spaceCode   = spaceCode   || device.spaceCode;
       device.roomId      = roomId      || device.roomId;
       device.roomName    = roomName    || device.roomName;
       device.roomNumber  = resolvedRoomNumber || device.roomNumber;
@@ -75,6 +77,7 @@ exports.registerDevice = async (req, res) => {
     } else {
       device = await ClassroomDevice.create({
         name:        name || `Smart TV - ${roomName || resolvedRoomNumber}`,
+        spaceCode:   spaceCode || "",
         roomId:      roomId,
         roomName:    roomName || `Room ${resolvedRoomNumber}`,
         roomNumber:  resolvedRoomNumber,
@@ -94,6 +97,7 @@ exports.registerDevice = async (req, res) => {
           deviceMac:   macAddress,
           deviceId:    device.deviceId,
           deviceModel: deviceModel || "",
+          spaceCode:   spaceCode || "",
           roomNumber:  resolvedRoomNumber,
           campus:      resolvedCampus,
           block:       resolvedBlock,
@@ -108,6 +112,7 @@ exports.registerDevice = async (req, res) => {
         {
           $setOnInsert: { createdAt: new Date() },
           $set: {
+            spaceCode:  spaceCode || "",
             campus:     resolvedCampus,
             block:      resolvedBlock,
             floor:      floor     || "",
