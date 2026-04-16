@@ -9,7 +9,7 @@ export default function Batches() {
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [expandedBatch, setExpandedBatch] = useState(null);
   const [batchCourses, setBatchCourses] = useState({});
-  const [batchForm, setBatchForm] = useState({ name: "", description: "" });
+  const [batchForm, setBatchForm] = useState({ batchCode: "", name: "", description: "" });
   const [courseForm, setCourseForm] = useState({ courseName: "", courseCode: "", teacher: "" });
   const [showCourseForm, setShowCourseForm] = useState(null);
   const [error, setError] = useState("");
@@ -44,7 +44,7 @@ export default function Batches() {
     setError("");
     try {
       await api.post("/batches", batchForm);
-      setBatchForm({ name: "", description: "" });
+      setBatchForm({ batchCode: "", name: "", description: "" });
       setShowBatchForm(false);
       fetchBatches();
     } catch (err) {
@@ -116,16 +116,21 @@ export default function Batches() {
             <button onClick={() => setShowBatchForm(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
           </div>
           {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
-          <form onSubmit={handleCreateBatch} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleCreateBatch} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Batch Name</label>
-              <input value={batchForm.name} onChange={(e) => setBatchForm({ ...batchForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. CSE 2021-25 Batch A" required />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Batch Code <span className="text-red-500">*</span></label>
+              <input value={batchForm.batchCode} onChange={(e) => setBatchForm({ ...batchForm, batchCode: e.target.value.toUpperCase() })} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono uppercase" placeholder="e.g. CSE-2025-A" required />
+              <p className="text-xs text-gray-400 mt-1">Unique code for this batch</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Batch Name <span className="text-red-500">*</span></label>
+              <input value={batchForm.name} onChange={(e) => setBatchForm({ ...batchForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. B.Tech CSE 2025 Batch A" required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <input value={batchForm.description} onChange={(e) => setBatchForm({ ...batchForm, description: e.target.value })} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Optional description" />
             </div>
-            <div className="md:col-span-2 flex gap-3">
+            <div className="md:col-span-3 flex gap-3">
               <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">Create Batch</button>
               <button type="button" onClick={() => setShowBatchForm(false)} className="bg-gray-100 text-gray-600 px-6 py-2 rounded-lg hover:bg-gray-200 transition">Cancel</button>
             </div>
@@ -153,8 +158,11 @@ export default function Batches() {
                 <div className="flex items-center gap-4">
                   {expandedBatch === batch._id ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
                   <div>
-                    <h3 className="font-semibold text-gray-800">{batch.name}</h3>
-                    {batch.description && <p className="text-sm text-gray-500">{batch.description}</p>}
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-mono font-bold rounded">{batch.batchCode}</span>
+                      <h3 className="font-semibold text-gray-800">{batch.name}</h3>
+                    </div>
+                    {batch.description && <p className="text-sm text-gray-500 mt-0.5">{batch.description}</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-6">

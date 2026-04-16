@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 
 const batchSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, unique: true },
+    batchCode: { type: String, required: true, unique: true, uppercase: true, trim: true },
+    name: { type: String, required: true },
     description: { type: String, default: "" },
     isActive: { type: Boolean, default: true },
   },

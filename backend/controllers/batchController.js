@@ -22,12 +22,13 @@ exports.getAll = async (_req, res) => {
 // POST /api/batches
 exports.create = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { batchCode, name, description } = req.body;
+    if (!batchCode) return res.status(400).json({ error: "Batch code is required" });
     if (!name) return res.status(400).json({ error: "Batch name is required" });
-    const batch = await Batch.create({ name, description });
+    const batch = await Batch.create({ batchCode, name, description });
     res.status(201).json(batch);
   } catch (err) {
-    if (err.code === 11000) return res.status(400).json({ error: "Batch name already exists" });
+    if (err.code === 11000) return res.status(400).json({ error: "Batch code already exists" });
     res.status(500).json({ error: err.message });
   }
 };
