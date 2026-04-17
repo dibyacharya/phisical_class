@@ -8,6 +8,7 @@ const Attendance = require("../models/Attendance");
 const Room = require("../models/Room");
 const License = require("../models/License");
 const AppVersion = require("../models/AppVersion");
+const HealthSnapshot = require("../models/HealthSnapshot");
 const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
 
 // ============ DEVICE ENDPOINTS ============
@@ -190,6 +191,30 @@ exports.healthReport = async (req, res) => {
     };
 
     await device.save();
+
+    // Also store time-series snapshot from full health report
+    HealthSnapshot.create({
+      deviceId: device.deviceId,
+      deviceName: device.name,
+      roomNumber: device.roomNumber,
+      cpu: incoming.cpu || {},
+      ram: incoming.ram || {},
+      disk: incoming.disk || {},
+      network: incoming.network || {},
+      battery: incoming.battery || {},
+      camera: incoming.camera ? { ok: incoming.camera.ok, error: incoming.camera.error } : {},
+      mic: incoming.mic ? { ok: incoming.mic.ok, error: incoming.mic.error } : {},
+      screen: incoming.screen ? { ok: incoming.screen.ok, resolution: incoming.screen.resolution } : {},
+      recording: {
+        isRecording: !!device.isRecording,
+        frameDrops: incoming.recording?.frameDrop || 0,
+        errorCount: incoming.recording?.errorCount || 0,
+        lastError: incoming.recording?.lastError,
+      },
+      serviceUptime: incoming.serviceUptime,
+      timestamp: new Date(),
+    }).catch(err => console.error("[Analytics] Health snapshot save failed:", err.message));
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -221,6 +246,38 @@ exports.heartbeat = async (req, res) => {
     }
 
     await device.save();
+
+    // ── Store time-series health snapshot for analytics ──────────────
+    if (req.body.health) {
+      const h = req.body.health;
+      HealthSnapshot.create({
+        deviceId: device.deviceId,
+        deviceName: device.name,
+        roomNumber: device.roomNumber,
+        cpu: h.cpu || {},
+        ram: h.ram || {},
+        disk: h.disk || {},
+        network: h.network || {},
+        battery: h.battery || {},
+        camera: h.camera ? { ok: h.camera.ok, error: h.camera.error } : {},
+        mic: h.mic ? { ok: h.mic.ok, error: h.mic.error } : {},
+        screen: h.screen ? { ok: h.screen.ok, resolution: h.screen.resolution } : {},
+        recording: {
+          isRecording: !!req.body.isRecording,
+          frameDrops: h.recording?.frameDrop || 0,
+          errorCount: h.recording?.errorCount || 0,
+          lastError: h.recording?.lastError,
+          segmentIndex: h.recording?.segmentIndex,
+          encoderFps: h.recording?.encoderFps,
+          actualBitrate: h.recording?.actualBitrate,
+        },
+        upload: h.upload || {},
+        serviceUptime: h.serviceUptime,
+        appVersionCode: parseInt(req.body.appVersionCode) || undefined,
+        timestamp: new Date(),
+      }).catch(err => console.error("[Analytics] Snapshot save failed:", err.message));
+      // Fire-and-forget — don't slow down heartbeat response
+    }
 
     // Get today's schedule for this device's room
     const today = new Date();

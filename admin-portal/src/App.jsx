@@ -12,6 +12,7 @@ import Users from "./pages/Users";
 import Batches from "./pages/Batches";
 import Licenses from "./pages/Licenses";
 import AppUpdate from "./pages/AppUpdate";
+import Analytics from "./pages/Analytics";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -70,6 +71,7 @@ export default function App() {
                   <Route path="/batches" element={<Batches />} />
                   <Route path="/licenses" element={<Licenses />} />
                   <Route path="/app-update" element={<AppUpdate />} />
+                  <Route path="/analytics" element={<Analytics />} />
                   <Route path="/attendance/:classId" element={<AttendanceView />} />
                 </Routes>
               </Layout>
