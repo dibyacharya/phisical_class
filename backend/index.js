@@ -42,6 +42,7 @@ app.use("/api/batches", require("./routes/batches"));
 app.use("/api/courses", require("./routes/courses"));
 app.use("/api/rooms", require("./routes/rooms"));
 app.use("/api/licenses", require("./routes/licenses"));
+app.use("/api/app", require("./routes/appUpdate"));
 
 // Global error handler — returns JSON instead of ugly HTML stack traces
 app.use((err, _req, res, _next) => {

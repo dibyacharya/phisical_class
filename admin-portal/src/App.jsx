@@ -11,6 +11,7 @@ import AttendanceView from "./pages/AttendanceView";
 import Users from "./pages/Users";
 import Batches from "./pages/Batches";
 import Licenses from "./pages/Licenses";
+import AppUpdate from "./pages/AppUpdate";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -68,6 +69,7 @@ export default function App() {
                   <Route path="/users" element={<Users />} />
                   <Route path="/batches" element={<Batches />} />
                   <Route path="/licenses" element={<Licenses />} />
+                  <Route path="/app-update" element={<AppUpdate />} />
                   <Route path="/attendance/:classId" element={<AttendanceView />} />
                 </Routes>
               </Layout>

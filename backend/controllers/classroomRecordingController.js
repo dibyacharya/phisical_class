@@ -7,6 +7,7 @@ const ScheduledClass = require("../models/ScheduledClass");
 const Attendance = require("../models/Attendance");
 const Room = require("../models/Room");
 const License = require("../models/License");
+const AppVersion = require("../models/AppVersion");
 const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
 
 // ============ DEVICE ENDPOINTS ============
@@ -285,11 +286,33 @@ exports.heartbeat = async (req, res) => {
       }
     }
 
+    // ── Check for app update ────────────────────────────────────────────────
+    let appUpdate = null;
+    try {
+      const deviceVersionCode = parseInt(req.body.appVersionCode) || 0;
+      const latestApp = await AppVersion.findOne({ isActive: true })
+        .select("versionCode versionName apkSize releaseNotes")
+        .sort({ versionCode: -1 });
+
+      if (latestApp && latestApp.versionCode > deviceVersionCode) {
+        appUpdate = {
+          versionCode: latestApp.versionCode,
+          versionName: latestApp.versionName,
+          apkSize: latestApp.apkSize,
+          releaseNotes: latestApp.releaseNotes || "",
+          downloadUrl: `${req.protocol}://${req.get("host")}/api/app/download`,
+        };
+      }
+    } catch (updateErr) {
+      console.error("[Heartbeat] App update check failed:", updateErr.message);
+    }
+
     res.json({
       schedule,
       serverTime: new Date().toISOString(),
       forceStop: false,
       activeSession,
+      appUpdate,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
