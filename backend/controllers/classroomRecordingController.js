@@ -80,7 +80,7 @@ exports.registerDevice = async (req, res) => {
     } else {
       device = await ClassroomDevice.create({
         name:        name || `Smart TV - ${roomName || resolvedRoomNumber}`,
-        spaceCode:   spaceCode || "",
+        spaceCode:   spaceCode || null,
         roomId:      roomId,
         roomName:    roomName || `Room ${resolvedRoomNumber}`,
         roomNumber:  resolvedRoomNumber,
@@ -100,7 +100,7 @@ exports.registerDevice = async (req, res) => {
           deviceMac:   macAddress,
           deviceId:    device.deviceId,
           deviceModel: deviceModel || "",
-          spaceCode:   spaceCode || "",
+          spaceCode:   spaceCode || null,
           roomNumber:  resolvedRoomNumber,
           campus:      resolvedCampus,
           block:       resolvedBlock,
@@ -115,7 +115,7 @@ exports.registerDevice = async (req, res) => {
         {
           $setOnInsert: { createdAt: new Date() },
           $set: {
-            spaceCode:  spaceCode || "",
+            spaceCode:  spaceCode || null,
             campus:     resolvedCampus,
             block:      resolvedBlock,
             floor:      floor     || "",

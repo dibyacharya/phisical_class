@@ -54,7 +54,22 @@ app.use((err, _req, res, _next) => {
 
 // Start
 const PORT = process.env.PORT || 5020;
-connectDB().then(() => {
+connectDB().then(async () => {
+  // One-time migration: drop old sparse unique index on Room.spaceCode
+  // (replaced by partial filter expression index that correctly skips empty strings)
+  try {
+    const db = require("mongoose").connection.db;
+    const indexes = await db.collection("lcs_rooms").indexes();
+    const oldIdx = indexes.find(i => i.key?.spaceCode && i.sparse);
+    if (oldIdx) {
+      await db.collection("lcs_rooms").dropIndex(oldIdx.name);
+      console.log(`[Migration] Dropped old sparse index "${oldIdx.name}" on lcs_rooms.spaceCode`);
+    }
+  } catch (e) {
+    // Ignore — index may already be gone or collection may not exist yet
+    if (!e.message.includes("ns not found")) console.log("[Migration] spaceCode index:", e.message);
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });

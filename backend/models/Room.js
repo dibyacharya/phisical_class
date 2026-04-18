@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const roomSchema = new mongoose.Schema(
   {
-    spaceCode: { type: String, unique: true, sparse: true, uppercase: true, trim: true },  // auto-generated e.g. C25-BA-F3-R101
+    spaceCode: { type: String, uppercase: true, trim: true },  // auto-generated e.g. C25-BA-F3-R101
     campus: { type: String, required: true },
     block: { type: String, required: true },
     floor: { type: String },
@@ -21,5 +21,11 @@ const roomSchema = new mongoose.Schema(
 
 // Unique per campus+block+roomNumber
 roomSchema.index({ campus: 1, block: 1, roomNumber: 1 }, { unique: true });
+
+// Unique spaceCode — only enforced for non-empty values (skip null/"")
+roomSchema.index(
+  { spaceCode: 1 },
+  { unique: true, partialFilterExpression: { spaceCode: { $type: "string", $gt: "" } } }
+);
 
 module.exports = mongoose.model("LCS_Room", roomSchema);
