@@ -367,6 +367,7 @@ exports.heartbeat = async (req, res) => {
 
     // ── Check for pending remote commands ──────────────────────────────
     let pendingCommands = [];
+    let pendingCommandIds = [];
     try {
       const cmds = await DeviceCommand.find({
         deviceId: device.deviceId,
@@ -379,11 +380,8 @@ exports.heartbeat = async (req, res) => {
           command: c.command,
           params: c.params || {},
         }));
-        // Mark as acknowledged
-        await DeviceCommand.updateMany(
-          { _id: { $in: cmds.map(c => c._id) } },
-          { status: "acknowledged", acknowledgedAt: new Date() }
-        );
+        pendingCommandIds = cmds.map(c => c._id);
+        // DON'T mark acknowledged yet — wait until response is sent.
       }
     } catch (cmdErr) {
       console.error("[Heartbeat] Command check failed:", cmdErr.message);
@@ -397,6 +395,15 @@ exports.heartbeat = async (req, res) => {
       appUpdate,
       commands: pendingCommands,
     });
+
+    // Mark commands as acknowledged AFTER response is sent (best-effort, fire-and-forget).
+    // If device doesn't receive response, commands stay pending and retry on next heartbeat.
+    if (pendingCommandIds.length > 0) {
+      DeviceCommand.updateMany(
+        { _id: { $in: pendingCommandIds } },
+        { status: "acknowledged", acknowledgedAt: new Date() }
+      ).catch(err => console.error("[Heartbeat] Command ack update failed:", err.message));
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -432,27 +439,41 @@ exports.deleteDevice = async (req, res) => {
 };
 
 // POST /api/classroom-recording/devices/:deviceId/force-start
+// Now uses command queue — command reaches device on next heartbeat
 exports.forceStart = async (req, res) => {
   try {
     const device = await ClassroomDevice.findOne({ deviceId: req.params.deviceId });
     if (!device) return res.status(404).json({ error: "Device not found" });
-    device.isRecording = true;
-    await device.save();
-    res.json({ message: "Force start sent" });
+
+    // Queue a force_start command for the device
+    const cmd = await DeviceCommand.create({
+      deviceId: device.deviceId,
+      command: "force_start",
+      params: { title: req.body.title || "Force Recording" },
+      issuedBy: req.user?.name || req.user?.email || "admin",
+    });
+
+    res.json({ message: "Force start command queued", commandId: cmd._id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
 // POST /api/classroom-recording/devices/:deviceId/force-stop
+// Now uses command queue — command reaches device on next heartbeat
 exports.forceStop = async (req, res) => {
   try {
     const device = await ClassroomDevice.findOne({ deviceId: req.params.deviceId });
     if (!device) return res.status(404).json({ error: "Device not found" });
-    device.isRecording = false;
-    device.currentMeetingId = null;
-    await device.save();
-    res.json({ message: "Force stop sent" });
+
+    // Queue a force_stop command for the device
+    const cmd = await DeviceCommand.create({
+      deviceId: device.deviceId,
+      command: "force_stop",
+      issuedBy: req.user?.name || req.user?.email || "admin",
+    });
+
+    res.json({ message: "Force stop command queued", commandId: cmd._id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -592,33 +613,41 @@ exports.segmentUpload = async (req, res) => {
       videoUrl = `/uploads/${path.basename(req.file.path)}`;
     }
 
-    // Update recording
+    // Append segment to recording (don't overwrite videoUrl — that's set on merge)
     const duration = parseInt(req.body.duration) || 0;
-    recording.status = "completed";
-    recording.recordingEnd = new Date();
+    const segmentIndex = parseInt(req.body.segmentIndex) || recording.segments?.length || 0;
     recording.fileSize = (recording.fileSize || 0) + fileSize;
     recording.duration = (recording.duration || 0) + duration;
-    recording.isPublished = true;
-    if (videoUrl) {
+    recording.recordingEnd = new Date();
+
+    // Push segment to array — preserves all segment URLs
+    if (!recording.segments) recording.segments = [];
+    recording.segments.push({
+      segmentIndex,
+      videoUrl,
+      fileSize,
+      duration,
+      startTime: req.body.startTime ? new Date(req.body.startTime) : null,
+      endTime: req.body.endTime ? new Date(req.body.endTime) : null,
+      uploadedAt: new Date(),
+    });
+
+    // Keep status as "recording" during segment uploads.
+    // Only mark "completed" when merge is triggered (stopCurrentRecording → triggerMerge).
+    if (recording.status !== "recording") {
+      recording.status = "uploading";
+    }
+    // Set videoUrl to latest segment as fallback (merge will overwrite with final URL)
+    if (videoUrl && recording.segments.length === 1) {
       recording.videoUrl = videoUrl;
+      recording.isPublished = true;
     }
     await recording.save();
 
-    // Update class status
-    await ScheduledClass.findByIdAndUpdate(recording.scheduledClass, {
-      status: "completed",
-    });
+    // DON'T mark device as not recording here — segment uploads happen during recording.
+    // Device explicitly signals recording stop via heartbeat (isRecording: false).
 
-    // Mark device as not recording
-    const deviceId = req.headers["x-device-id"];
-    if (deviceId) {
-      await ClassroomDevice.findOneAndUpdate(
-        { deviceId },
-        { isRecording: false, currentMeetingId: null }
-      );
-    }
-
-    res.json({ message: "Segment uploaded", recordingId, storage: videoUrl.startsWith("http") ? "azure" : "local" });
+    res.json({ message: "Segment uploaded", recordingId, segmentIndex, storage: videoUrl.startsWith("http") ? "azure" : "local" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -644,13 +673,43 @@ exports.triggerMerge = async (req, res) => {
     if (!recording) {
       return res.status(404).json({ error: "Recording not found" });
     }
-    // For demo, just mark as completed
-    if (recording.status !== "completed") {
-      recording.status = "completed";
-      recording.isPublished = true;
-      await recording.save();
+
+    // Finalize recording: mark as completed and set videoUrl from segments
+    recording.status = "completed";
+    recording.isPublished = true;
+    recording.recordingEnd = new Date();
+
+    // If we have segments, set videoUrl to the latest segment (or first for single-segment)
+    if (recording.segments && recording.segments.length > 0) {
+      // For single segment, use it directly. For multi-segment, use the last one
+      // (in future, a merge job can concatenate and replace videoUrl)
+      const lastSegment = recording.segments[recording.segments.length - 1];
+      if (!recording.videoUrl && lastSegment.videoUrl) {
+        recording.videoUrl = lastSegment.videoUrl;
+      }
     }
-    res.json({ message: "Merge triggered", recordingId });
+
+    await recording.save();
+
+    // Mark device as not recording
+    const deviceId = req.headers["x-device-id"];
+    if (deviceId) {
+      await ClassroomDevice.findOneAndUpdate(
+        { deviceId },
+        { isRecording: false, currentMeetingId: null }
+      );
+    }
+
+    // Update class status
+    await ScheduledClass.findByIdAndUpdate(recording.scheduledClass, {
+      status: "completed",
+    });
+
+    res.json({
+      message: "Merge triggered",
+      recordingId,
+      segmentCount: recording.segments?.length || 0,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

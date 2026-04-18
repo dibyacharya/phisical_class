@@ -50,12 +50,11 @@ export default function Analytics() {
         api.get(`/analytics/device-ranking?days=${days}`),
       ]);
       setOverview(ovRes.data);
-      setTrends(ovRes.data?.trends || trRes.data?.trends || []);
+      setTrends(trRes.data?.trends || ovRes.data?.trends || []);
       setAlerts(alRes.data?.alerts || []);
       setDailySummary(dsRes.data?.dailyData || []);
       setPeakHours(phRes.data?.hours || []);
       setDeviceRanking(drRes.data?.devices || []);
-      setTrends(trRes.data?.trends || []);
       setLastRefresh(new Date());
     } catch (err) {
       console.error("Analytics fetch error:", err);

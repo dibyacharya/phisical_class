@@ -98,25 +98,39 @@ exports.getLogs = async (req, res) => {
 // DEVICE ENDPOINTS (require deviceAuth)
 // ════════════════════════════════════════════════════════════════════
 
+/**
+ * Authorization guard: ensure authenticated device matches URL deviceId.
+ * Prevents device-A from accessing device-B's commands/data.
+ */
+function enforceDeviceOwnership(req, res) {
+  if (req.device && req.device.deviceId !== req.params.deviceId) {
+    res.status(403).json({ error: "Device ID mismatch — cannot access another device's data" });
+    return false;
+  }
+  return true;
+}
+
 // GET /api/remote/device/:deviceId/pending-commands — Device polls for pending commands
 exports.getPendingCommands = async (req, res) => {
   try {
+    if (!enforceDeviceOwnership(req, res)) return;
+
     const { deviceId } = req.params;
     const commands = await DeviceCommand.find({
       deviceId,
       status: "pending",
     }).sort({ issuedAt: 1 }).lean();
 
-    // Mark as acknowledged
+    res.json(commands);
+
+    // Mark as acknowledged AFTER response is sent (fire-and-forget)
     if (commands.length > 0) {
       const ids = commands.map(c => c._id);
-      await DeviceCommand.updateMany(
+      DeviceCommand.updateMany(
         { _id: { $in: ids } },
         { status: "acknowledged", acknowledgedAt: new Date() }
-      );
+      ).catch(err => console.error("[Remote] Command ack failed:", err.message));
     }
-
-    res.json(commands);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -125,14 +139,22 @@ exports.getPendingCommands = async (req, res) => {
 // POST /api/remote/device/:deviceId/command-result — Device reports command execution result
 exports.reportCommandResult = async (req, res) => {
   try {
+    if (!enforceDeviceOwnership(req, res)) return;
+
     const { commandId, status, result } = req.body;
     if (!commandId) return res.status(400).json({ error: "commandId required" });
 
-    await DeviceCommand.findByIdAndUpdate(commandId, {
-      status: status === "failed" ? "failed" : "completed",
-      result: result || "",
-      completedAt: new Date(),
-    });
+    // Verify the command belongs to this device
+    const cmd = await DeviceCommand.findById(commandId);
+    if (!cmd) return res.status(404).json({ error: "Command not found" });
+    if (cmd.deviceId !== req.params.deviceId) {
+      return res.status(403).json({ error: "Command does not belong to this device" });
+    }
+
+    cmd.status = status === "failed" ? "failed" : "completed";
+    cmd.result = result || "";
+    cmd.completedAt = new Date();
+    await cmd.save();
 
     res.json({ ok: true });
   } catch (err) {
@@ -143,6 +165,8 @@ exports.reportCommandResult = async (req, res) => {
 // POST /api/remote/device/:deviceId/thumbnail — Device uploads a recording screenshot
 exports.uploadThumbnail = async (req, res) => {
   try {
+    if (!enforceDeviceOwnership(req, res)) return;
+
     const { deviceId } = req.params;
     const { imageData, recordingId, audioLevel } = req.body;
 
@@ -168,6 +192,8 @@ exports.uploadThumbnail = async (req, res) => {
 // POST /api/remote/device/:deviceId/logs — Device uploads logcat
 exports.uploadLogs = async (req, res) => {
   try {
+    if (!enforceDeviceOwnership(req, res)) return;
+
     const { deviceId } = req.params;
     const device = req.device;
     const { logText, trigger, lineCount } = req.body;

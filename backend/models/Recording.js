@@ -8,10 +8,20 @@ const recordingSchema = new mongoose.Schema(
       required: true,
     },
     title: { type: String, required: true },
-    videoUrl: { type: String, default: "" },
+    videoUrl: { type: String, default: "" },         // Final merged video URL (set after merge)
     thumbnailUrl: { type: String, default: "" },
-    duration: { type: Number, default: 0 }, // seconds
-    fileSize: { type: Number, default: 0 }, // bytes
+    duration: { type: Number, default: 0 },          // total seconds
+    fileSize: { type: Number, default: 0 },          // total bytes
+    // Multi-segment support: each 5-min segment is stored here, videoUrl is set on merge
+    segments: [{
+      segmentIndex: { type: Number },
+      videoUrl: { type: String },
+      fileSize: { type: Number, default: 0 },
+      duration: { type: Number, default: 0 },
+      startTime: { type: Date },
+      endTime: { type: Date },
+      uploadedAt: { type: Date, default: Date.now },
+    }],
     status: {
       type: String,
       enum: ["recording", "uploading", "completed", "failed"],

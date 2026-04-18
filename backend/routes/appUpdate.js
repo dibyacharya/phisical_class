@@ -1,9 +1,19 @@
 const router = require("express").Router();
+const mongoose = require("mongoose");
+const { Readable } = require("stream");
 const AppVersion = require("../models/AppVersion");
 const { auth, adminOnly } = require("../middleware/auth");
 const { deviceAuth } = require("../middleware/deviceAuth");
 
-// POST /api/app/upload — Admin uploads new APK
+/**
+ * Get GridFS bucket for APK storage.
+ * GridFS splits files into 255KB chunks — no 16MB BSON limit.
+ */
+function getApkBucket() {
+  return new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "lcs_apks" });
+}
+
+// POST /api/app/upload — Admin uploads new APK (uses GridFS for files > 14MB)
 router.post("/upload", auth, adminOnly, async (req, res) => {
   try {
     if (!req.files || !req.files.apk) {
@@ -27,29 +37,75 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
     // Deactivate all previous versions
     await AppVersion.updateMany({}, { isActive: false });
 
-    // Save new version with APK binary in MongoDB
-    const version = await AppVersion.create({
-      versionCode: code,
-      versionName,
-      releaseNotes: releaseNotes || "",
-      apkData: apkFile.data,
-      apkSize: apkFile.size,
-      uploadedBy: req.user._id,
-      isActive: true,
-    });
+    const USE_GRIDFS_THRESHOLD = 14 * 1024 * 1024; // 14MB — safe margin below 16MB BSON limit
 
-    console.log(`[AppUpdate] New version uploaded: v${versionName} (code ${code}) — ${(apkFile.size / 1024 / 1024).toFixed(1)} MB`);
+    if (apkFile.size >= USE_GRIDFS_THRESHOLD) {
+      // ── Large APK: Store via GridFS (chunked, no BSON limit) ──────
+      const bucket = getApkBucket();
+      const filename = `lecturelens-v${versionName}-${code}.apk`;
+      const uploadStream = bucket.openUploadStream(filename, {
+        contentType: "application/vnd.android.package-archive",
+        metadata: { versionCode: code, versionName },
+      });
 
-    res.status(201).json({
-      message: "APK uploaded successfully",
-      version: {
-        versionCode: version.versionCode,
-        versionName: version.versionName,
-        apkSize: version.apkSize,
-        releaseNotes: version.releaseNotes,
-        createdAt: version.createdAt,
-      },
-    });
+      const readable = new Readable();
+      readable.push(apkFile.data);
+      readable.push(null);
+      await new Promise((resolve, reject) => {
+        readable.pipe(uploadStream)
+          .on("finish", resolve)
+          .on("error", reject);
+      });
+
+      const version = await AppVersion.create({
+        versionCode: code,
+        versionName,
+        releaseNotes: releaseNotes || "",
+        apkGridFsId: uploadStream.id,   // GridFS file ID
+        apkSize: apkFile.size,
+        uploadedBy: req.user._id,
+        isActive: true,
+      });
+
+      console.log(`[AppUpdate] GridFS upload: v${versionName} (code ${code}) — ${(apkFile.size / 1024 / 1024).toFixed(1)} MB`);
+
+      res.status(201).json({
+        message: "APK uploaded successfully (GridFS)",
+        version: {
+          versionCode: version.versionCode,
+          versionName: version.versionName,
+          apkSize: version.apkSize,
+          releaseNotes: version.releaseNotes,
+          storage: "gridfs",
+          createdAt: version.createdAt,
+        },
+      });
+    } else {
+      // ── Small APK: Store inline in MongoDB document ────────────────
+      const version = await AppVersion.create({
+        versionCode: code,
+        versionName,
+        releaseNotes: releaseNotes || "",
+        apkData: apkFile.data,
+        apkSize: apkFile.size,
+        uploadedBy: req.user._id,
+        isActive: true,
+      });
+
+      console.log(`[AppUpdate] Inline upload: v${versionName} (code ${code}) — ${(apkFile.size / 1024 / 1024).toFixed(1)} MB`);
+
+      res.status(201).json({
+        message: "APK uploaded successfully",
+        version: {
+          versionCode: version.versionCode,
+          versionName: version.versionName,
+          apkSize: version.apkSize,
+          releaseNotes: version.releaseNotes,
+          storage: "inline",
+          createdAt: version.createdAt,
+        },
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -79,14 +135,14 @@ router.get("/latest", async (_req, res) => {
   }
 });
 
-// GET /api/app/download — Download APK binary (device auth)
+// GET /api/app/download — Download APK binary (device auth). Supports both inline and GridFS storage.
 router.get("/download", deviceAuth, async (req, res) => {
   try {
     const latest = await AppVersion.findOne({ isActive: true })
-      .select("apkData versionName versionCode apkSize")
+      .select("apkData apkGridFsId versionName versionCode apkSize")
       .sort({ versionCode: -1 });
 
-    if (!latest || !latest.apkData) {
+    if (!latest) {
       return res.status(404).json({ error: "No APK available" });
     }
 
@@ -95,7 +151,22 @@ router.get("/download", deviceAuth, async (req, res) => {
       "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
       "Content-Length": latest.apkSize,
     });
-    res.send(latest.apkData);
+
+    if (latest.apkGridFsId) {
+      // ── Stream from GridFS ────────────────────────────────────────
+      const bucket = getApkBucket();
+      const downloadStream = bucket.openDownloadStream(latest.apkGridFsId);
+      downloadStream.pipe(res);
+      downloadStream.on("error", (err) => {
+        console.error("[AppUpdate] GridFS download error:", err.message);
+        if (!res.headersSent) res.status(500).json({ error: "APK download failed" });
+      });
+    } else if (latest.apkData) {
+      // ── Inline binary ─────────────────────────────────────────────
+      res.send(latest.apkData);
+    } else {
+      res.status(404).json({ error: "No APK data available" });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

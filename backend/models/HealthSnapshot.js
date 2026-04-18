@@ -81,7 +81,7 @@ const healthSnapshotSchema = new mongoose.Schema({
   appVersionCode: { type: Number },
   appVersionName: { type: String },
 
-  timestamp: { type: Date, default: Date.now, index: true },
+  timestamp: { type: Date, default: Date.now },  // indexed via schema.index() below
 }, {
   timestamps: false,  // we use our own timestamp field
   collection: "lcs_healthsnapshots",
