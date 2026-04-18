@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Tv, Wifi, WifiOff, CircleDot, Trash2, Play, Square, RefreshCw,
   Camera, Mic, Monitor, HardDrive, Cpu, Battery, AlertTriangle,
   CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Signal,
+  Terminal,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -164,6 +166,10 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 <Play size={12} /> Start
               </button>
             )}
+            <Link to={`/device/${device.deviceId}/remote`}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-600 hover:bg-purple-100 transition">
+              <Terminal size={12} /> Remote
+            </Link>
             <button onClick={() => onDelete(device._id)}
               className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition">
               <Trash2 size={14} />

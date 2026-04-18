@@ -44,6 +44,7 @@ app.use("/api/rooms", require("./routes/rooms"));
 app.use("/api/licenses", require("./routes/licenses"));
 app.use("/api/app", require("./routes/appUpdate"));
 app.use("/api/analytics", require("./routes/analytics"));
+app.use("/api/remote", require("./routes/remote"));
 
 // Global error handler — returns JSON instead of ugly HTML stack traces
 app.use((err, _req, res, _next) => {

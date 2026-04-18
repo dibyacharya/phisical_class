@@ -9,6 +9,7 @@ const Room = require("../models/Room");
 const License = require("../models/License");
 const AppVersion = require("../models/AppVersion");
 const HealthSnapshot = require("../models/HealthSnapshot");
+const DeviceCommand = require("../models/DeviceCommand");
 const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
 
 // ============ DEVICE ENDPOINTS ============
@@ -364,12 +365,37 @@ exports.heartbeat = async (req, res) => {
       console.error("[Heartbeat] App update check failed:", updateErr.message);
     }
 
+    // ── Check for pending remote commands ──────────────────────────────
+    let pendingCommands = [];
+    try {
+      const cmds = await DeviceCommand.find({
+        deviceId: device.deviceId,
+        status: "pending",
+      }).sort({ issuedAt: 1 }).lean();
+
+      if (cmds.length > 0) {
+        pendingCommands = cmds.map(c => ({
+          id: c._id.toString(),
+          command: c.command,
+          params: c.params || {},
+        }));
+        // Mark as acknowledged
+        await DeviceCommand.updateMany(
+          { _id: { $in: cmds.map(c => c._id) } },
+          { status: "acknowledged", acknowledgedAt: new Date() }
+        );
+      }
+    } catch (cmdErr) {
+      console.error("[Heartbeat] Command check failed:", cmdErr.message);
+    }
+
     res.json({
       schedule,
       serverTime: new Date().toISOString(),
       forceStop: false,
       activeSession,
       appUpdate,
+      commands: pendingCommands,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
