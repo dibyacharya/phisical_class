@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = import.meta.env.VITE_API_URL || "/api";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5020/api";
 
 export default function AppUpdate() {
   const [versions, setVersions] = useState([]);
