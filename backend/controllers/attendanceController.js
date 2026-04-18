@@ -134,23 +134,30 @@ exports.verify = async (req, res) => {
     const attendance = req._attendance;
     classId = req._classId;
 
-    // Check if already marked
-    const alreadyMarked = attendance.attendees.some(
-      (a) => a.student.toString() === req.user._id.toString()
+    // Atomic check-and-add to prevent duplicate attendance from concurrent scans
+    const result = await Attendance.findOneAndUpdate(
+      {
+        _id: attendance._id,
+        "attendees.student": { $ne: req.user._id },  // only if not already present
+      },
+      {
+        $push: {
+          attendees: {
+            student: req.user._id,
+            name: req.user.name,
+            rollNumber: req.user.rollNumber || "",
+            scannedAt: new Date(),
+            verified: true,
+          },
+        },
+      },
+      { new: true }
     );
-    if (alreadyMarked) {
+
+    if (!result) {
+      // $ne condition failed — student already in the array
       return res.json({ message: "Attendance already marked", alreadyMarked: true });
     }
-
-    // Mark attendance
-    attendance.attendees.push({
-      student: req.user._id,
-      name: req.user.name,
-      rollNumber: req.user.rollNumber || "",
-      scannedAt: new Date(),
-      verified: true,
-    });
-    await attendance.save();
 
     const cls = await ScheduledClass.findById(classId);
 

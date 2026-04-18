@@ -78,7 +78,12 @@ exports.createRoom = async (req, res) => {
 // PUT /api/rooms/:id
 exports.updateRoom = async (req, res) => {
   try {
-    const room = await Room.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const allowed = ["roomName", "spaceCode", "spaceType", "capacity", "floor", "isActive"];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const room = await Room.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!room) return res.status(404).json({ error: "Space not found" });
     res.json(room);
   } catch (err) {

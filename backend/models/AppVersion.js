@@ -14,4 +14,7 @@ const appVersionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Prevent duplicate version codes at DB level (not just app-level check)
+appVersionSchema.index({ versionCode: 1 }, { unique: true });
+
 module.exports = mongoose.model("LCS_AppVersion", appVersionSchema);

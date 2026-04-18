@@ -12,8 +12,13 @@ const auth = async (req, res, next) => {
 
     req.user = user;
     next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
+  } catch (err) {
+    if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    // Don't mask DB errors as auth failures — they need different handling
+    console.error("[Auth] Unexpected error:", err.message);
+    res.status(500).json({ error: "Authentication service error" });
   }
 };
 

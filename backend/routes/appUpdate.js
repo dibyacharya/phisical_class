@@ -25,7 +25,10 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
       return res.status(400).json({ error: "versionCode and versionName are required" });
     }
 
-    const code = parseInt(versionCode);
+    const code = parseInt(versionCode, 10);
+    if (isNaN(code) || code < 1) {
+      return res.status(400).json({ error: "versionCode must be a positive integer" });
+    }
     const apkFile = req.files.apk;
 
     // Check if this version already exists
@@ -159,7 +162,12 @@ router.get("/download", deviceAuth, async (req, res) => {
       downloadStream.pipe(res);
       downloadStream.on("error", (err) => {
         console.error("[AppUpdate] GridFS download error:", err.message);
-        if (!res.headersSent) res.status(500).json({ error: "APK download failed" });
+        if (!res.headersSent) {
+          res.status(500).json({ error: "APK download failed" });
+        } else {
+          // Headers already sent — destroy response so client knows transfer failed
+          res.destroy();
+        }
       });
     } else if (latest.apkData) {
       // ── Inline binary ─────────────────────────────────────────────

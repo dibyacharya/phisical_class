@@ -23,4 +23,10 @@ const scheduledClassSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Heartbeat + room schedule queries filter by roomNumber + date every 2 min per device
+scheduledClassSchema.index({ roomNumber: 1, date: -1 });
+
+// Course-based lookups (teacher schedule, course recordings)
+scheduledClassSchema.index({ course: 1, date: -1 });
+
 module.exports = mongoose.model("LCS_ScheduledClass", scheduledClassSchema);

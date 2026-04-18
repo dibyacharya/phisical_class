@@ -46,4 +46,8 @@ deviceCommandSchema.index({ deviceId: 1, status: 1 });
 // TTL: auto-delete completed/failed commands after 7 days
 deviceCommandSchema.index({ completedAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60, partialFilterExpression: { status: { $in: ["completed", "failed"] } } });
 
+// Safety net: auto-delete stale pending/acknowledged commands after 24 hours
+// (device went offline permanently, or command was never picked up)
+deviceCommandSchema.index({ issuedAt: 1 }, { expireAfterSeconds: 24 * 60 * 60, partialFilterExpression: { status: { $in: ["pending", "acknowledged"] } } });
+
 module.exports = mongoose.model("LCS_DeviceCommand", deviceCommandSchema);

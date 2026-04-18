@@ -34,4 +34,7 @@ const recordingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Session lookup and room-based recording queries
+recordingSchema.index({ scheduledClass: 1 });
+
 module.exports = mongoose.model("LCS_Recording", recordingSchema);

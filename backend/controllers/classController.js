@@ -76,7 +76,13 @@ exports.create = async (req, res) => {
 // PUT /api/classes/:id
 exports.update = async (req, res) => {
   try {
-    const cls = await ScheduledClass.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    // Whitelist updatable fields to prevent mass assignment
+    const allowed = ["title", "course", "teacher", "roomNumber", "date", "startTime", "endTime", "status"];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const cls = await ScheduledClass.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!cls) return res.status(404).json({ error: "Class not found" });
     res.json(cls);
   } catch (err) {
@@ -116,9 +122,12 @@ exports.dashboard = async (req, res) => {
     const totalClasses = await ScheduledClass.countDocuments();
     const totalRecordings = await Recording.countDocuments({ status: "completed" });
 
-    const attendances = await Attendance.find();
-    let totalScans = 0;
-    attendances.forEach((a) => (totalScans += a.attendees.length));
+    // Use aggregation instead of loading all docs into memory
+    const scanAgg = await Attendance.aggregate([
+      { $project: { count: { $size: { $ifNull: ["$attendees", []] } } } },
+      { $group: { _id: null, total: { $sum: "$count" } } },
+    ]);
+    const totalScans = scanAgg[0]?.total || 0;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -260,23 +269,26 @@ exports.bulkCreate = async (req, res) => {
       return res.status(400).json({ error: "No rows provided" });
 
     const allCourses = await Course.find().lean();
-    const allUsers   = await User.find().lean();
-    const fallbackCourse = allCourses[0];
-    const fallbackUser   = allUsers[0];
+    const allUsers   = await User.find({ role: { $in: ["teacher", "admin", "superadmin"] } }).lean();
 
     const created = [], failed = [];
     for (const row of rows) {
       try {
+        if (!row.title?.trim() || !row.roomNumber?.trim()) {
+          throw new Error("title and roomNumber are required");
+        }
+
         const courseDoc = allCourses.find(c =>
           c.courseCode?.toLowerCase() === row.courseCode?.toLowerCase() ||
           c.courseName?.toLowerCase() === row.courseName?.toLowerCase()
-        ) || fallbackCourse;
+        );
 
         const teacherDoc = allUsers.find(u =>
           u.name?.toLowerCase() === row.teacherName?.toLowerCase()
-        ) || fallbackUser;
+        );
 
-        if (!courseDoc || !teacherDoc) throw new Error("No course or teacher found in DB");
+        if (!courseDoc) throw new Error(`Course not found: "${row.courseCode || row.courseName}"`);
+        if (!teacherDoc) throw new Error(`Teacher not found: "${row.teacherName}"`);
 
         const cls = await ScheduledClass.create({
           title:      row.title.trim(),

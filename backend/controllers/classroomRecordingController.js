@@ -415,11 +415,15 @@ exports.getDevices = async (_req, res) => {
     const devices = await ClassroomDevice.find({ isActive: true }).sort({
       createdAt: -1,
     });
-    // Mark offline if no heartbeat in 5 min
+    // Mark offline if no heartbeat in 5 min — bulk update in DB, then return
     const now = Date.now();
-    for (const d of devices) {
-      if (d.lastHeartbeat && now - d.lastHeartbeat.getTime() > 5 * 60 * 1000) {
-        d.isOnline = false;
+    const staleIds = devices
+      .filter(d => d.isOnline && d.lastHeartbeat && now - d.lastHeartbeat.getTime() > 5 * 60 * 1000)
+      .map(d => d._id);
+    if (staleIds.length > 0) {
+      await ClassroomDevice.updateMany({ _id: { $in: staleIds } }, { isOnline: false });
+      for (const d of devices) {
+        if (staleIds.some(id => id.equals(d._id))) d.isOnline = false;
       }
     }
     res.json(devices);
@@ -501,23 +505,28 @@ exports.findOrCreateSession = async (req, res) => {
     // Check if recording already exists for this meeting
     let recording = await Recording.findOne({ scheduledClass: meetingId, status: { $ne: "failed" } });
 
-    // Generate HMAC secret for QR
-    const hmacSecret = crypto.randomBytes(32).toString("hex");
-
     if (recording && recording.status !== "failed") {
-      // Update to recording status if not already
+      // Existing session — reuse existing HMAC secret, don't rotate it
+      // (rotating invalidates in-flight QR codes if device reconnects mid-class)
       if (recording.status !== "recording") {
         recording.status = "recording";
         recording.recordingStart = new Date();
         await recording.save();
       }
 
-      // Update attendance session with this hmac secret
-      await Attendance.findOneAndUpdate(
-        { scheduledClass: meetingId },
-        { qrSecret: hmacSecret },
-        { upsert: true, setDefaultsOnInsert: true }
-      );
+      // Get existing secret (or generate if attendance doesn't exist yet)
+      let attendance = await Attendance.findOne({ scheduledClass: meetingId });
+      let hmacSecret;
+      if (attendance && attendance.qrSecret) {
+        hmacSecret = attendance.qrSecret;
+      } else {
+        hmacSecret = crypto.randomBytes(32).toString("hex");
+        await Attendance.findOneAndUpdate(
+          { scheduledClass: meetingId },
+          { qrSecret: hmacSecret },
+          { upsert: true, setDefaultsOnInsert: true }
+        );
+      }
 
       // Mark device as recording
       if (deviceId) {
@@ -533,6 +542,9 @@ exports.findOrCreateSession = async (req, res) => {
         hmacSecret,
       });
     }
+
+    // Generate HMAC secret for new session only
+    const hmacSecret = crypto.randomBytes(32).toString("hex");
 
     // Create new recording
     const cls = await ScheduledClass.findById(meetingId);
