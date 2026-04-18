@@ -431,7 +431,16 @@ exports.getDevices = async (_req, res) => {
 // DELETE /api/classroom-recording/devices/:id
 exports.deleteDevice = async (req, res) => {
   try {
-    await ClassroomDevice.findByIdAndDelete(req.params.id);
+    const device = await ClassroomDevice.findByIdAndDelete(req.params.id);
+
+    // Free the license so it can be reused on a replacement device
+    if (device && device.deviceId) {
+      await License.updateOne(
+        { deviceId: device.deviceId },
+        { isActivated: false, deviceMac: "", deviceId: "", deviceModel: "" }
+      );
+    }
+
     res.json({ message: "Deleted" });
   } catch (err) {
     res.status(500).json({ error: err.message });
