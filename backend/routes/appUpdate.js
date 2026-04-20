@@ -144,10 +144,22 @@ router.get("/download", deviceAuth, async (req, res) => {
     // See /download-admin comment — lean() + toNodeBuffer gives us a
     // deterministic path that works regardless of the Mongoose schema
     // Buffer hydration quirks we hit with larger inline APKs.
-    const latest = await AppVersion.findOne({ isActive: true })
+    // First try hydrated, then lean() as fallback — different shapes land
+    // in each path depending on Mongoose + MongoDB driver versions. We try
+    // both in one request rather than flipping code back and forth.
+    let latest = await AppVersion.findOne({ isActive: true })
       .select("apkData apkGridFsId versionName versionCode apkSize")
-      .sort({ versionCode: -1 })
-      .lean();
+      .sort({ versionCode: -1 });
+    // If hydrated Mongoose doc returned but apkData is the wrapper shape
+    // that toNodeBuffer() can't unwrap, refetch lean and re-try.
+    const hydratedFailed = latest && latest.apkData && !toNodeBuffer(latest.apkData)?.length;
+    if (hydratedFailed) {
+      console.log(`[AppUpdate] hydrated shape=${describeBuffer(latest.apkData)} — retrying with .lean()`);
+      latest = await AppVersion.findOne({ isActive: true })
+        .select("apkData apkGridFsId versionName versionCode apkSize")
+        .sort({ versionCode: -1 })
+        .lean();
+    }
 
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
@@ -258,9 +270,21 @@ function describeBuffer(raw) {
   const t = typeof raw;
   if (t !== "object") return `primitive<${t}>`;
   const ctor = raw.constructor?.name || "?";
-  const keys = Object.keys(raw).slice(0, 5);
-  const len = raw.length ?? raw.byteLength ?? raw.buffer?.length ?? "?";
-  return `${ctor}(len=${len}, bsontype=${raw._bsontype}, keys=[${keys.join(",")}])`;
+  const keys = Object.keys(raw).slice(0, 8);
+  const bufLen = raw.buffer && Buffer.isBuffer(raw.buffer) ? raw.buffer.length : "?";
+  const bufType = raw.buffer ? (Buffer.isBuffer(raw.buffer) ? "Buffer" : typeof raw.buffer) : "no";
+  const pos = raw.position;
+  const hasValue = typeof raw.value === "function";
+  let valueLen = "?";
+  try {
+    if (hasValue) {
+      const v = raw.value(true);
+      valueLen = v ? (v.length ?? "no-length") : "null";
+    }
+  } catch (e) {
+    valueLen = `threw:${e.message}`;
+  }
+  return `${ctor}(bsontype=${raw._bsontype}, keys=[${keys.join(",")}], buffer=${bufType}(${bufLen}), position=${pos}, value()=${valueLen})`;
 }
 
 // GET /api/app/download-admin — Admin-accessible APK download (JWT auth instead of device auth)
@@ -271,10 +295,22 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     // the actual bytes. Mongoose's hydrated Buffer path kept producing a
     // wrapper that res.send() couldn't serialise. lean() + explicit shape
     // normalisation is deterministic across Mongoose/MongoDB versions.
-    const latest = await AppVersion.findOne({ isActive: true })
+    // First try hydrated, then lean() as fallback — different shapes land
+    // in each path depending on Mongoose + MongoDB driver versions. We try
+    // both in one request rather than flipping code back and forth.
+    let latest = await AppVersion.findOne({ isActive: true })
       .select("apkData apkGridFsId versionName versionCode apkSize")
-      .sort({ versionCode: -1 })
-      .lean();
+      .sort({ versionCode: -1 });
+    // If hydrated Mongoose doc returned but apkData is the wrapper shape
+    // that toNodeBuffer() can't unwrap, refetch lean and re-try.
+    const hydratedFailed = latest && latest.apkData && !toNodeBuffer(latest.apkData)?.length;
+    if (hydratedFailed) {
+      console.log(`[AppUpdate] hydrated shape=${describeBuffer(latest.apkData)} — retrying with .lean()`);
+      latest = await AppVersion.findOne({ isActive: true })
+        .select("apkData apkGridFsId versionName versionCode apkSize")
+        .sort({ versionCode: -1 })
+        .lean();
+    }
 
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
@@ -303,7 +339,7 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
         console.error(`[AppUpdate] (admin v4-binpos) apkData shape=${describeBuffer(latest.apkData)} → normalised=${buf ? buf.length : "null"} bytes`);
         return res.status(500).json({
           error: "APK binary not readable from database",
-          codeRev: "v4-binary-position",
+          codeRev: "v5-dual-fetch-enhanced-diag",
           apkDataShape: describeBuffer(latest.apkData),
           declaredSize: latest.apkSize,
         });
