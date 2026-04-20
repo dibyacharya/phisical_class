@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin-portal",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "3020"],
+      "port": 3020,
+      "cwd": "admin-portal"
+    }
+  ]
+}

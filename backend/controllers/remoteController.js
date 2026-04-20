@@ -35,6 +35,60 @@ exports.sendCommand = async (req, res) => {
   }
 };
 
+// POST /api/remote/broadcast — Fan-out one command to many devices
+// Body: { deviceIds?: string[], command: string, params?: object, filter?: "online"|"all"|"recording" }
+// If deviceIds is omitted, we resolve via the filter.
+// Returns a per-device breakdown so the admin UI can show green/red rows.
+exports.broadcastCommand = async (req, res) => {
+  try {
+    const { deviceIds, command, params, filter } = req.body;
+    if (!command) return res.status(400).json({ error: "command is required" });
+
+    // Resolve target device IDs
+    let targets = Array.isArray(deviceIds) ? deviceIds.filter(Boolean) : null;
+    if (!targets || targets.length === 0) {
+      const ClassroomDevice = require("../models/ClassroomDevice");
+      const query = { isActive: true };
+      if (filter === "recording") query.isRecording = true;
+      if (filter === "online") {
+        query.lastHeartbeat = { $gte: new Date(Date.now() - 5 * 60 * 1000) };
+      }
+      const devs = await ClassroomDevice.find(query).select("deviceId").lean();
+      targets = devs.map(d => d.deviceId);
+    }
+    if (targets.length === 0) {
+      return res.status(400).json({ error: "No target devices matched" });
+    }
+
+    const issuedBy = req.user?.name || req.user?.email || "admin";
+    const results = [];
+
+    for (const deviceId of targets) {
+      try {
+        const cmd = await DeviceCommand.create({
+          deviceId, command, params: params || {}, issuedBy,
+        });
+        results.push({ deviceId, ok: true, commandId: cmd._id });
+      } catch (err) {
+        results.push({ deviceId, ok: false, error: err.message });
+      }
+    }
+
+    const okCount = results.filter(r => r.ok).length;
+    console.log(`[Remote] Broadcast '${command}' to ${targets.length} devices (${okCount} queued) by ${issuedBy}`);
+    res.status(201).json({
+      message: `Queued ${okCount}/${targets.length} commands`,
+      command,
+      targetCount: targets.length,
+      okCount,
+      failCount: targets.length - okCount,
+      results,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // GET /api/remote/commands/:deviceId — Get command history for a device
 exports.getCommands = async (req, res) => {
   try {

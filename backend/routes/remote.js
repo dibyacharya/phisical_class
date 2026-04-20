@@ -5,6 +5,7 @@ const remote = require("../controllers/remoteController");
 
 // ── Admin endpoints (JWT auth) ──────────────────────────────────────
 router.post("/command", auth, adminOnly, remote.sendCommand);
+router.post("/broadcast", auth, adminOnly, remote.broadcastCommand);
 router.get("/commands/:deviceId", auth, adminOnly, remote.getCommands);
 router.get("/thumbnails/:deviceId", auth, adminOnly, remote.getThumbnails);
 router.get("/thumbnails/:deviceId/latest", auth, adminOnly, remote.getLatestThumbnail);

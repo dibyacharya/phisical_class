@@ -32,6 +32,10 @@ exports.fleetOverview = async (_req, res) => {
       else if (score >= 50) warning++;
       else critical++;
 
+      // Pull the most interesting health-beacon fields up to top level so the
+      // Fleet Dashboard can render them without drilling into .health every
+      // time. These mirror what Android reports in recent versions (v2.3+).
+      const rec = d.health?.recording || {};
       deviceSummaries.push({
         deviceId: d.deviceId,
         name: d.name,
@@ -42,6 +46,16 @@ exports.fleetOverview = async (_req, res) => {
         healthScore: score,
         status: score >= 80 ? "healthy" : score >= 50 ? "warning" : "critical",
         lastHeartbeat: d.lastHeartbeat,
+        // Device capability / pipeline info (new in Phase 3 fleet view)
+        appVersionName: d.appVersionName,
+        appVersionCode: d.appVersionCode,
+        deviceModel: d.deviceModel,
+        micLabel: rec.micLabel,
+        videoPipeline: rec.videoPipeline,
+        glCompositorEnabled: rec.glCompositorEnabled,
+        glCameraPiP: rec.glCameraPiP,
+        lastRecordingError: rec.lastError,
+        recordingErrorCount: rec.errorCount,
         health: d.health || {},
       });
     }

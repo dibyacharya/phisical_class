@@ -14,6 +14,7 @@ import Licenses from "./pages/Licenses";
 import AppUpdate from "./pages/AppUpdate";
 import Analytics from "./pages/Analytics";
 import DeviceRemote from "./pages/DeviceRemote";
+import Fleet from "./pages/Fleet";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -66,6 +67,7 @@ export default function App() {
                   <Route path="/schedule" element={<Navigate to="/booking" />} />
                   <Route path="/recordings" element={<Recordings />} />
                   <Route path="/devices" element={<Devices />} />
+                  <Route path="/fleet" element={<Fleet />} />
                   <Route path="/facility" element={<Facility />} />
                   <Route path="/facility/room/:id" element={<RoomDetail />} />
                   <Route path="/users" element={<Users />} />
