@@ -115,24 +115,36 @@ export default function DeviceRemote() {
         </div>
       </div>
 
-      {/* Outdated APK Warning */}
-      {device && !device.appVersionCode && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
-          <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={20} />
-          <div>
-            <h4 className="font-semibold text-amber-800">Device running outdated APK</h4>
-            <p className="text-sm text-amber-700 mt-1">
-              This device is running an old version that does not support remote commands.
-              Commands will be delivered but won't execute. Please update the APK manually:
-            </p>
-            <ol className="text-sm text-amber-700 mt-2 space-y-1 list-decimal ml-4">
-              <li>Go to <Link to="/app-update" className="underline font-medium">App Updates</Link> and download the latest APK</li>
-              <li>Transfer the APK to the device via USB or network share</li>
-              <li>Install the APK on the device (Settings &gt; Security &gt; Allow unknown sources)</li>
-              <li>Once updated, remote commands will work automatically</li>
-            </ol>
+      {/* Version info banner */}
+      {device && (
+        device.appVersionName ? (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3 text-sm">
+            <CheckCircle2 className="text-blue-600 shrink-0" size={18} />
+            <span className="text-blue-800">
+              Device running <strong>v{device.appVersionName}</strong> (code {device.appVersionCode})
+              {" · "}
+              If commands stay stuck at "acknowledged" for over 5 minutes, the device APK may need to be reinstalled.
+              Try <Link to="/app-update" className="underline font-medium">updating to the latest APK</Link>.
+            </span>
           </div>
-        </div>
+        ) : (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={20} />
+            <div>
+              <h4 className="font-semibold text-amber-800">Device version unknown</h4>
+              <p className="text-sm text-amber-700 mt-1">
+                This device hasn't reported its app version yet. If remote commands are not working,
+                the device may be running an old APK. Please update to the latest version:
+              </p>
+              <ol className="text-sm text-amber-700 mt-2 space-y-1 list-decimal ml-4">
+                <li>Go to <Link to="/app-update" className="underline font-medium">App Updates</Link> and download the latest APK</li>
+                <li>Transfer the APK to the device via USB or network share</li>
+                <li>Install the APK on the device (Settings &gt; Security &gt; Allow unknown sources)</li>
+                <li>Once updated, remote commands will work automatically</li>
+              </ol>
+            </div>
+          </div>
+        )
       )}
 
       {/* Remote Control Panel */}
