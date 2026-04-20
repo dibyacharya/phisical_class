@@ -115,6 +115,26 @@ export default function DeviceRemote() {
         </div>
       </div>
 
+      {/* Outdated APK Warning */}
+      {device && !device.appVersionCode && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={20} />
+          <div>
+            <h4 className="font-semibold text-amber-800">Device running outdated APK</h4>
+            <p className="text-sm text-amber-700 mt-1">
+              This device is running an old version that does not support remote commands.
+              Commands will be delivered but won't execute. Please update the APK manually:
+            </p>
+            <ol className="text-sm text-amber-700 mt-2 space-y-1 list-decimal ml-4">
+              <li>Go to <Link to="/app-update" className="underline font-medium">App Updates</Link> and download the latest APK</li>
+              <li>Transfer the APK to the device via USB or network share</li>
+              <li>Install the APK on the device (Settings &gt; Security &gt; Allow unknown sources)</li>
+              <li>Once updated, remote commands will work automatically</li>
+            </ol>
+          </div>
+        </div>
+      )}
+
       {/* Remote Control Panel */}
       <div className="bg-white rounded-xl border p-5">
         <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">

@@ -124,6 +124,24 @@ export default function AppUpdate() {
     }
   };
 
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(`${API}/app/download-admin`, { headers });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const contentDisp = res.headers.get("content-disposition") || "";
+      const filename = contentDisp.match(/filename="(.+)"/)?.[1] || "LectureLens.apk";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError("Download failed: " + err.message);
+    }
+  };
+
   const formatSize = (bytes) => {
     if (!bytes) return "—";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
@@ -264,9 +282,9 @@ export default function AppUpdate() {
             {versions.map((v) => (
               <div
                 key={v._id}
-                className="px-6 py-4 flex items-center justify-between hover:bg-slate-50"
+                className="px-6 py-4 hover:bg-slate-50"
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-lg font-bold text-slate-900">
                       v{v.versionName}
@@ -280,17 +298,28 @@ export default function AppUpdate() {
                       </span>
                     )}
                   </div>
+                  <div className="flex items-center gap-4 text-sm text-slate-500">
+                    <span>{formatSize(v.apkSize)}</span>
+                    <span>{formatDate(v.createdAt)}</span>
+                    {v.isActive && (
+                      <button
+                        onClick={handleDownload}
+                        className="text-blue-600 hover:text-blue-800 text-xs font-medium bg-blue-50 px-3 py-1 rounded-lg"
+                      >
+                        Download APK
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(v._id, v.versionName)}
+                      className="text-red-500 hover:text-red-700 text-xs font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-6 text-sm text-slate-500">
-                  <span>{formatSize(v.apkSize)}</span>
-                  <span>{formatDate(v.createdAt)}</span>
-                  <button
-                    onClick={() => handleDelete(v._id, v.versionName)}
-                    className="text-red-500 hover:text-red-700 text-xs font-medium"
-                  >
-                    Delete
-                  </button>
-                </div>
+                {v.releaseNotes && (
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">{v.releaseNotes}</p>
+                )}
               </div>
             ))}
           </div>

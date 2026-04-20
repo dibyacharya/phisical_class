@@ -180,6 +180,42 @@ router.get("/download", deviceAuth, async (req, res) => {
   }
 });
 
+// GET /api/app/download-admin — Admin-accessible APK download (JWT auth instead of device auth)
+router.get("/download-admin", auth, adminOnly, async (req, res) => {
+  try {
+    const latest = await AppVersion.findOne({ isActive: true })
+      .select("apkData apkGridFsId versionName versionCode apkSize")
+      .sort({ versionCode: -1 });
+
+    if (!latest) {
+      return res.status(404).json({ error: "No APK available" });
+    }
+
+    res.set({
+      "Content-Type": "application/vnd.android.package-archive",
+      "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
+      "Content-Length": latest.apkSize,
+    });
+
+    if (latest.apkGridFsId) {
+      const bucket = getApkBucket();
+      const downloadStream = bucket.openDownloadStream(latest.apkGridFsId);
+      downloadStream.pipe(res);
+      downloadStream.on("error", (err) => {
+        console.error("[AppUpdate] Admin download GridFS error:", err.message);
+        if (!res.headersSent) res.status(500).json({ error: "APK download failed" });
+        else res.destroy();
+      });
+    } else if (latest.apkData) {
+      res.send(latest.apkData);
+    } else {
+      res.status(404).json({ error: "No APK data available" });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/app/versions — List all versions (admin)
 router.get("/versions", auth, adminOnly, async (_req, res) => {
   try {
