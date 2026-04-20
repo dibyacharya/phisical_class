@@ -1,4 +1,4 @@
-# Phase 1 Test Plan — LectureLens v2.3.0-draisol
+# Phase 1 Test Plan — LectureLens v2.4.0-draisol
 
 **Goal:** Validate that the Smart TV (55TR3DK) records classes reliably with
 audible start/stop announcements, USB mic routing, and optional clean PiP-free
@@ -12,7 +12,7 @@ recording via the GL compositor. At the end of this plan the system should be
 ## Pre-requisites
 
 - [ ] Smart TV powered on, connected to WiFi, facing the classroom
-- [ ] `LectureLens-v2.3.0-draisol.apk` on your laptop (Desktop)
+- [ ] `LectureLens-v2.4.0-draisol.apk` on your laptop (Desktop)
 - [ ] ADB working (`adb devices` shows the TV)
 - [ ] Admin portal open: https://lecturelens-admin.draisol.com
 - [ ] (Optional) Sennheiser/Rode/any USB mic to plug in
@@ -21,16 +21,16 @@ recording via the GL compositor. At the end of this plan the system should be
 
 ---
 
-## Step 1 — Install v2.3.0 on the TV
+## Step 1 — Install v2.4.0 on the TV
 
 ```bash
-adb install -r "$HOME/Desktop/LectureLens-v2.3.0-draisol.apk"
+adb install -r "$HOME/Desktop/LectureLens-v2.4.0-draisol.apk"
 ```
 
 **Success criteria:**
 - `adb` prints `Success`
 - On TV, the LectureLens app icon still works — no crash on launch
-- In admin portal → Devices → the TV shows **v2.3.0-draisol (code 20)**
+- In admin portal → Devices → the TV shows **v2.4.0-draisol (code 21)**
 - Device stays **Online** for at least 2 consecutive heartbeats
 
 If install fails ("Can't install as this user"), switch to the primary Android
@@ -89,40 +89,60 @@ on minimal ROMs. The chime path uses `AudioTrack` — much more reliable.
 
 ---
 
-## Step 4 — GL Compositor Toggle (PiP fix)
+## Step 4 — GL Compositor with Hidden Camera PiP
 
 This is the **user's original complaint**: PiP circle on TV looks awkward.
+v2.4.0 finally resolves it the right way: the PiP appears in the recorded
+video but **not on the TV screen** (camera feed is routed through a hidden
+Camera2 session straight into the GL compositor — no window, no overlay).
 
-### 4a. Baseline (legacy mode, PiP visible on TV)
+### 4a. Baseline (legacy mode — both TV and recording show PiP)
 
-- [ ] Diagnostics panel: "GL flag: OFF", "Pipeline: Legacy (PiP visible on TV)"
+- [ ] Diagnostics panel shows `GL flag: OFF`, `Pipeline: Legacy (PiP visible on TV)`
 - [ ] Schedule a 5-min class (or use Force Start — see Step 5)
 - [ ] During recording, you SHOULD see the small circular camera PiP in the
       bottom-right corner of the TV screen. ← this is the old, awkward behaviour.
+- [ ] Recording video also has PiP (legacy mode = PiP in both places).
 
-### 4b. GL Compositor mode (clean screen)
+### 4b. GL Compositor mode (PiP in recording, NOT on TV)
 
-- [ ] Click **Enable GL Compositor** in Diagnostics
-- [ ] Badge flips to "GL flag: ON"
+- [ ] Click **Enable GL Compositor** in Diagnostics panel
+- [ ] Badge flips to `GL flag: ON`
 - [ ] Stop the current recording (Force Stop) if one is running
 - [ ] Start a NEW recording (next scheduled class, or Force Start)
-- [ ] Badge should now show "Pipeline: GL Compositor (clean)"
-- [ ] During recording, the TV screen should have **NO PiP circle visible**
-- [ ] The recorded MP4 should also have no PiP (Phase 1 limitation — camera
-      compositing into GL frames is a Phase 2 follow-up. Current GL mode trades
-      PiP for a clean TV screen.)
+- [ ] Diagnostics now shows `Pipeline: GL Compositor (clean)` and the
+      new `GL Camera PiP` health field should be `true`
+- [ ] **During recording, the TV screen has NO PiP circle visible** ← core fix
+- [ ] **Recorded MP4 DOES have the PiP circle** in the bottom-right
+      (hidden Camera2 session writes frames straight into the GL compositor's
+      camera texture, compositor masks them to a circle, encoder outputs the
+      composited frame)
+- [ ] Open Recordings → play the new recording → confirm PiP visible in video
 
-### 4c. Fallback check
+### 4c. Fallback — camera open failure
 
-- [ ] If the TV's GPU can't handle GL, the Diagnostics panel will show
-      `GL init error: <reason>`
-- [ ] Recording will automatically fall back to Legacy mode — **never breaks**
-- [ ] Pipeline badge will say "Legacy (PiP visible on TV)" even with flag ON
+If Camera2 fails (permission revoked, hardware busy, etc.), recording must
+still complete. Test this:
 
-**Pass:** With GL enabled, TV screen is clean during recording.
-**Note:** If you want PiP IN the recording but NOT on the TV, that's a Phase 2
-task — needs extra GL code to feed the camera into the compositor. Today you
-pick ONE: PiP visible-both-places (legacy) OR PiP nowhere (GL mode).
+- [ ] Revoke the CAMERA runtime permission from LectureLens (App info → Permissions → Camera → Deny)
+- [ ] Schedule a class in GL mode
+- [ ] Diagnostics should show `GL Camera PiP: false` but `Pipeline: GL Compositor (clean)` still true
+- [ ] Recording completes with clean screen and NO PiP (graceful screen-only)
+- [ ] Re-grant CAMERA permission before proceeding to Step 5
+
+### 4d. Fallback — GPU init failure
+
+- [ ] If the TV's GPU can't handle GL, Diagnostics shows `GL init error: <reason>`
+- [ ] Recording automatically falls back to Legacy mode — **never breaks**
+- [ ] Pipeline badge shows `Legacy (PiP visible on TV)` even with flag ON
+
+**Pass:** With GL enabled, TV screen is clean during recording AND the recorded
+video contains the PiP circle.
+
+**Pitfall:** the hidden camera uses the same permission grant as the overlay
+camera (CAMERA). If you run 4b without the permission, `GL Camera PiP` will
+be `false` and the recording will be screen-only with a black area where
+the PiP would have been. Expected — this is the graceful fallback.
 
 ---
 
@@ -203,11 +223,9 @@ Mark ALL of these as passed before declaring Phase 1 beta-ready.
 
 ## Known Limitations (will be addressed in later phases)
 
-### Phase 2
-- **Camera-in-GL-frames:** GL mode currently records screen-only. Adding the
-  camera PiP back INTO the recording (but still hidden from the TV screen)
-  needs a small additional Camera2 capture path wired into the GL compositor.
-  ~4 hours of work once Phase 1 is stable.
+### ✅ Phase 2 — SHIPPED in v2.4.0
+- Camera-in-GL-frames landed via new `HiddenCameraCapture` class. GL mode
+  now records the PiP while keeping the TV screen clean. Validated in Step 4.
 
 ### Phase 3
 - **Native USB camera (Lumens):** Still requires CameraFi or similar bridge
@@ -238,7 +256,8 @@ If any Step fails and you can't figure out why:
 
 The logs now include every relevant diagnostic:
 - `videoPipeline` — which path was used for the recording
+- `glCompositorEnabled` — current flag state
+- `glCameraPiP` — true if hidden Camera2 session is feeding frames into GL compositor
 - `lastGlInitError` — why GL fell back (if it did)
 - `micLabel` — which mic was actually selected
 - `chimeEngineOk` / `ttsEngineOk` — announcement engine status
-- `glCompositorEnabled` — current flag state
