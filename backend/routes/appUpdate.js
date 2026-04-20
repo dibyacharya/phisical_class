@@ -141,9 +141,13 @@ router.get("/latest", async (_req, res) => {
 // GET /api/app/download — Download APK binary (device auth). Supports both inline and GridFS storage.
 router.get("/download", deviceAuth, async (req, res) => {
   try {
+    // See /download-admin comment — lean() + toNodeBuffer gives us a
+    // deterministic path that works regardless of the Mongoose schema
+    // Buffer hydration quirks we hit with larger inline APKs.
     const latest = await AppVersion.findOne({ isActive: true })
       .select("apkData apkGridFsId versionName versionCode apkSize")
-      .sort({ versionCode: -1 });
+      .sort({ versionCode: -1 })
+      .lean();
 
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
@@ -234,15 +238,21 @@ function describeBuffer(raw) {
 // GET /api/app/download-admin — Admin-accessible APK download (JWT auth instead of device auth)
 router.get("/download-admin", auth, adminOnly, async (req, res) => {
   try {
+    // .lean() returns a plain JS object with raw MongoDB driver types —
+    // apkData comes back as a `Binary` (mongodb.Binary) with .buffer holding
+    // the actual bytes. Mongoose's hydrated Buffer path kept producing a
+    // wrapper that res.send() couldn't serialise. lean() + explicit shape
+    // normalisation is deterministic across Mongoose/MongoDB versions.
     const latest = await AppVersion.findOne({ isActive: true })
       .select("apkData apkGridFsId versionName versionCode apkSize")
-      .sort({ versionCode: -1 });
+      .sort({ versionCode: -1 })
+      .lean();
 
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
     }
 
-    console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : "inline"}, declared size=${latest.apkSize}`);
+    console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : "inline"}, declared size=${latest.apkSize}, apkData shape=${describeBuffer(latest.apkData)}`);
 
     res.set({
       "Content-Type": "application/vnd.android.package-archive",
