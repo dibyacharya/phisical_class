@@ -272,9 +272,15 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     } else if (latest.apkData) {
       const buf = toNodeBuffer(latest.apkData);
       if (!buf || buf.length === 0) {
-        console.error(`[AppUpdate] (admin) apkData present but buffer normalisation produced ${buf ? buf.length : "null"} bytes`);
-        return res.status(500).json({ error: "APK binary not readable from database" });
+        console.error(`[AppUpdate] (admin v3-diag) apkData shape=${describeBuffer(latest.apkData)} → normalised=${buf ? buf.length : "null"} bytes`);
+        return res.status(500).json({
+          error: "APK binary not readable from database",
+          codeRev: "v3-diag-lean-admin",
+          apkDataShape: describeBuffer(latest.apkData),
+          declaredSize: latest.apkSize,
+        });
       }
+      console.log(`[AppUpdate] download-admin served ${buf.length} bytes`);
       res.end(buf);
     } else {
       res.status(404).json({ error: "No APK data available" });
