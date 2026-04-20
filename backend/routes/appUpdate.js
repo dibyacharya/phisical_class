@@ -205,20 +205,48 @@ router.get("/download", deviceAuth, async (req, res) => {
 function toNodeBuffer(raw) {
   if (!raw) return null;
   if (Buffer.isBuffer(raw)) return raw;
-  // Mongoose/BSON Binary wrapper
-  if (raw.buffer && Buffer.isBuffer(raw.buffer)) return raw.buffer;
-  // MongoDB driver Binary type (has _bsontype === "Binary" and buffer property)
-  if (raw._bsontype === "Binary" && raw.buffer) {
-    return Buffer.isBuffer(raw.buffer) ? raw.buffer : Buffer.from(raw.buffer);
+
+  // MongoDB driver Binary type (BSON Binary — keys: sub_type, buffer, position).
+  // Gotcha discovered via QA diagnostic (test I01/I02/O03): `Binary.buffer` is
+  // a preallocated Node Buffer that may be LARGER than the stored payload.
+  // Actual content length is tracked in `Binary.position` — the `Binary.length()`
+  // method returns it. So we must slice by `position` (or call `.value(true)`
+  // for the driver-blessed accessor) to get the real APK bytes. Grabbing
+  // `.buffer` directly without slicing returns up-to-7 MB of correct bytes
+  // PLUS padding, which some consumers tolerate and others don't; worse, in
+  // certain code paths the backing buffer has length 0 with position tracking
+  // data read from GridFS cursors. Being defensive handles both cases.
+  if (raw._bsontype === "Binary") {
+    try {
+      if (typeof raw.value === "function") {
+        const v = raw.value(true);  // `asBuffer=true` → returns Node Buffer
+        if (Buffer.isBuffer(v) && v.length > 0) return v;
+      }
+    } catch (_) { /* fall through */ }
+    if (raw.buffer) {
+      const backing = Buffer.isBuffer(raw.buffer) ? raw.buffer : Buffer.from(raw.buffer);
+      if (typeof raw.position === "number" && raw.position > 0 && raw.position <= backing.length) {
+        return backing.subarray(0, raw.position);  // slice to actual payload
+      }
+      if (backing.length > 0) return backing;
+    }
+    return null;
   }
-  // Uint8Array (common when deserialized from certain paths)
+
+  // Mongoose-hydrated Buffer (wrapper with { buffer: Buffer, subType: 0 })
+  if (raw.buffer && Buffer.isBuffer(raw.buffer)) return raw.buffer;
+
+  // Uint8Array
   if (raw instanceof Uint8Array) return Buffer.from(raw);
+
   // Plain object with data array { type: "Buffer", data: [1,2,3...] }
   if (raw.type === "Buffer" && Array.isArray(raw.data)) return Buffer.from(raw.data);
+
   // ArrayBuffer view
   if (raw.byteLength !== undefined) {
     try { return Buffer.from(raw); } catch (_) {}
   }
+
   // Last resort
   try { return Buffer.from(raw); } catch (_) { return null; }
 }
