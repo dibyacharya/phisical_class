@@ -40,7 +40,14 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
     // Deactivate all previous versions
     await AppVersion.updateMany({}, { isActive: false });
 
-    const USE_GRIDFS_THRESHOLD = 14 * 1024 * 1024; // 14MB — safe margin below 16MB BSON limit
+    // ALWAYS use GridFS — inline Buffer storage has a persistent Mongoose/
+    // MongoDB driver interop bug where apkData comes back as a Binary wrapper
+    // whose backing buffer is lazy-allocated and reads empty on download (QA
+    // caught this via tests I01/I02/O03 for v2.5.0). GridFS streams via
+    // bucket.openDownloadStream() which has a clean, well-tested read path.
+    // The 14 MB BSON-limit threshold was the old heuristic; we now use 0 so
+    // every APK — regardless of size — goes through the reliable path.
+    const USE_GRIDFS_THRESHOLD = 0;
 
     if (apkFile.size >= USE_GRIDFS_THRESHOLD) {
       // ── Large APK: Store via GridFS (chunked, no BSON limit) ──────
