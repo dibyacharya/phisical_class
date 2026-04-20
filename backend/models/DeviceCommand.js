@@ -22,6 +22,7 @@ const deviceCommandSchema = new mongoose.Schema({
       "force_start",     // Force start recording (regardless of schedule)
       "force_stop",      // Force stop recording
       "update_config",   // Update device config (e.g., video bitrate, fps)
+      "play_sound",      // Play notification sound at max volume (for testing)
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
