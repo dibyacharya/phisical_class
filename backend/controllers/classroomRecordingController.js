@@ -390,12 +390,20 @@ exports.heartbeat = async (req, res) => {
         .sort({ versionCode: -1 });
 
       if (latestApp && latestApp.versionCode > deviceVersionCode) {
+        // Use X-Forwarded-Proto if set by reverse proxy (Railway/Vercel),
+        // else fall back to req.protocol. IMPORTANT: force HTTPS — Android's
+        // HttpURLConnection refuses to follow HTTP→HTTPS redirects across
+        // protocols for security, so handing the device an HTTP URL here
+        // causes OTA downloads to fail silently when behind a TLS-terminating
+        // proxy that redirects to HTTPS.
+        const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+        const scheme = proto === "http" ? "https" : proto;
         appUpdate = {
           versionCode: latestApp.versionCode,
           versionName: latestApp.versionName,
           apkSize: latestApp.apkSize,
           releaseNotes: latestApp.releaseNotes || "",
-          downloadUrl: `${req.protocol}://${req.get("host")}/api/app/download`,
+          downloadUrl: `${scheme}://${req.get("host")}/api/app/download`,
         };
       }
     } catch (updateErr) {
