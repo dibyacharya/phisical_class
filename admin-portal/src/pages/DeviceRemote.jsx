@@ -4,7 +4,7 @@ import api from "../services/api";
 import {
   ArrowLeft, RefreshCw, Terminal, Camera, Volume2, VolumeX,
   RotateCcw, Trash2, FileText, Power, Square, Image,
-  CheckCircle2, XCircle, Clock, AlertTriangle, Loader2,
+  CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Bell,
 } from "lucide-react";
 
 export default function DeviceRemote() {
@@ -127,6 +127,13 @@ export default function DeviceRemote() {
             label="Capture Screenshot"
             color="blue"
             onClick={() => sendCommand("capture_screenshot")}
+            disabled={sending || !isOnline}
+          />
+          <CmdButton
+            icon={Bell}
+            label="Play Sound"
+            color="green"
+            onClick={() => sendCommand("play_sound")}
             disabled={sending || !isOnline}
           />
           <CmdButton
@@ -402,6 +409,7 @@ export default function DeviceRemote() {
 function CmdButton({ icon: Icon, label, color, onClick, disabled }) {
   const colorMap = {
     blue: "bg-blue-600 hover:bg-blue-700",
+    green: "bg-emerald-600 hover:bg-emerald-700",
     purple: "bg-purple-600 hover:bg-purple-700",
     yellow: "bg-yellow-600 hover:bg-yellow-700",
     orange: "bg-orange-600 hover:bg-orange-700",
