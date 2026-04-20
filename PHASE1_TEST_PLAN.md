@@ -1,4 +1,4 @@
-# Phase 1 Test Plan — LectureLens v2.4.0-draisol
+# Phase 1–3 Test Plan — LectureLens v2.5.0-draisol
 
 **Goal:** Validate that the Smart TV (55TR3DK) records classes reliably with
 audible start/stop announcements, USB mic routing, and optional clean PiP-free
@@ -12,7 +12,7 @@ recording via the GL compositor. At the end of this plan the system should be
 ## Pre-requisites
 
 - [ ] Smart TV powered on, connected to WiFi, facing the classroom
-- [ ] `LectureLens-v2.4.0-draisol.apk` on your laptop (Desktop)
+- [ ] `LectureLens-v2.5.0-draisol.apk` on your laptop (Desktop)
 - [ ] ADB working (`adb devices` shows the TV)
 - [ ] Admin portal open: https://lecturelens-admin.draisol.com
 - [ ] (Optional) Sennheiser/Rode/any USB mic to plug in
@@ -21,16 +21,16 @@ recording via the GL compositor. At the end of this plan the system should be
 
 ---
 
-## Step 1 — Install v2.4.0 on the TV
+## Step 1 — Install v2.5.0 on the TV
 
 ```bash
-adb install -r "$HOME/Desktop/LectureLens-v2.4.0-draisol.apk"
+adb install -r "$HOME/Desktop/LectureLens-v2.5.0-draisol.apk"
 ```
 
 **Success criteria:**
 - `adb` prints `Success`
 - On TV, the LectureLens app icon still works — no crash on launch
-- In admin portal → Devices → the TV shows **v2.4.0-draisol (code 21)**
+- In admin portal → Devices → the TV shows **v2.5.0-draisol (code 22)**
 - Device stays **Online** for at least 2 consecutive heartbeats
 
 If install fails ("Can't install as this user"), switch to the primary Android
@@ -205,10 +205,76 @@ device would re-download and re-prompt every 2 min forever.
 
 ---
 
-## Step 8 — Sign-off Checklist
+## Step 8 — Phase 3: Pilot-Readiness (v2.5.0)
 
-Mark ALL of these as passed before declaring Phase 1 beta-ready.
+These tests validate the new fleet-ops features. Single-device tests still
+exercise the broadcast path — you just check "1/1 queued" instead of N/N.
 
+### 8a. MediaProjection auto-recovery
+
+- [ ] Ensure Accessibility Service is enabled:
+      Settings → Accessibility → **LectureLens Auto-Install → ON**
+- [ ] Trigger a projection revoke. Easiest way on a TV: open
+      `ProjectionRenewActivity` via `adb shell am start -n in.lecturelens.recorder/.ui.ProjectionRenewActivity`
+      (or naturally — sometimes OS memory pressure forces one within a day)
+- [ ] Watch logcat: `adb logcat -s RecorderService:I AutoInstall:I`
+- [ ] Expected: `MediaProjection revoked (onStop)` → `Launching ProjectionRenewActivity`
+      → `Auto-clicked MediaProjection [button1]` within ~1 second
+- [ ] Device resumes heartbeating normally — no human intervention
+- [ ] If accessibility is OFF, the dialog sits visible for manual tap (confirms fallback)
+
+### 8b. Thumbnail OOM safety
+
+- [ ] Open admin portal → Device Remote → Diagnostics → check `errorCount` and `lastError`
+- [ ] Schedule a long recording on a busy TV
+- [ ] If OOM triggers, `lastError` updates to "Thumbnail OOM (dropped): …"
+      but the service does NOT crash; next thumbnail tick will try again
+- [ ] Recording continues uninterrupted through the OOM event
+
+### 8c. Fleet Dashboard page
+
+Open https://lecturelens-admin.draisol.com/fleet
+
+- [ ] Stat row shows correct totals (Online / Offline / Recording / Healthy / Warn-Crit)
+- [ ] Each device card shows health score 0-100 with colour (green ≥ 80, amber ≥ 50, red < 50)
+- [ ] Critical devices sort to the TOP
+- [ ] Chips correctly indicate mic type (USB vs built-in) and video pipeline (GL vs legacy)
+- [ ] `lastRecordingError` surfaces in red under affected cards
+- [ ] Auto-refreshes every 15 seconds (watch the heartbeat age tick down then reset)
+
+### 8d. Bulk broadcast
+
+- [ ] Check the checkboxes on 1-2 devices
+- [ ] Click **Pull Logs** → Confirm dialog shows accurate count → OK
+- [ ] Result banner shows "N/N queued successfully"
+- [ ] Open that device's Remote page → Commands tab → new `pull_logs` row
+      appears with status `pending` within seconds
+
+Run the same sequence for **Clear Storage**, **Restart App**, **Reboot**.
+Clear / Restart / Reboot ask for explicit confirmation — click OK only on
+a device you're willing to power-cycle.
+
+### 8e. Maintenance pattern (no dedicated UI, but works)
+
+Goal: pause all recordings across the fleet for some duration
+(maintenance window, power shutdown, network migration).
+
+1. Select ALL devices on the Fleet page
+2. Click **Restart App** — broadcasts `restart_app` to everyone
+3. Devices shutdown recording + restart service → miss any in-progress class
+4. When ready to resume, no action needed — schedule check resumes in
+   ~10s and catch-up window covers any ongoing class
+
+This is the pragmatic Phase 3 maintenance pattern — a dedicated
+"Maintenance Mode" page is deferred to Phase 5.
+
+---
+
+## Step 9 — Sign-off Checklist
+
+Mark ALL of these as passed before declaring the system pilot-ready.
+
+### Phase 1 (single-room beta)
 - [ ] **Chime audible** at recording start and stop (Step 2)
 - [ ] **USB mic auto-selected** when plugged in, falls back to built-in on unplug (Step 3)
 - [ ] **GL compositor toggle** works — recording without on-TV PiP (Step 4)
@@ -219,6 +285,17 @@ Mark ALL of these as passed before declaring Phase 1 beta-ready.
 - [ ] **No stuck recordings** in Recordings page (all `completed` or `failed`, none stuck at `recording`)
 - [ ] **Device stays Online** for at least 30 consecutive minutes without drops
 
+### Phase 2 (camera in GL)
+- [ ] GL mode recording contains PiP circle (Step 4b)
+- [ ] TV screen stays clean during GL-mode recording (Step 4b)
+- [ ] Camera revoke → GL mode continues screen-only (Step 4c)
+
+### Phase 3 (pilot-ready fleet)
+- [ ] MediaProjection revoke auto-recovers via accessibility-click (Step 8a)
+- [ ] Thumbnail OOM reported in health, doesn't crash service (Step 8b)
+- [ ] Fleet Dashboard renders with correct chips + auto-refreshes (Step 8c)
+- [ ] Bulk broadcast queues commands to multiple devices in one call (Step 8d)
+
 ---
 
 ## Known Limitations (will be addressed in later phases)
@@ -227,7 +304,14 @@ Mark ALL of these as passed before declaring Phase 1 beta-ready.
 - Camera-in-GL-frames landed via new `HiddenCameraCapture` class. GL mode
   now records the PiP while keeping the TV screen clean. Validated in Step 4.
 
-### Phase 3
+### ✅ Phase 3 — SHIPPED in v2.5.0
+- MediaProjection auto-recovery (AccessibilityService auto-click)
+- Thumbnail OOM protection
+- pendingUpload queue cap (prevents unbounded growth)
+- Fleet Dashboard + bulk broadcast commands
+- Validated in Step 8.
+
+### Phase 4
 - **Native USB camera (Lumens):** Still requires CameraFi or similar bridge
   app. Native UVC support is a 5-7 week dedicated project (libusb JNI + UVC
   probe/commit protocol + per-SoC testing). Deferred.
