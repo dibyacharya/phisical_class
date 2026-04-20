@@ -4,7 +4,7 @@ import {
   Tv, Wifi, WifiOff, CircleDot, Trash2, Play, Square, RefreshCw,
   Camera, Mic, Monitor, HardDrive, Cpu, Battery, AlertTriangle,
   CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Signal,
-  Terminal,
+  Terminal, Download,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -108,6 +108,15 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 <AlertTriangle size={10} /> Alert
               </span>
             )}
+            {device.appVersionName ? (
+              <span className="flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
+                v{device.appVersionName}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                <Download size={10} /> Outdated
+              </span>
+            )}
           </div>
 
           {/* Room + IP */}
@@ -204,10 +213,16 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
             </div>
           </div>
 
-          {/* CPU / Battery */}
+          {/* CPU / Battery / Version */}
           <div>
             <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Cpu size={12} /> System</p>
             <div className="space-y-1 text-gray-500">
+              <p>App: {device.appVersionName ? (
+                <span className="text-gray-700 font-medium">v{device.appVersionName} <span className="text-gray-400">(code {device.appVersionCode})</span></span>
+              ) : (
+                <span className="text-red-600 font-medium">Outdated — update required</span>
+              )}</p>
+              {device.deviceModel && <p>Model: <span className="text-gray-700">{device.deviceModel}</span></p>}
               {h.cpu?.usagePercent != null && (
                 <div>
                   <p className="mb-0.5">CPU</p>
@@ -336,6 +351,7 @@ export default function Devices() {
 
   const online = devices.filter(isOnline);
   const recording = devices.filter((d) => d.isRecording);
+  const outdated = devices.filter((d) => !d.appVersionCode);
   const alerts = devices.filter((d) => {
     const h = d.health || {};
     return h.camera?.ok === false || h.mic?.ok === false || h.screen?.ok === false || (h.disk?.usedPercent >= 90);
@@ -352,7 +368,7 @@ export default function Devices() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center gap-3">
           <div className="bg-blue-100 p-2.5 rounded-lg"><Tv size={20} className="text-blue-600" /></div>
           <div><p className="text-xs text-gray-500">Total</p><p className="text-xl font-bold text-gray-800">{devices.length}</p></div>
@@ -365,6 +381,17 @@ export default function Devices() {
           <div className="bg-red-100 p-2.5 rounded-lg"><CircleDot size={20} className="text-red-600" /></div>
           <div><p className="text-xs text-gray-500">Recording</p><p className="text-xl font-bold text-gray-800">{recording.length}</p></div>
         </div>
+        {outdated.length > 0 && (
+          <Link to="/app-update" className={`rounded-xl shadow-sm border p-4 flex items-center gap-3 bg-red-50 border-red-200 hover:bg-red-100 transition-colors`}>
+            <div className="bg-red-100 p-2.5 rounded-lg">
+              <Download size={20} className="text-red-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Outdated</p>
+              <p className="text-xl font-bold text-red-700">{outdated.length}</p>
+            </div>
+          </Link>
+        )}
         <div className={`rounded-xl shadow-sm border p-4 flex items-center gap-3 ${alerts.length > 0 ? "bg-amber-50 border-amber-200" : "bg-white"}`}>
           <div className={`p-2.5 rounded-lg ${alerts.length > 0 ? "bg-amber-100" : "bg-gray-100"}`}>
             <AlertTriangle size={20} className={alerts.length > 0 ? "text-amber-600" : "text-gray-400"} />
