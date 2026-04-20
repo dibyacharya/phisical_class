@@ -171,7 +171,15 @@ router.get("/download", deviceAuth, async (req, res) => {
       });
     } else if (latest.apkData) {
       // ── Inline binary ─────────────────────────────────────────────
-      res.send(latest.apkData);
+      // Normalise through toNodeBuffer() because Mongoose can expose
+      // Buffer fields as { buffer, subType } wrappers that make res.send()
+      // emit an empty body. Use res.end() to avoid any body-transform.
+      const buf = toNodeBuffer(latest.apkData);
+      if (!buf || buf.length === 0) {
+        console.error(`[AppUpdate] apkData present but buffer normalisation produced ${buf ? buf.length : "null"} bytes`);
+        return res.status(500).json({ error: "APK binary not readable from database" });
+      }
+      res.end(buf);
     } else {
       res.status(404).json({ error: "No APK data available" });
     }
@@ -179,6 +187,18 @@ router.get("/download", deviceAuth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Small helper — normalise Mongoose's buffer types to a Node Buffer we can
+// hand to res.end(). When .select() returns an apkData field that was stored
+// as a BSON Binary, Mongoose may expose it as `{ buffer: Buffer, subType: 0 }`
+// instead of a plain Buffer. res.send() on that wrapper produces zero body
+// output — which is exactly the silent-failure bug QA caught in test I01/I02/O03.
+function toNodeBuffer(raw) {
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw)) return raw;
+  if (raw.buffer && Buffer.isBuffer(raw.buffer)) return raw.buffer;
+  try { return Buffer.from(raw); } catch (_) { return null; }
+}
 
 // GET /api/app/download-admin — Admin-accessible APK download (JWT auth instead of device auth)
 router.get("/download-admin", auth, adminOnly, async (req, res) => {
@@ -190,6 +210,8 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
     }
+
+    console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : "inline"}, declared size=${latest.apkSize}`);
 
     res.set({
       "Content-Type": "application/vnd.android.package-archive",
@@ -207,7 +229,12 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
         else res.destroy();
       });
     } else if (latest.apkData) {
-      res.send(latest.apkData);
+      const buf = toNodeBuffer(latest.apkData);
+      if (!buf || buf.length === 0) {
+        console.error(`[AppUpdate] (admin) apkData present but buffer normalisation produced ${buf ? buf.length : "null"} bytes`);
+        return res.status(500).json({ error: "APK binary not readable from database" });
+      }
+      res.end(buf);
     } else {
       res.status(404).json({ error: "No APK data available" });
     }
