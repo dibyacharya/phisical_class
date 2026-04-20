@@ -222,6 +222,28 @@ export default function Recordings() {
     catch (err) { alert("Delete failed: " + (err.response?.data?.error || err.message)); }
   };
 
+  const handleForceStop = async (id) => {
+    if (!confirm("Force-stop this stuck recording? If no segments were uploaded, it will be marked as failed.")) return;
+    try {
+      const res = await api.post(`/recordings/${id}/force-stop`);
+      alert(res.data?.message || "Recording finalized");
+      fetchRecordings();
+    } catch (err) {
+      alert("Force-stop failed: " + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleCleanupStale = async () => {
+    if (!confirm("Scan all recordings and fix ones stuck at 'recording'/'uploading' for >15 min?")) return;
+    try {
+      const res = await api.post("/recordings/cleanup-stale");
+      alert(`Fixed ${res.data?.fixed || 0} stuck recording(s)`);
+      fetchRecordings();
+    } catch (err) {
+      alert("Cleanup failed: " + (err.response?.data?.error || err.message));
+    }
+  };
+
   const toAbsoluteUrl = (url) => {
     if (!url) return null;
     return url.startsWith("http") ? url : `${BACKEND_URL}${url}`;
@@ -318,9 +340,14 @@ export default function Recordings() {
           <p className="text-xs font-semibold text-indigo-500 tracking-wider uppercase">Recording Library</p>
           <h2 className="text-2xl font-bold text-gray-800">Class Recordings</h2>
         </div>
-        <button onClick={fetchRecordings} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleCleanupStale} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-orange-600 hover:bg-orange-50 transition">
+            <X size={14} /> Fix Stuck
+          </button>
+          <button onClick={fetchRecordings} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats Bar */}
@@ -593,6 +620,12 @@ export default function Recordings() {
                                                                     <Download size={11} /> Download
                                                                   </a>
                                                                 </>
+                                                              )}
+                                                              {(rec.status === "recording" || rec.status === "uploading") && (
+                                                                <button onClick={() => handleForceStop(rec._id)}
+                                                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-orange-50 text-orange-600 hover:bg-orange-100 transition">
+                                                                  <X size={11} /> Force Stop
+                                                                </button>
                                                               )}
                                                               <button onClick={() => togglePublish(rec._id)}
                                                                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${

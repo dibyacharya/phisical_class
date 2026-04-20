@@ -71,3 +71,97 @@ exports.remove = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// POST /api/recordings/:id/force-stop
+// Admin fix for recordings stuck at "recording" or "uploading" — marks as
+// completed if segments exist, otherwise failed. Useful when device crashed
+// mid-recording and never called /merge to finalize.
+exports.forceStop = async (req, res) => {
+  try {
+    const rec = await Recording.findById(req.params.id);
+    if (!rec) return res.status(404).json({ error: "Recording not found" });
+
+    const hasSegments = (rec.segments || []).length > 0;
+    rec.status = hasSegments ? "completed" : "failed";
+    rec.isPublished = hasSegments;
+    rec.recordingEnd = rec.recordingEnd || new Date();
+
+    // For recordings with segments but no final videoUrl, fall back to last segment
+    if (hasSegments && !rec.videoUrl) {
+      const last = rec.segments[rec.segments.length - 1];
+      if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+    }
+
+    await rec.save();
+
+    // If the device is still marked as recording this meeting, clear its state
+    try {
+      const ClassroomDevice = require("../models/ClassroomDevice");
+      const meetingId = rec.scheduledClass?.toString();
+      if (meetingId) {
+        await ClassroomDevice.updateMany(
+          { currentMeetingId: meetingId, isRecording: true },
+          { isRecording: false, currentMeetingId: null }
+        );
+      }
+    } catch (_) {}
+
+    res.json({
+      message: hasSegments
+        ? `Recording marked completed with ${rec.segments.length} segment(s)`
+        : "Recording marked failed (no segments uploaded — device likely crashed before capturing any frames)",
+      recording: rec,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/recordings/cleanup-stale
+// Auto-fixes all recordings that have been "recording" or "uploading" for
+// longer than STALE_MINUTES past their scheduled class end time.
+exports.cleanupStale = async (req, res) => {
+  try {
+    const STALE_MINUTES = 15;
+    const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
+
+    const stuck = await Recording.find({
+      status: { $in: ["recording", "uploading"] },
+      // Either recording started long ago, OR never got an end time at all
+      $or: [
+        { recordingStart: { $lt: cutoff } },
+        { createdAt: { $lt: cutoff } },
+      ],
+    });
+
+    const fixed = [];
+    for (const rec of stuck) {
+      const hasSegments = (rec.segments || []).length > 0;
+      rec.status = hasSegments ? "completed" : "failed";
+      rec.isPublished = hasSegments;
+      rec.recordingEnd = rec.recordingEnd || new Date();
+      if (hasSegments && !rec.videoUrl) {
+        const last = rec.segments[rec.segments.length - 1];
+        if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+      }
+      await rec.save();
+      fixed.push({ id: rec._id, title: rec.title, status: rec.status, segments: rec.segments?.length || 0 });
+    }
+
+    // Also clear device flags for all classes the cleanup touched
+    if (fixed.length > 0) {
+      const ClassroomDevice = require("../models/ClassroomDevice");
+      const meetingIds = stuck.map(r => r.scheduledClass?.toString()).filter(Boolean);
+      if (meetingIds.length > 0) {
+        await ClassroomDevice.updateMany(
+          { currentMeetingId: { $in: meetingIds }, isRecording: true },
+          { isRecording: false, currentMeetingId: null }
+        );
+      }
+    }
+
+    res.json({ fixed: fixed.length, details: fixed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
