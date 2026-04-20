@@ -71,6 +71,8 @@ const classroomDeviceSchema = new mongoose.Schema(
     deviceModel: { type: String },
     osVersion: { type: String },
     macAddress: { type: String },
+    appVersionName: { type: String },
+    appVersionCode: { type: Number },
     authToken: {
       type: String,
       default: () => crypto.randomBytes(32).toString("hex"),

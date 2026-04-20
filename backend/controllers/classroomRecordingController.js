@@ -255,6 +255,18 @@ exports.heartbeat = async (req, res) => {
     device.isOnline = true;
     if (req.body.ipAddress) device.ipAddress = req.body.ipAddress;
 
+    // Track app version reported by device — needed for OTA + "outdated" warnings
+    const reportedVersionCode = parseInt(req.body.appVersionCode);
+    if (!isNaN(reportedVersionCode) && reportedVersionCode > 0) {
+      device.appVersionCode = reportedVersionCode;
+    }
+    if (req.body.appVersionName) {
+      device.appVersionName = req.body.appVersionName;
+    }
+    if (req.body.deviceModel) {
+      device.deviceModel = req.body.deviceModel;
+    }
+
     // Accept lightweight health snapshot inline with heartbeat
     if (req.body.health) {
       const h = req.body.health;
