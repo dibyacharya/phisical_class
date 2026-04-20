@@ -142,11 +142,21 @@ exports.reportCommandResult = async (req, res) => {
     if (!enforceDeviceOwnership(req, res)) return;
 
     const { commandId, status, result } = req.body;
+    console.log(`[Remote] Command result received: cmdId=${commandId} status=${status} result=${(result || "").substring(0, 100)} device=${req.params.deviceId}`);
+
     if (!commandId) return res.status(400).json({ error: "commandId required" });
+
+    // Validate ObjectId format before querying
+    if (!commandId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "Invalid commandId format" });
+    }
 
     // Verify the command belongs to this device
     const cmd = await DeviceCommand.findById(commandId);
-    if (!cmd) return res.status(404).json({ error: "Command not found" });
+    if (!cmd) {
+      console.warn(`[Remote] Command not found: ${commandId}`);
+      return res.status(404).json({ error: "Command not found" });
+    }
     if (cmd.deviceId !== req.params.deviceId) {
       return res.status(403).json({ error: "Command does not belong to this device" });
     }
@@ -156,8 +166,10 @@ exports.reportCommandResult = async (req, res) => {
     cmd.completedAt = new Date();
     await cmd.save();
 
+    console.log(`[Remote] Command ${cmd.command} (${commandId}) → ${cmd.status}`);
     res.json({ ok: true });
   } catch (err) {
+    console.error(`[Remote] Command result error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };
