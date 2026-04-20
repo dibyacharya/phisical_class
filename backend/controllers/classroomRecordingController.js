@@ -44,20 +44,49 @@ exports.registerDevice = async (req, res) => {
         return res.status(403).json({ error: "License key is required to register a new device" });
       }
 
-      license = await License.findOne({ key: licenseKey.trim().toUpperCase() });
+      // Atomic license claim: findOneAndUpdate with isActivated=false as filter
+      // prevents race condition where two devices register with same key simultaneously.
+      // Only one can flip isActivated from false→true.
+      const upperKey = licenseKey.trim().toUpperCase();
 
-      if (!license || !license.isActive) {
+      // First check if key exists at all (for better error messages)
+      const licCheck = await License.findOne({ key: upperKey });
+      if (!licCheck || !licCheck.isActive) {
         return res.status(404).json({ error: "Invalid license key" });
       }
-      if (license.expiresAt && new Date() > license.expiresAt) {
+      if (licCheck.expiresAt && new Date() > licCheck.expiresAt) {
         return res.status(403).json({ error: "License key has expired" });
       }
-      if (license.isActivated && license.deviceMac !== macAddress) {
+      if (licCheck.isActivated && licCheck.deviceMac !== macAddress) {
         return res.status(409).json({
           error: "This license key is already activated on another device",
-          activatedOn: license.deviceModel || "another device",
-          activatedAt: license.activatedAt,
+          activatedOn: licCheck.deviceModel || "another device",
+          activatedAt: licCheck.activatedAt,
         });
+      }
+      if (licCheck.isActivated && licCheck.deviceMac === macAddress) {
+        // Same device re-registering after wipe — allow but skip atomic claim
+        license = licCheck;
+      }
+
+      // Atomically claim the license (only succeeds if still not activated)
+      if (!license) {
+        license = await License.findOneAndUpdate(
+          { key: upperKey, isActive: true, isActivated: false },
+          {
+            isActivated: true,
+            activatedAt: new Date(),
+            deviceMac:   macAddress,
+            deviceModel: deviceModel || "",
+          },
+          { new: true }
+        );
+        if (!license) {
+          // Another device claimed it between our check and update
+          return res.status(409).json({
+            error: "This license key was just activated by another device. Please use a different key.",
+          });
+        }
       }
     }
 
@@ -92,14 +121,10 @@ exports.registerDevice = async (req, res) => {
         macAddress,
       });
 
-      // ── Bind license to this device ─────────────────────────────────────────
+      // ── Bind device ID + room info to the already-claimed license ──────────
       if (license) {
         await License.findByIdAndUpdate(license._id, {
-          isActivated: true,
-          activatedAt: new Date(),
-          deviceMac:   macAddress,
           deviceId:    device.deviceId,
-          deviceModel: deviceModel || "",
           spaceCode:   spaceCode || null,
           roomNumber:  resolvedRoomNumber,
           campus:      resolvedCampus,
@@ -437,11 +462,14 @@ exports.deleteDevice = async (req, res) => {
   try {
     const device = await ClassroomDevice.findByIdAndDelete(req.params.id);
 
-    // Free the license so it can be reused on a replacement device
+    // License stays activated — one-time use only.
+    // Clear deviceId reference so license list shows device was removed,
+    // but keep isActivated=true so it can't be reused on another device.
+    // Admin must explicitly call POST /api/licenses/:id/reset to reuse.
     if (device && device.deviceId) {
       await License.updateOne(
         { deviceId: device.deviceId },
-        { isActivated: false, deviceMac: "", deviceId: "", deviceModel: "" }
+        { deviceId: "" }
       );
     }
 
