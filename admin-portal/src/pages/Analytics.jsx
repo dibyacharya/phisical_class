@@ -9,6 +9,7 @@ import {
   Activity, AlertTriangle, Cpu, HardDrive, Wifi, Thermometer,
   Monitor, ArrowLeft, RefreshCw, ChevronDown, ChevronUp,
   CheckCircle2, XCircle, Clock, Upload, MemoryStick,
+  Download, FileSpreadsheet, FileText,
 } from "lucide-react";
 
 const COLORS = {
@@ -35,6 +36,282 @@ export default function Analytics() {
   const [peakHours, setPeakHours] = useState([]);
   const [deviceRanking, setDeviceRanking] = useState([]);
   const [deviceHistory, setDeviceHistory] = useState([]);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  // ── Export utilities ─────────────────────────────────────────────
+  const downloadCSV = (filename, headers, rows) => {
+    const escape = (v) => {
+      if (v == null) return "";
+      const s = String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers.join(","), ...rows.map(r => r.map(escape).join(","))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportDailySummaryCSV = () => {
+    const headers = ["Date", "Devices", "Recording Hours", "Avg CPU %", "Max CPU %", "Avg RAM %", "Avg Temp (C)", "WiFi (dBm)", "Frame Drops", "Errors", "Upload Success", "Upload Failed", "Total Snapshots"];
+    const rows = dailySummary.map(d => [
+      new Date(d.date).toLocaleDateString("en-IN"), d.deviceCount, d.estimatedRecordingHours,
+      d.avgCpuUsage, d.maxCpuUsage, d.avgRamUsage, d.avgCpuTemp, d.avgWifiSignal,
+      d.totalFrameDrops, d.totalErrors, d.uploadSuccess, d.uploadFail, d.totalSnapshots,
+    ]);
+    downloadCSV(`LectureLens_DailySummary_${days}days.csv`, headers, rows);
+  };
+
+  const exportDeviceRankingCSV = () => {
+    const headers = ["Device Name", "Room", "Avg CPU %", "Avg RAM %", "Avg Disk %", "Avg Temp (C)", "WiFi (dBm)", "Latency (ms)", "Frame Drops", "Errors", "Rec Hours", "Upload Success", "Upload Failed", "Upload %", "Snapshots"];
+    const rows = deviceRanking.map(d => [
+      d.deviceName, d.roomNumber, d.avgCpuUsage, d.avgRamUsage, d.avgDiskUsage,
+      d.avgCpuTemp, d.avgWifiSignal, d.avgLatency, d.totalFrameDrops, d.totalErrors,
+      d.estimatedRecordingHours, d.uploadSuccess, d.uploadFail, d.uploadSuccessRate, d.snapshotCount,
+    ]);
+    downloadCSV(`LectureLens_DeviceRanking_${days}days.csv`, headers, rows);
+  };
+
+  const exportAlertsCSV = () => {
+    const headers = ["Severity", "Type", "Device", "Room", "Message", "Since"];
+    const rows = alerts.map(a => [
+      a.severity, a.type, a.deviceName, a.roomNumber || "", a.message, a.since ? new Date(a.since).toLocaleString("en-IN") : "",
+    ]);
+    downloadCSV(`LectureLens_Alerts_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+  };
+
+  const exportAllCSV = () => {
+    exportDailySummaryCSV();
+    setTimeout(() => exportDeviceRankingCSV(), 300);
+    setTimeout(() => exportAlertsCSV(), 600);
+  };
+
+  const exportPDFReport = () => {
+    const now = new Date();
+    const dateRange = days === 1 ? "Last 24 Hours" : `Last ${days} Days`;
+    const fmtDate = (d) => new Date(d).toLocaleDateString("en-IN", { weekday: "short", month: "short", day: "numeric" });
+    const statusColor = (v, thresholds) => {
+      if (v == null) return "#6b7280";
+      const [warnT, critT, invert] = thresholds;
+      if (invert) return v < critT ? "#ef4444" : v < warnT ? "#eab308" : "#22c55e";
+      return v > critT ? "#ef4444" : v > warnT ? "#eab308" : "#22c55e";
+    };
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LectureLens Fleet Health Report - ${dateRange}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1f2937; background: #fff; padding: 32px; max-width: 1100px; margin: 0 auto; }
+  @media print { body { padding: 16px; } .no-print { display: none !important; } @page { margin: 12mm; size: A4 landscape; } }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 3px solid #ea580c; padding-bottom: 16px; }
+  .header h1 { font-size: 26px; color: #ea580c; }
+  .header .meta { text-align: right; font-size: 12px; color: #6b7280; }
+  .header .meta strong { color: #1f2937; }
+  .section { margin-bottom: 28px; }
+  .section h2 { font-size: 17px; font-weight: 700; color: #334155; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #e2e8f0; }
+  .overview-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 20px; }
+  .stat-box { padding: 12px; border-radius: 8px; text-align: center; }
+  .stat-box .label { font-size: 10px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+  .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #f1f5f9; color: #475569; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+  tr:hover { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-slate { background: #f1f5f9; color: #475569; }
+  .alert-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+  .alert-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .alert-msg { font-size: 13px; }
+  .alert-meta { font-size: 11px; color: #9ca3af; }
+  .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .summary-item { text-align: center; }
+  .summary-item .label { font-size: 11px; color: #6b7280; }
+  .summary-item .value { font-size: 20px; font-weight: 700; }
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #9ca3af; display: flex; justify-content: space-between; }
+  .print-btn { position: fixed; bottom: 24px; right: 24px; background: #ea580c; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; }
+  .print-btn:hover { background: #c2410c; }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">Save as PDF / Print</button>
+
+<div class="header">
+  <div>
+    <h1>LectureLens Fleet Health Report</h1>
+    <p style="color:#6b7280;margin-top:4px">Classroom Recording System - ${overview?.total || 0} Device(s) Monitored</p>
+  </div>
+  <div class="meta">
+    <p><strong>Report Period:</strong> ${dateRange}</p>
+    <p><strong>Generated:</strong> ${now.toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short" })}</p>
+    <p><strong>Powered by:</strong> D&R AI Solutions Pvt Ltd</p>
+  </div>
+</div>
+
+<!-- Fleet Overview -->
+<div class="section">
+  <h2>Fleet Overview</h2>
+  <div class="overview-grid">
+    <div class="stat-box" style="background:#f1f5f9"><div class="label" style="color:#475569">Total</div><div class="value" style="color:#334155">${overview?.total ?? 0}</div></div>
+    <div class="stat-box" style="background:#dcfce7"><div class="label" style="color:#166534">Online</div><div class="value" style="color:#166534">${overview?.online ?? 0}</div></div>
+    <div class="stat-box" style="background:#fee2e2"><div class="label" style="color:#991b1b">Offline</div><div class="value" style="color:#991b1b">${overview?.offline ?? 0}</div></div>
+    <div class="stat-box" style="background:#dbeafe"><div class="label" style="color:#1e40af">Recording</div><div class="value" style="color:#1e40af">${overview?.recording ?? 0}</div></div>
+    <div class="stat-box" style="background:#dcfce7"><div class="label" style="color:#166534">Healthy</div><div class="value" style="color:#166534">${overview?.healthy ?? 0}</div></div>
+    <div class="stat-box" style="background:#fef9c3"><div class="label" style="color:#854d0e">Warning</div><div class="value" style="color:#854d0e">${overview?.warning ?? 0}</div></div>
+    <div class="stat-box" style="background:#fee2e2"><div class="label" style="color:#991b1b">Critical</div><div class="value" style="color:#991b1b">${overview?.critical ?? 0}</div></div>
+  </div>
+</div>
+
+${alerts.length > 0 ? `
+<!-- Active Alerts -->
+<div class="section">
+  <h2>Active Alerts (${alerts.length})</h2>
+  ${alerts.map(a => `
+    <div class="alert-row">
+      <div class="alert-dot" style="background:${a.severity === "critical" ? "#ef4444" : "#eab308"}"></div>
+      <div style="flex:1">
+        <div class="alert-msg">${a.message}</div>
+        <div class="alert-meta">${a.deviceName} &middot; Room ${a.roomNumber || "—"} &middot; ${a.type}${a.since ? ` &middot; Since ${new Date(a.since).toLocaleString("en-IN")}` : ""}</div>
+      </div>
+      <span class="badge ${a.severity === "critical" ? "badge-red" : "badge-yellow"}">${a.severity}</span>
+    </div>
+  `).join("")}
+</div>
+` : `<div class="section"><h2>Active Alerts</h2><p style="color:#22c55e;font-weight:600">All devices are healthy. No active alerts.</p></div>`}
+
+<!-- Daily Summary -->
+${dailySummary.length > 0 ? `
+<div class="section">
+  <h2>Daily Performance Summary</h2>
+  <table>
+    <thead>
+      <tr><th>Date</th><th style="text-align:right">Devices</th><th style="text-align:right">Rec Hours</th><th style="text-align:right">Avg CPU</th><th style="text-align:right">Max CPU</th><th style="text-align:right">Avg RAM</th><th style="text-align:right">Temp</th><th style="text-align:right">WiFi</th><th style="text-align:right">Drops</th><th style="text-align:right">Errors</th><th style="text-align:right">Uploads OK</th><th style="text-align:right">Uploads Fail</th></tr>
+    </thead>
+    <tbody>
+      ${dailySummary.map(d => `
+        <tr>
+          <td><strong>${fmtDate(d.date)}</strong></td>
+          <td style="text-align:right">${d.deviceCount}</td>
+          <td style="text-align:right">${d.estimatedRecordingHours}h</td>
+          <td style="text-align:right"><span class="badge" style="background:${statusColor(d.avgCpuUsage, [60, 80])}22;color:${statusColor(d.avgCpuUsage, [60, 80])}">${d.avgCpuUsage ?? "—"}%</span></td>
+          <td style="text-align:right"><span class="badge" style="background:${statusColor(d.maxCpuUsage, [60, 80])}22;color:${statusColor(d.maxCpuUsage, [60, 80])}">${d.maxCpuUsage ?? "—"}%</span></td>
+          <td style="text-align:right"><span class="badge" style="background:${statusColor(d.avgRamUsage, [75, 90])}22;color:${statusColor(d.avgRamUsage, [75, 90])}">${d.avgRamUsage ?? "—"}%</span></td>
+          <td style="text-align:right">${d.avgCpuTemp ?? "—"}&deg;C</td>
+          <td style="text-align:right">${d.avgWifiSignal ?? "—"} dBm</td>
+          <td style="text-align:right;color:${d.totalFrameDrops > 20 ? "#ef4444" : d.totalFrameDrops > 5 ? "#eab308" : "#22c55e"}">${d.totalFrameDrops ?? 0}</td>
+          <td style="text-align:right;color:${d.totalErrors > 20 ? "#ef4444" : d.totalErrors > 5 ? "#eab308" : "#22c55e"}">${d.totalErrors ?? 0}</td>
+          <td style="text-align:right;color:#22c55e">${d.uploadSuccess ?? 0}</td>
+          <td style="text-align:right;color:${d.uploadFail > 0 ? "#ef4444" : "#22c55e"}">${d.uploadFail ?? 0}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>
+</div>
+` : ""}
+
+<!-- Device Ranking -->
+${deviceRanking.length > 0 ? `
+<div class="section">
+  <h2>Device Performance Ranking</h2>
+  <table>
+    <thead>
+      <tr><th>Device</th><th>Room</th><th style="text-align:right">Avg CPU</th><th style="text-align:right">Avg RAM</th><th style="text-align:right">Temp</th><th style="text-align:right">WiFi</th><th style="text-align:right">Latency</th><th style="text-align:right">Drops</th><th style="text-align:right">Errors</th><th style="text-align:right">Rec Hrs</th><th style="text-align:right">Upload %</th></tr>
+    </thead>
+    <tbody>
+      ${deviceRanking.map(d => `
+        <tr>
+          <td><strong>${d.deviceName || d.deviceId?.slice(0, 12) || "—"}</strong></td>
+          <td>${d.roomNumber || "—"}</td>
+          <td style="text-align:right"><span class="badge" style="background:${statusColor(d.avgCpuUsage, [60, 80])}22;color:${statusColor(d.avgCpuUsage, [60, 80])}">${d.avgCpuUsage ?? "—"}%</span></td>
+          <td style="text-align:right"><span class="badge" style="background:${statusColor(d.avgRamUsage, [75, 90])}22;color:${statusColor(d.avgRamUsage, [75, 90])}">${d.avgRamUsage ?? "—"}%</span></td>
+          <td style="text-align:right">${d.avgCpuTemp ?? "—"}&deg;C</td>
+          <td style="text-align:right">${d.avgWifiSignal ?? "—"} dBm</td>
+          <td style="text-align:right">${d.avgLatency ?? "—"} ms</td>
+          <td style="text-align:right;color:${d.totalFrameDrops > 20 ? "#ef4444" : "#475569"}">${d.totalFrameDrops ?? 0}</td>
+          <td style="text-align:right;color:${d.totalErrors > 20 ? "#ef4444" : "#475569"}">${d.totalErrors ?? 0}</td>
+          <td style="text-align:right">${d.estimatedRecordingHours ?? "—"}h</td>
+          <td style="text-align:right"><span class="badge ${(d.uploadSuccessRate ?? 0) >= 95 ? "badge-green" : (d.uploadSuccessRate ?? 0) >= 80 ? "badge-yellow" : "badge-red"}">${d.uploadSuccessRate ?? "—"}%</span></td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>
+</div>
+` : ""}
+
+<!-- Peak Hours -->
+${peakHours.length > 0 ? `
+<div class="section">
+  <h2>Peak Hours Analysis (IST)</h2>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Hourly averages aggregated across all devices and days. Helps identify high-load periods.</p>
+  <table>
+    <thead>
+      <tr><th>Hour (IST)</th><th style="text-align:right">Avg CPU</th><th style="text-align:right">Avg RAM</th><th style="text-align:right">WiFi</th><th style="text-align:right">Temp</th><th style="text-align:right">Frame Drops</th><th style="text-align:right">Errors</th><th style="text-align:right">Recording Samples</th><th style="text-align:right">Active Devices</th></tr>
+    </thead>
+    <tbody>
+      ${peakHours.map(h => {
+        const istHour = ((h.hour + 5) % 24);
+        const label = istHour.toString().padStart(2, "0") + ":30";
+        return `<tr>
+          <td><strong>${label}</strong></td>
+          <td style="text-align:right">${h.avgCpuUsage ?? "—"}%</td>
+          <td style="text-align:right">${h.avgRamUsage ?? "—"}%</td>
+          <td style="text-align:right">${h.avgWifiSignal ?? "—"} dBm</td>
+          <td style="text-align:right">${h.avgCpuTemp ?? "—"}&deg;C</td>
+          <td style="text-align:right">${h.totalFrameDrops ?? 0}</td>
+          <td style="text-align:right">${h.totalErrors ?? 0}</td>
+          <td style="text-align:right">${h.recordingSnapshots ?? 0}</td>
+          <td style="text-align:right">${h.deviceCount ?? 0}</td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  </table>
+</div>
+` : ""}
+
+<!-- Key Metrics Summary -->
+<div class="section">
+  <h2>Key Metrics Summary</h2>
+  <div class="summary-box">
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="label">Total Recording Hours</div>
+        <div class="value" style="color:#2563eb">${dailySummary.reduce((s, d) => s + (d.estimatedRecordingHours || 0), 0)}h</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Avg CPU Usage</div>
+        <div class="value" style="color:${statusColor(dailySummary.length ? Math.round(dailySummary.reduce((s, d) => s + (d.avgCpuUsage || 0), 0) / dailySummary.length) : null, [60, 80])}">${dailySummary.length ? Math.round(dailySummary.reduce((s, d) => s + (d.avgCpuUsage || 0), 0) / dailySummary.length) : "—"}%</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Total Frame Drops</div>
+        <div class="value" style="color:${dailySummary.reduce((s, d) => s + (d.totalFrameDrops || 0), 0) > 50 ? "#ef4444" : "#22c55e"}">${dailySummary.reduce((s, d) => s + (d.totalFrameDrops || 0), 0)}</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Total Errors</div>
+        <div class="value" style="color:${dailySummary.reduce((s, d) => s + (d.totalErrors || 0), 0) > 50 ? "#ef4444" : "#22c55e"}">${dailySummary.reduce((s, d) => s + (d.totalErrors || 0), 0)}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <span>LectureLens - Classroom Recording System by D&R AI Solutions Pvt Ltd</span>
+  <span>Report generated on ${now.toLocaleString("en-IN")} | Period: ${dateRange}</span>
+</div>
+
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
 
   // ── Fetch fleet data ─────────────────────────────────────────────
   const fetchFleetData = useCallback(async (showLoader = true) => {
@@ -147,6 +424,66 @@ export default function Analytics() {
             <option value={14}>Last 14 days</option>
             <option value={30}>Last 30 days</option>
           </select>
+          {/* Export dropdown */}
+          {view === "fleet" && (
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+              >
+                <Download size={16} /> Export
+              </button>
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border z-50 py-2">
+                    <button
+                      onClick={() => { exportPDFReport(); setShowExportMenu(false); }}
+                      className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-3"
+                    >
+                      <FileText size={18} className="text-red-500" />
+                      <div>
+                        <p className="font-medium text-sm text-slate-800">Full Report (PDF)</p>
+                        <p className="text-xs text-slate-400">Printable report with all data</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => { exportAllCSV(); setShowExportMenu(false); }}
+                      className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-3"
+                    >
+                      <FileSpreadsheet size={18} className="text-green-600" />
+                      <div>
+                        <p className="font-medium text-sm text-slate-800">All Data (CSV)</p>
+                        <p className="text-xs text-slate-400">3 CSV files — summary, devices, alerts</p>
+                      </div>
+                    </button>
+                    <div className="border-t my-1" />
+                    <button
+                      onClick={() => { exportDailySummaryCSV(); setShowExportMenu(false); }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-slate-50 flex items-center gap-3 text-sm text-slate-600"
+                    >
+                      <FileSpreadsheet size={15} className="text-slate-400" />
+                      Daily Summary (CSV)
+                    </button>
+                    <button
+                      onClick={() => { exportDeviceRankingCSV(); setShowExportMenu(false); }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-slate-50 flex items-center gap-3 text-sm text-slate-600"
+                    >
+                      <FileSpreadsheet size={15} className="text-slate-400" />
+                      Device Ranking (CSV)
+                    </button>
+                    <button
+                      onClick={() => { exportAlertsCSV(); setShowExportMenu(false); }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-slate-50 flex items-center gap-3 text-sm text-slate-600"
+                    >
+                      <FileSpreadsheet size={15} className="text-slate-400" />
+                      Active Alerts (CSV)
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button
             onClick={() => view === "fleet" ? fetchFleetData(false) : fetchDeviceData(selectedDevice?.deviceId)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
