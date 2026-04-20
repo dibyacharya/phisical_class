@@ -5,6 +5,7 @@ import {
   ArrowLeft, RefreshCw, Terminal, Camera, Volume2, VolumeX,
   RotateCcw, Trash2, FileText, Power, Square, Image,
   CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Bell,
+  Mic, Layers, Usb,
 } from "lucide-react";
 
 export default function DeviceRemote() {
@@ -58,6 +59,15 @@ export default function DeviceRemote() {
       setSending(false);
     }
   };
+
+  // Pipeline indicator derived from health telemetry
+  const health = device?.health || {};
+  const recHealth = health.recording || {};
+  const micLabel = recHealth.micLabel || "System default mic";
+  const isUsbMic = micLabel.toLowerCase().includes("usb");
+  const videoPipeline = recHealth.videoPipeline || "legacy_direct";
+  const glCompositorEnabled = recHealth.glCompositorEnabled === true;
+  const lastGlInitError = recHealth.lastGlInitError;
 
   const confirmAndSend = (command, label) => {
     if (window.confirm(`Are you sure you want to ${label}?`)) {
@@ -209,6 +219,101 @@ export default function DeviceRemote() {
             <AlertTriangle size={14} /> Device is offline. Commands will be queued and executed when it comes back online.
           </p>
         )}
+      </div>
+
+      {/* Diagnostics Panel — mic + video pipeline status + test buttons */}
+      <div className="bg-white rounded-xl border p-5">
+        <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+          <AlertTriangle size={18} /> Diagnostics
+          {sending && <Loader2 size={16} className="animate-spin text-blue-500" />}
+        </h3>
+
+        {/* Status badges */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {/* Mic */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            isUsbMic
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-slate-50 text-slate-600 border-slate-200"
+          }`}>
+            {isUsbMic ? <Usb size={12} /> : <Mic size={12} />}
+            <span>Mic: {micLabel}</span>
+          </div>
+
+          {/* Video pipeline */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            videoPipeline === "gl_compositor"
+              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+              : "bg-slate-50 text-slate-600 border-slate-200"
+          }`}>
+            <Layers size={12} />
+            <span>Pipeline: {videoPipeline === "gl_compositor" ? "GL Compositor (clean)" : "Legacy (PiP visible on TV)"}</span>
+          </div>
+
+          {/* GL feature flag */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            glCompositorEnabled
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-amber-50 text-amber-700 border-amber-200"
+          }`}>
+            <span>GL flag: {glCompositorEnabled ? "ON" : "OFF"}</span>
+          </div>
+
+          {/* Chime / TTS */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            recHealth.chimeEngineOk ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200"
+          }`}>
+            <Bell size={12} />
+            <span>Chime: {recHealth.chimeEngineOk ? "OK" : "MISSING"}</span>
+          </div>
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            recHealth.ttsEngineOk ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"
+          }`}>
+            <span>TTS: {recHealth.ttsEngineOk ? "OK" : "Unavailable (chime still works)"}</span>
+          </div>
+        </div>
+
+        {lastGlInitError && (
+          <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+            <strong>GL init error:</strong> {lastGlInitError}
+          </div>
+        )}
+
+        {/* Test buttons */}
+        <div className="flex flex-wrap gap-3">
+          <CmdButton
+            icon={Bell}
+            label="Test Chime (start)"
+            color="green"
+            onClick={() => sendCommand("test_chime", { kind: "start" })}
+            disabled={sending || !isOnline}
+          />
+          <CmdButton
+            icon={Bell}
+            label="Test Chime (stop)"
+            color="purple"
+            onClick={() => sendCommand("test_chime", { kind: "stop" })}
+            disabled={sending || !isOnline}
+          />
+          <CmdButton
+            icon={Mic}
+            label="Test Mic (3s sample)"
+            color="blue"
+            onClick={() => sendCommand("test_mic", { durationMs: 3000 })}
+            disabled={sending || !isOnline}
+          />
+          <CmdButton
+            icon={Layers}
+            label={glCompositorEnabled ? "Disable GL Compositor" : "Enable GL Compositor"}
+            color={glCompositorEnabled ? "orange" : "blue"}
+            onClick={() => sendCommand("toggle_gl_compositor", { enabled: !glCompositorEnabled })}
+            disabled={sending || !isOnline}
+          />
+        </div>
+        <p className="text-xs text-slate-400 mt-3">
+          Use these to validate audio path + video pipeline without scheduling a class.
+          Check the "Commands" tab below for each test's result message.
+        </p>
       </div>
 
       {/* Tabs */}

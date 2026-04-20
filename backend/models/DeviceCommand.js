@@ -24,6 +24,9 @@ const deviceCommandSchema = new mongoose.Schema({
       "update_config",   // Update device config (e.g., video bitrate, fps)
       "play_sound",      // Play notification sound at max volume (for testing)
       "check_update",    // Force immediate OTA update check (skips 2-min heartbeat wait)
+      "test_chime",      // Play the recording-start chime so admin can verify audio path (params.kind = start|stop|alert)
+      "test_mic",        // Record short PCM sample, return peak/RMS dB + mic label (params.durationMs default 3000)
+      "toggle_gl_compositor", // Flip GL compositor feature flag on device (params.enabled = true|false|null for toggle)
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
