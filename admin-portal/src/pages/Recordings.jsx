@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Video, Eye, EyeOff, Trash2, Clock, HardDrive, Play, X, Download,
   Search, Filter, Building2, Layers, MapPin, CalendarDays, ChevronDown,
@@ -95,6 +95,74 @@ function buildTree(recordings) {
   return tree;
 }
 
+/* ── Segment Player: seamless playback across multiple 5-min segments ── */
+function SegmentPlayer({ recording, segmentUrls, fallbackUrl }) {
+  const videoRef = useRef(null);
+  const [currentIdx, setCurrentIdx] = useState(0);
+
+  // If no segments or only 1 → single-file playback
+  const hasMultiSegments = segmentUrls && segmentUrls.length > 1;
+  const sources = hasMultiSegments ? segmentUrls : (fallbackUrl ? [fallbackUrl] : []);
+
+  useEffect(() => {
+    // Reset to first segment whenever a new recording is opened
+    setCurrentIdx(0);
+  }, [recording?._id]);
+
+  const handleEnded = () => {
+    if (currentIdx < sources.length - 1) {
+      setCurrentIdx(currentIdx + 1);
+    }
+  };
+
+  // Auto-play next segment when currentIdx changes
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v && currentIdx > 0) {
+      // Small delay to let src swap
+      v.play().catch(() => {});
+    }
+  }, [currentIdx]);
+
+  if (!sources.length) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400">
+        No playable video available
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <video
+        key={`${recording._id}-${currentIdx}`}
+        ref={videoRef}
+        src={sources[currentIdx]}
+        controls
+        autoPlay
+        className="w-full max-h-[75vh]"
+        onEnded={handleEnded}
+        onLoadedMetadata={(e) => { e.currentTarget.volume = 1.0; e.currentTarget.muted = false; }}
+      />
+      {hasMultiSegments && (
+        <div className="absolute top-3 right-3 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-2">
+          <span>Segment {currentIdx + 1} / {sources.length}</span>
+          <div className="flex gap-1">
+            {sources.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentIdx(i)}
+                className={`w-2 h-2 rounded-full transition ${i === currentIdx ? "bg-white" : "bg-white/30 hover:bg-white/60"}`}
+                title={`Jump to segment ${i + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Component ──────────────────────────────────────────────────── */
 export default function Recordings() {
   const [recordings, setRecordings] = useState([]);
@@ -154,10 +222,22 @@ export default function Recordings() {
     catch (err) { alert("Delete failed: " + (err.response?.data?.error || err.message)); }
   };
 
+  const toAbsoluteUrl = (url) => {
+    if (!url) return null;
+    return url.startsWith("http") ? url : `${BACKEND_URL}${url}`;
+  };
+
   const getVideoUrl = (rec) => {
     if (!rec.videoUrl) return null;
-    if (rec.videoUrl.startsWith("http")) return rec.videoUrl;
-    return `${BACKEND_URL}${rec.videoUrl}`;
+    return toAbsoluteUrl(rec.videoUrl);
+  };
+
+  // Get ordered list of segment URLs (for multi-segment recordings)
+  const getSegmentUrls = (rec) => {
+    const segs = (rec.segments || [])
+      .filter((s) => s && s.videoUrl)
+      .sort((a, b) => (a.segmentIndex || 0) - (b.segmentIndex || 0));
+    return segs.map((s) => toAbsoluteUrl(s.videoUrl));
   };
 
   // Apply filters
@@ -574,15 +654,21 @@ export default function Recordings() {
               </button>
             </div>
             <div className="bg-black">
-              <video key={playingRec._id} src={getVideoUrl(playingRec)} controls
-                className="w-full max-h-[75vh]"
-                ref={(el) => { if (el) { el.volume = 1.0; el.muted = false; el.play().catch(() => {}); } }}>
-              </video>
+              <SegmentPlayer
+                recording={playingRec}
+                segmentUrls={getSegmentUrls(playingRec)}
+                fallbackUrl={getVideoUrl(playingRec)}
+              />
             </div>
             <div className="flex items-center justify-between px-5 py-3 bg-gray-800">
               <div className="flex items-center gap-6 text-xs text-gray-400">
                 <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(playingRec.duration)}</span>
                 <span className="flex items-center gap-1"><HardDrive size={12} /> {formatSize(playingRec.fileSize)}</span>
+                {(playingRec.segments || []).length > 1 && (
+                  <span className="flex items-center gap-1 text-blue-300">
+                    <FileVideo size={12} /> {playingRec.segments.length} segments
+                  </span>
+                )}
                 {playingRec.scheduledClass && (
                   <span className="flex items-center gap-1">
                     <CalendarDays size={12} />
@@ -590,10 +676,30 @@ export default function Recordings() {
                   </span>
                 )}
               </div>
-              <a href={getVideoUrl(playingRec)} download={`${playingRec.title || "recording"}.mp4`}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition">
-                <Download size={16} /> Download
-              </a>
+              <div className="flex gap-2">
+                {(playingRec.segments || []).length > 1 ? (
+                  <button
+                    onClick={() => {
+                      // Download all segments sequentially
+                      getSegmentUrls(playingRec).forEach((url, idx) => {
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `${playingRec.title || "recording"}_seg${idx + 1}.mp4`;
+                        document.body.appendChild(a);
+                        setTimeout(() => { a.click(); a.remove(); }, idx * 500);
+                      });
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition"
+                  >
+                    <Download size={16} /> Download All ({playingRec.segments.length})
+                  </button>
+                ) : (
+                  <a href={getVideoUrl(playingRec)} download={`${playingRec.title || "recording"}.mp4`}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition">
+                    <Download size={16} /> Download
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </div>
