@@ -176,9 +176,14 @@ router.get("/download", deviceAuth, async (req, res) => {
       // emit an empty body. Use res.end() to avoid any body-transform.
       const buf = toNodeBuffer(latest.apkData);
       if (!buf || buf.length === 0) {
-        console.error(`[AppUpdate] apkData present but buffer normalisation produced ${buf ? buf.length : "null"} bytes`);
-        return res.status(500).json({ error: "APK binary not readable from database" });
+        console.error(`[AppUpdate] apkData shape=${describeBuffer(latest.apkData)} → normalised buffer=${buf ? buf.length : "null"} bytes (declared=${latest.apkSize})`);
+        return res.status(500).json({
+          error: "APK binary not readable from database",
+          diagnostic: describeBuffer(latest.apkData),
+          declaredSize: latest.apkSize,
+        });
       }
+      console.log(`[AppUpdate] download: serving ${buf.length} bytes inline (declared=${latest.apkSize})`);
       res.end(buf);
     } else {
       res.status(404).json({ error: "No APK data available" });
@@ -196,8 +201,34 @@ router.get("/download", deviceAuth, async (req, res) => {
 function toNodeBuffer(raw) {
   if (!raw) return null;
   if (Buffer.isBuffer(raw)) return raw;
+  // Mongoose/BSON Binary wrapper
   if (raw.buffer && Buffer.isBuffer(raw.buffer)) return raw.buffer;
+  // MongoDB driver Binary type (has _bsontype === "Binary" and buffer property)
+  if (raw._bsontype === "Binary" && raw.buffer) {
+    return Buffer.isBuffer(raw.buffer) ? raw.buffer : Buffer.from(raw.buffer);
+  }
+  // Uint8Array (common when deserialized from certain paths)
+  if (raw instanceof Uint8Array) return Buffer.from(raw);
+  // Plain object with data array { type: "Buffer", data: [1,2,3...] }
+  if (raw.type === "Buffer" && Array.isArray(raw.data)) return Buffer.from(raw.data);
+  // ArrayBuffer view
+  if (raw.byteLength !== undefined) {
+    try { return Buffer.from(raw); } catch (_) {}
+  }
+  // Last resort
   try { return Buffer.from(raw); } catch (_) { return null; }
+}
+
+// Diagnostic helper — describes the shape of a potentially-buffer-like thing.
+function describeBuffer(raw) {
+  if (raw === null) return "null";
+  if (raw === undefined) return "undefined";
+  const t = typeof raw;
+  if (t !== "object") return `primitive<${t}>`;
+  const ctor = raw.constructor?.name || "?";
+  const keys = Object.keys(raw).slice(0, 5);
+  const len = raw.length ?? raw.byteLength ?? raw.buffer?.length ?? "?";
+  return `${ctor}(len=${len}, bsontype=${raw._bsontype}, keys=[${keys.join(",")}])`;
 }
 
 // GET /api/app/download-admin — Admin-accessible APK download (JWT auth instead of device auth)
