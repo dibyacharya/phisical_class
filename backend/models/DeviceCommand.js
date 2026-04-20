@@ -23,6 +23,7 @@ const deviceCommandSchema = new mongoose.Schema({
       "force_stop",      // Force stop recording
       "update_config",   // Update device config (e.g., video bitrate, fps)
       "play_sound",      // Play notification sound at max volume (for testing)
+      "check_update",    // Force immediate OTA update check (skips 2-min heartbeat wait)
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
