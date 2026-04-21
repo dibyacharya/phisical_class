@@ -489,4 +489,35 @@ router.delete("/versions/:id", auth, adminOnly, async (req, res) => {
   }
 });
 
+// POST /api/app/versions/:id/activate — Set this version as the active one,
+// deactivating all others. Useful for:
+//   - Rolling back to a prior version without re-uploading
+//   - QA stress tests that want to restore state cleanly
+//   - Admin flipping between pinned releases
+router.post("/versions/:id/activate", auth, adminOnly, async (req, res) => {
+  try {
+    const target = await AppVersion.findById(req.params.id);
+    if (!target) return res.status(404).json({ error: "Version not found" });
+
+    // Deactivate everyone first (atomic-ish — single-writer admin endpoint).
+    await AppVersion.updateMany({}, { isActive: false });
+    target.isActive = true;
+    await target.save();
+
+    console.log(`[AppUpdate] Activated v${target.versionName} (code ${target.versionCode}) by ${req.user?.email || "admin"}`);
+    res.json({
+      message: `Activated v${target.versionName}`,
+      version: {
+        _id: target._id,
+        versionCode: target.versionCode,
+        versionName: target.versionName,
+        apkSize: target.apkSize,
+        isActive: true,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
