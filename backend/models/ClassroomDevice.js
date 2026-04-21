@@ -43,6 +43,19 @@ const healthSchema = new mongoose.Schema({
     frameDrop: { type: Number, default: 0 },
     lastError: { type: String },
     errorCount: { type: Number, default: 0 },
+    // Phase 1-3 telemetry — sent by v2.3+ Android. Declared here so
+    // Mongoose doesn't strip them on save (otherwise fleet-overview /
+    // Diagnostics panel show "None" for a healthy device).
+    isRecording: { type: Boolean },
+    segmentIndex: { type: Number },
+    audioLevelDb: { type: Number },
+    micLabel: { type: String },
+    chimeEngineOk: { type: Boolean },
+    ttsEngineOk: { type: Boolean },
+    videoPipeline: { type: String },           // "gl_compositor" | "legacy_direct"
+    glCompositorEnabled: { type: Boolean },
+    glCameraPiP: { type: Boolean },
+    lastGlInitError: { type: String },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
