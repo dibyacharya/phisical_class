@@ -1,9 +1,32 @@
 const router = require("express").Router();
 const mongoose = require("mongoose");
 const { Readable } = require("stream");
+const fs = require("fs");
 const AppVersion = require("../models/AppVersion");
 const { auth, adminOnly } = require("../middleware/auth");
 const { deviceAuth } = require("../middleware/deviceAuth");
+
+/**
+ * Extract APK bytes from an express-fileupload File, handling both the
+ * in-memory mode (apkFile.data is a Buffer) and the temp-file mode
+ * (apkFile.tempFilePath points to a file on disk).
+ *
+ * The LectureLens backend is configured with `useTempFiles: true` which
+ * means .data is an empty Buffer(0); the real bytes live in tempFilePath.
+ * This function picks whichever is populated and returns a single Buffer.
+ *
+ * This is the root cause of the long QA chain for v2.5.0 upload bug —
+ * previous upload logic read `.data` only and was writing 0 bytes to GridFS.
+ */
+async function apkBytesFrom(file) {
+  if (file.data && Buffer.isBuffer(file.data) && file.data.length > 0) {
+    return file.data;
+  }
+  if (file.tempFilePath) {
+    return await fs.promises.readFile(file.tempFilePath);
+  }
+  throw new Error(`APK upload has neither .data bytes nor .tempFilePath (size=${file.size})`);
+}
 
 /**
  * Get GridFS bucket for APK storage.
@@ -71,12 +94,18 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
       });
 
       try {
-        // Writing via `.end(buffer)` is the most reliable pattern for
-        // single-shot byte writes — avoids any Readable-pipe timing issues.
+        // Get the actual APK bytes — handles both in-memory and temp-file
+        // express-fileupload modes. The app is configured with
+        // useTempFiles=true, so apkFile.data is Buffer(0) and the real bytes
+        // live in apkFile.tempFilePath. This is the root cause that made all
+        // previous upload attempts silently write 0 bytes to GridFS.
+        const apkBytes = await apkBytesFrom(apkFile);
+        console.log(`[AppUpdate] GridFS upload starting: ${apkBytes.length} bytes (tempFile=${apkFile.tempFilePath || "none"})`);
+
         await new Promise((resolve, reject) => {
           uploadStream.once("finish", resolve);
           uploadStream.once("error", reject);
-          uploadStream.end(apkFile.data);
+          uploadStream.end(apkBytes);
         });
       } catch (err) {
         console.error(`[AppUpdate] GridFS upload write failed: ${err.message}`);
@@ -135,11 +164,15 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
       });
     } else {
       // ── Small APK: Store inline in MongoDB document ────────────────
+      // Read via helper so useTempFiles=true mode works — same bug root
+      // cause as the GridFS path (apkFile.data is empty Buffer(0) in that
+      // mode; real bytes are in apkFile.tempFilePath).
+      const apkBytes = await apkBytesFrom(apkFile);
       const version = await AppVersion.create({
         versionCode: code,
         versionName,
         releaseNotes: releaseNotes || "",
-        apkData: apkFile.data,
+        apkData: apkBytes,
         apkSize: apkFile.size,
         uploadedBy: req.user._id,
         isActive: true,
