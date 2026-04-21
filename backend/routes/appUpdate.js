@@ -145,6 +145,62 @@ router.get("/latest", async (_req, res) => {
   }
 });
 
+/**
+ * Stream a GridFS-stored APK back to the client. Pre-checks the files AND
+ * chunks collections BEFORE committing response headers, so we never send
+ * HTTP headers promising bytes that don't exist. Returns true if streaming
+ * started, false if it already sent a JSON error.
+ */
+async function streamGridFsApk(res, apkGridFsId, versionName, label) {
+  const filesCol = mongoose.connection.db.collection("lcs_apks.files");
+  const fileInfo = await filesCol.findOne({ _id: apkGridFsId });
+  if (!fileInfo) {
+    console.error(`[AppUpdate] (${label}) GridFS file missing: id=${apkGridFsId}`);
+    res.status(500).json({
+      error: "GridFS file not found",
+      codeRev: "v8-gridfs-precheck",
+      gridfsId: String(apkGridFsId),
+      bucket: "lcs_apks",
+    });
+    return false;
+  }
+  const chunksCol = mongoose.connection.db.collection("lcs_apks.chunks");
+  const chunkCount = await chunksCol.countDocuments({ files_id: apkGridFsId });
+  console.log(`[AppUpdate] (${label}) GridFS OK: id=${apkGridFsId} len=${fileInfo.length} chunks=${chunkCount}`);
+  if (chunkCount === 0 || fileInfo.length === 0) {
+    res.status(500).json({
+      error: "GridFS file has zero chunks (upload was incomplete)",
+      codeRev: "v8-gridfs-precheck",
+      gridfsId: String(apkGridFsId),
+      declaredLength: fileInfo.length,
+      chunkCount,
+    });
+    return false;
+  }
+  res.set({
+    "Content-Type": "application/vnd.android.package-archive",
+    "Content-Disposition": `attachment; filename="LectureLens-v${versionName}.apk"`,
+    "Content-Length": fileInfo.length,
+  });
+  const bucket = getApkBucket();
+  const downloadStream = bucket.openDownloadStream(apkGridFsId);
+  let bytesStreamed = 0;
+  downloadStream.on("data", (c) => { bytesStreamed += c.length; });
+  downloadStream.on("end", () => {
+    console.log(`[AppUpdate] (${label}) streamed ${bytesStreamed}/${fileInfo.length} bytes`);
+  });
+  downloadStream.on("error", (err) => {
+    console.error(`[AppUpdate] (${label}) stream err at ${bytesStreamed} B: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "GridFS stream error", detail: err.message });
+    } else {
+      res.end();
+    }
+  });
+  downloadStream.pipe(res);
+  return true;
+}
+
 // GET /api/app/download — Download APK binary (device auth). Supports both inline and GridFS storage.
 router.get("/download", deviceAuth, async (req, res) => {
   try {
@@ -173,47 +229,10 @@ router.get("/download", deviceAuth, async (req, res) => {
     }
 
     if (latest.apkGridFsId) {
-      // ── Stream from GridFS ────────────────────────────────────────
-      // Defer header setup until the 'file' event fires — that's when
-      // GridFS has located the file and can give us authoritative length.
-      // Setting Content-Length before the file is confirmed is the
-      // classic cause of HTTP/2 framing errors: header promises 7 MB,
-      // pipe produces 0 bytes (if file missing from chunks), stream
-      // emits RST → curl sees 200 headers + empty body. This pattern
-      // is also how GridFS streams fail-safely.
-      const bucket = getApkBucket();
-      const downloadStream = bucket.openDownloadStream(latest.apkGridFsId);
-      let fileFound = false;
-      let bytesStreamed = 0;
-      downloadStream.on("file", (file) => {
-        fileFound = true;
-        console.log(`[AppUpdate] GridFS (device) open: ${file.filename} len=${file.length}`);
-        res.set({
-          "Content-Type": "application/vnd.android.package-archive",
-          "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
-          "Content-Length": file.length,
-        });
-      });
-      downloadStream.on("data", (chunk) => { bytesStreamed += chunk.length; });
-      downloadStream.on("end", () => {
-        console.log(`[AppUpdate] GridFS (device) done: streamed ${bytesStreamed} bytes`);
-      });
-      downloadStream.on("error", (err) => {
-        console.error(`[AppUpdate] GridFS (device) error: ${err.message} fileFound=${fileFound} bytesStreamed=${bytesStreamed}`);
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: "GridFS download failed",
-            codeRev: "v7-gridfs-file-event",
-            detail: err.message,
-            fileFound,
-            gridfsId: String(latest.apkGridFsId),
-          });
-        } else {
-          res.end();  // gracefully end if mid-stream
-        }
-      });
-      downloadStream.pipe(res);
-      return;  // don't fall through
+      // v8: pre-check GridFS file + chunks, then stream with authoritative length
+      const ok = await streamGridFsApk(res, latest.apkGridFsId, latest.versionName, "device/admin");
+      if (ok) return;
+      return;
     } else if (latest.apkData) {
       // ── Inline binary ─────────────────────────────────────────────
       // Normalise through toNodeBuffer() because Mongoose can expose
@@ -348,43 +367,8 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : "inline"}, declared size=${latest.apkSize}, apkData shape=${describeBuffer(latest.apkData)}`);
 
     if (latest.apkGridFsId) {
-      // Use 'file' event — fires ONCE the GridFS file is located and we
-      // have an authoritative length. Setting headers before this risks
-      // Content-Length mismatch if the file is missing from chunks, which
-      // manifests as HTTP/2 200 + 0-byte body (Railway edge then returns
-      // opaque 502 "I/O error" on the 2nd request).
-      const bucket = getApkBucket();
-      const downloadStream = bucket.openDownloadStream(latest.apkGridFsId);
-      let fileFound = false;
-      let bytesStreamed = 0;
-      downloadStream.on("file", (file) => {
-        fileFound = true;
-        console.log(`[AppUpdate] GridFS (admin) open: ${file.filename} len=${file.length} id=${latest.apkGridFsId}`);
-        res.set({
-          "Content-Type": "application/vnd.android.package-archive",
-          "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
-          "Content-Length": file.length,
-        });
-      });
-      downloadStream.on("data", (chunk) => { bytesStreamed += chunk.length; });
-      downloadStream.on("end", () => {
-        console.log(`[AppUpdate] GridFS (admin) done: streamed ${bytesStreamed} bytes`);
-      });
-      downloadStream.on("error", (err) => {
-        console.error(`[AppUpdate] GridFS (admin) error: ${err.message} fileFound=${fileFound} bytesStreamed=${bytesStreamed}`);
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: "GridFS download failed",
-            codeRev: "v7-gridfs-file-event",
-            detail: err.message,
-            fileFound,
-            gridfsId: String(latest.apkGridFsId),
-          });
-        } else {
-          res.end();
-        }
-      });
-      downloadStream.pipe(res);
+      const ok = await streamGridFsApk(res, latest.apkGridFsId, latest.versionName, "admin");
+      if (ok) return;
       return;
     } else if (latest.apkData) {
       const buf = toNodeBuffer(latest.apkData);
