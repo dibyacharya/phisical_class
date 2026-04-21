@@ -332,13 +332,40 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     });
 
     if (latest.apkGridFsId) {
+      // Defer sending headers until the first chunk arrives so that if the
+      // stream fails immediately (file not found, chunks missing) we can
+      // return a proper JSON error instead of a truncated body that Railway
+      // converts into an opaque 502 "I/O error".
       const bucket = getApkBucket();
       const downloadStream = bucket.openDownloadStream(latest.apkGridFsId);
-      downloadStream.pipe(res);
+      let bytesWritten = 0;
+      let headersSent = false;
+      downloadStream.on("data", (chunk) => {
+        if (!headersSent) {
+          headersSent = true;
+          // We already set headers above; just note first-chunk for logs
+          console.log(`[AppUpdate] GridFS first chunk arrived (${chunk.length} B)`);
+        }
+        bytesWritten += chunk.length;
+        res.write(chunk);
+      });
+      downloadStream.on("end", () => {
+        console.log(`[AppUpdate] GridFS download-admin complete: ${bytesWritten} B for gridfsId=${latest.apkGridFsId}`);
+        res.end();
+      });
       downloadStream.on("error", (err) => {
-        console.error("[AppUpdate] Admin download GridFS error:", err.message);
-        if (!res.headersSent) res.status(500).json({ error: "APK download failed" });
-        else res.destroy();
+        console.error(`[AppUpdate] GridFS download-admin error for gridfsId=${latest.apkGridFsId}: ${err.name}: ${err.message}`);
+        if (!res.headersSent && bytesWritten === 0) {
+          res.removeHeader("Content-Length");
+          res.status(500).json({
+            error: "GridFS read failed",
+            diagnostic: `${err.name}: ${err.message}`,
+            gridfsId: String(latest.apkGridFsId),
+            codeRev: "v6-gridfs-verbose",
+          });
+        } else {
+          res.destroy();
+        }
       });
     } else if (latest.apkData) {
       const buf = toNodeBuffer(latest.apkData);
