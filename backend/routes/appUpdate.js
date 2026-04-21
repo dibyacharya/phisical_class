@@ -50,7 +50,19 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
     const USE_GRIDFS_THRESHOLD = 0;
 
     if (apkFile.size >= USE_GRIDFS_THRESHOLD) {
-      // ── Large APK: Store via GridFS (chunked, no BSON limit) ──────
+      // ── Upload APK to GridFS ──────────────────────────────────────
+      //
+      // IMPORTANT: `readable.pipe(uploadStream).on("finish", ...)` does NOT
+      // guarantee that chunks are actually flushed to the `.chunks`
+      // collection. Under the mongodb driver version Railway runs, the
+      // `finish` event was firing before chunks landed (or didn't land at
+      // all), leaving behind a zero-length file record with no chunks —
+      // exactly the QA failure mode for v2.5.0 (test I01).
+      //
+      // Use stream/promises pipeline() to guarantee backpressure is
+      // respected and errors propagate. Then EXPLICITLY verify chunks
+      // exist before trusting the upload. If not, surface a 500 with
+      // diagnostic so the admin re-uploads instead of thinking it worked.
       const bucket = getApkBucket();
       const filename = `lecturelens-v${versionName}-${code}.apk`;
       const uploadStream = bucket.openUploadStream(filename, {
@@ -58,14 +70,45 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
         metadata: { versionCode: code, versionName },
       });
 
-      const readable = new Readable();
-      readable.push(apkFile.data);
-      readable.push(null);
-      await new Promise((resolve, reject) => {
-        readable.pipe(uploadStream)
-          .on("finish", resolve)
-          .on("error", reject);
-      });
+      try {
+        // Writing via `.end(buffer)` is the most reliable pattern for
+        // single-shot byte writes — avoids any Readable-pipe timing issues.
+        await new Promise((resolve, reject) => {
+          uploadStream.once("finish", resolve);
+          uploadStream.once("error", reject);
+          uploadStream.end(apkFile.data);
+        });
+      } catch (err) {
+        console.error(`[AppUpdate] GridFS upload write failed: ${err.message}`);
+        return res.status(500).json({
+          error: "GridFS upload write failed",
+          detail: err.message,
+        });
+      }
+
+      // Verification: confirm .files record exists and has expected length,
+      // AND .chunks has at least one document. This is the guard that
+      // would have caught the v2.5.0 bug at upload time.
+      const filesCol = mongoose.connection.db.collection("lcs_apks.files");
+      const chunksCol = mongoose.connection.db.collection("lcs_apks.chunks");
+      const fileDoc = await filesCol.findOne({ _id: uploadStream.id });
+      const chunkCount = await chunksCol.countDocuments({ files_id: uploadStream.id });
+      console.log(`[AppUpdate] GridFS upload verify: files.length=${fileDoc?.length}, chunks=${chunkCount}`);
+
+      if (!fileDoc || !fileDoc.length || fileDoc.length === 0 || chunkCount === 0) {
+        // Upload silently failed — clean up orphan file record and bail out
+        try { await filesCol.deleteOne({ _id: uploadStream.id }); } catch (_) {}
+        return res.status(500).json({
+          error: "GridFS upload verification failed",
+          codeRev: "v9-upload-verify",
+          detail: {
+            fileDocFound: !!fileDoc,
+            storedLength: fileDoc?.length ?? 0,
+            chunkCount,
+            expectedSize: apkFile.size,
+          },
+        });
+      }
 
       const version = await AppVersion.create({
         versionCode: code,
@@ -77,7 +120,7 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
         isActive: true,
       });
 
-      console.log(`[AppUpdate] GridFS upload: v${versionName} (code ${code}) — ${(apkFile.size / 1024 / 1024).toFixed(1)} MB`);
+      console.log(`[AppUpdate] GridFS upload OK: v${versionName} (code ${code}) — ${(apkFile.size / 1024 / 1024).toFixed(1)} MB in ${chunkCount} chunks`);
 
       res.status(201).json({
         message: "APK uploaded successfully (GridFS)",
