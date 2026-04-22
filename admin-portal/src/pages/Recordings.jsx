@@ -249,17 +249,44 @@ export default function Recordings() {
     return url.startsWith("http") ? url : `${BACKEND_URL}${url}`;
   };
 
+  // v2.6.0: prefer the server-merged single file over per-segment URLs.
+  // After a recording completes, the backend runs `ffmpeg -c copy` on all
+  // segments and stores the result at rec.mergedVideoUrl. If that's ready
+  // we treat it as a single-segment playback — no client-side switching
+  // between segment files, and the "Download" button gives one MP4.
   const getVideoUrl = (rec) => {
+    if (rec.mergeStatus === "ready" && rec.mergedVideoUrl) {
+      return toAbsoluteUrl(rec.mergedVideoUrl);
+    }
     if (!rec.videoUrl) return null;
     return toAbsoluteUrl(rec.videoUrl);
   };
 
-  // Get ordered list of segment URLs (for multi-segment recordings)
+  // Get ordered list of segment URLs — returns a single-element list when
+  // a merged file is available, otherwise the per-segment list (pre-merge
+  // or when merge failed).
   const getSegmentUrls = (rec) => {
+    if (rec.mergeStatus === "ready" && rec.mergedVideoUrl) {
+      return [toAbsoluteUrl(rec.mergedVideoUrl)];
+    }
     const segs = (rec.segments || [])
       .filter((s) => s && s.videoUrl)
       .sort((a, b) => (a.segmentIndex || 0) - (b.segmentIndex || 0));
     return segs.map((s) => toAbsoluteUrl(s.videoUrl));
+  };
+
+  const handleRetryMerge = async (id) => {
+    try {
+      const res = await api.post(`/recordings/${id}/merge`);
+      if (res.data?.ok) {
+        alert(`Merge complete — ${(res.data.mergedFileSize / 1024 / 1024).toFixed(1)} MB`);
+      } else {
+        alert(`Merge ${res.data?.mergeStatus}: ${res.data?.mergeError || "unknown error"}`);
+      }
+      fetchRecordings();
+    } catch (err) {
+      alert("Merge failed: " + (err.response?.data?.error || err.message));
+    }
   };
 
   // Apply filters
@@ -696,12 +723,20 @@ export default function Recordings() {
             <div className="flex items-center justify-between px-5 py-3 bg-gray-800">
               <div className="flex items-center gap-6 text-xs text-gray-400">
                 <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(playingRec.duration)}</span>
-                <span className="flex items-center gap-1"><HardDrive size={12} /> {formatSize(playingRec.fileSize)}</span>
-                {(playingRec.segments || []).length > 1 && (
-                  <span className="flex items-center gap-1 text-blue-300">
-                    <FileVideo size={12} /> {playingRec.segments.length} segments
+                <span className="flex items-center gap-1"><HardDrive size={12} /> {formatSize(playingRec.mergedFileSize || playingRec.fileSize)}</span>
+                {/* v2.6.0: segment count only shown while merge is pending/failed.
+                    When merge is "ready" the player treats it as single-file. */}
+                {playingRec.mergeStatus === "ready" ? (
+                  <span className="flex items-center gap-1 text-green-300">
+                    <FileVideo size={12} /> Single file (merged)
                   </span>
-                )}
+                ) : (playingRec.segments || []).length > 1 ? (
+                  <span className="flex items-center gap-1 text-amber-300">
+                    <FileVideo size={12} /> {playingRec.segments.length} segments
+                    {playingRec.mergeStatus === "merging" && " · merging…"}
+                    {playingRec.mergeStatus === "failed" && " · merge failed"}
+                  </span>
+                ) : null}
                 {playingRec.scheduledClass && (
                   <span className="flex items-center gap-1">
                     <CalendarDays size={12} />
@@ -710,10 +745,32 @@ export default function Recordings() {
                 )}
               </div>
               <div className="flex gap-2">
-                {(playingRec.segments || []).length > 1 ? (
+                {/* Offer an explicit "Merge now" button while the merge is
+                    pending, failed, or hasn't been kicked off yet. Once
+                    ready, the Download button below gives one MP4. */}
+                {(playingRec.segments || []).length > 1 &&
+                 playingRec.mergeStatus !== "ready" &&
+                 playingRec.mergeStatus !== "merging" && (
+                  <button
+                    onClick={() => handleRetryMerge(playingRec._id)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition"
+                    title={playingRec.mergeStatus === "failed" ? "Previous merge failed — try again" : "Merge segments into one file"}
+                  >
+                    <FileVideo size={16} /> {playingRec.mergeStatus === "failed" ? "Retry merge" : "Merge segments"}
+                  </button>
+                )}
+                {(playingRec.mergeStatus === "ready" && playingRec.mergedVideoUrl) ||
+                 (playingRec.segments || []).length <= 1 ? (
+                  <a
+                    href={getVideoUrl(playingRec)}
+                    download={`${playingRec.title || "recording"}.mp4`}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition"
+                  >
+                    <Download size={16} /> Download
+                  </a>
+                ) : (
                   <button
                     onClick={() => {
-                      // Download all segments sequentially
                       getSegmentUrls(playingRec).forEach((url, idx) => {
                         const a = document.createElement("a");
                         a.href = url;
@@ -723,14 +780,10 @@ export default function Recordings() {
                       });
                     }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition"
+                    title="Merge still pending — download segments individually"
                   >
                     <Download size={16} /> Download All ({playingRec.segments.length})
                   </button>
-                ) : (
-                  <a href={getVideoUrl(playingRec)} download={`${playingRec.title || "recording"}.mp4`}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition">
-                    <Download size={16} /> Download
-                  </a>
                 )}
               </div>
             </div>

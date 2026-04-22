@@ -106,11 +106,65 @@ exports.forceStop = async (req, res) => {
       }
     } catch (_) {}
 
+    // v2.6.0: if the force-stopped recording has >1 segment, kick off a
+    // merge in the background so the admin gets a single playable file.
+    if (hasSegments && rec.segments.length > 1) {
+      setImmediate(() => {
+        const { runMergeForRecording } = require("../utils/segmentMerger");
+        Recording.findById(rec._id)
+          .then(fresh => fresh && runMergeForRecording(fresh))
+          .catch(err => console.error(`[Merge/forceStop] ${err.message}`));
+      });
+    }
+
     res.json({
       message: hasSegments
         ? `Recording marked completed with ${rec.segments.length} segment(s)`
         : "Recording marked failed (no segments uploaded — device likely crashed before capturing any frames)",
       recording: rec,
+      mergeStatus: hasSegments && rec.segments.length > 1 ? "queued" : "skipped",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/recordings/:id/merge
+//
+// Admin-initiated merge (or re-merge) of a recording's segments. Useful when
+// the initial post-finalise merge failed (e.g. ffmpeg wasn't yet deployed,
+// a segment upload arrived late, a file was missing on disk).
+//
+// Idempotent: returns 200 with the cached mergedVideoUrl if mergeStatus is
+// already "ready". Otherwise runs the merge synchronously (so the admin UI
+// knows when it's done) and returns the result.
+exports.retryMerge = async (req, res) => {
+  try {
+    const rec = await Recording.findById(req.params.id);
+    if (!rec) return res.status(404).json({ error: "Recording not found" });
+    if (!rec.segments || rec.segments.length === 0) {
+      return res.status(400).json({ error: "Recording has no segments to merge" });
+    }
+
+    // Reset merging state if previously failed so the worker runs again
+    if (rec.mergeStatus === "failed" || rec.mergeStatus === "merging") {
+      rec.mergeStatus = "pending";
+      rec.mergeError = "";
+      await rec.save();
+    }
+
+    const { runMergeForRecording } = require("../utils/segmentMerger");
+    const result = await runMergeForRecording(rec);
+
+    // Reload so the response reflects the final persisted state
+    const updated = await Recording.findById(req.params.id);
+    res.json({
+      ok: result.ok,
+      mergeStatus: updated.mergeStatus,
+      mergedVideoUrl: updated.mergedVideoUrl || "",
+      mergedFileSize: updated.mergedFileSize || 0,
+      mergedAt: updated.mergedAt,
+      mergeError: updated.mergeError || "",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

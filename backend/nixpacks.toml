@@ -1,0 +1,16 @@
+# nixpacks.toml — Railway build configuration
+#
+# Adds ffmpeg to the image so the segment-merge worker can concatenate
+# 5-minute MP4 chunks into a single lossless file on recording completion.
+# Without this, `ffmpeg` on the PATH is missing and merge silently falls
+# back to serving the last segment only.
+#
+# Also pins Node 18 to match the engines constraint in package.json.
+[phases.setup]
+nixPkgs = ["nodejs_18", "ffmpeg"]
+
+[phases.install]
+cmds = ["npm ci --omit=dev"]
+
+[start]
+cmd = "node index.js"

@@ -735,6 +735,12 @@ exports.updateActiveSource = async (req, res) => {
 };
 
 // POST /api/classroom-recording/recordings/:recordingId/merge
+//
+// v2.6.0: on recording finalise we now actually run a lossless ffmpeg
+// concat so clients get ONE MP4 instead of N segment files. The HTTP
+// response still returns quickly — the merge is kicked off in the
+// background after the response is sent. Clients poll mergeStatus
+// (or the /video endpoint returns 202 while merging, 200 when ready).
 exports.triggerMerge = async (req, res) => {
   try {
     const { recordingId } = req.params;
@@ -750,8 +756,7 @@ exports.triggerMerge = async (req, res) => {
 
     // If we have segments, set videoUrl to the latest segment (or first for single-segment)
     if (recording.segments && recording.segments.length > 0) {
-      // For single segment, use it directly. For multi-segment, use the last one
-      // (in future, a merge job can concatenate and replace videoUrl)
+      // For single segment, use it directly; merge worker below handles multi-segment
       const lastSegment = recording.segments[recording.segments.length - 1];
       if (!recording.videoUrl && lastSegment.videoUrl) {
         recording.videoUrl = lastSegment.videoUrl;
@@ -778,7 +783,23 @@ exports.triggerMerge = async (req, res) => {
       message: "Merge triggered",
       recordingId,
       segmentCount: recording.segments?.length || 0,
+      mergeStatus: (recording.segments?.length || 0) > 1 ? "queued" : "skipped",
     });
+
+    // Kick off the actual merge AFTER the response is sent — device doesn't
+    // need to wait on ffmpeg. If the server dies mid-merge, mergeStatus is
+    // left as "merging" and a daily cleanup job can re-run it (or admin
+    // hits POST /merge again — idempotent).
+    if ((recording.segments?.length || 0) > 1) {
+      setImmediate(() => {
+        const { runMergeForRecording } = require("../utils/segmentMerger");
+        // Reload the document to avoid version conflicts with any concurrent
+        // saves (segment uploads arriving during finalise).
+        Recording.findById(recordingId)
+          .then(fresh => fresh && runMergeForRecording(fresh))
+          .catch(err => console.error(`[Merge] async trigger failed: ${err.message}`));
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

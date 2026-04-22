@@ -30,6 +30,29 @@ const recordingSchema = new mongoose.Schema(
     recordingStart: { type: Date },
     recordingEnd: { type: Date },
     isPublished: { type: Boolean, default: false },
+    // ── v2.6.0+: server-side lossless segment merge ──────────────────
+    //
+    // When a multi-segment recording transitions to "completed" the merge
+    // worker runs `ffmpeg -f concat -c copy` against all segment files and
+    // writes a single merged MP4. The resulting URL is stored here and
+    // served preferentially by GET /api/recordings/:id/video — client
+    // downloads a single file instead of stitching segments client-side.
+    //
+    // mergeStatus transitions:
+    //   "pending"   → recording completed, merge not started yet
+    //   "merging"   → worker is running ffmpeg
+    //   "ready"     → mergedVideoUrl is valid and playable
+    //   "skipped"   → single-segment recording, merge unnecessary
+    //   "failed"    → ffmpeg returned non-zero; mergeError has details
+    mergedVideoUrl: { type: String, default: "" },
+    mergedFileSize: { type: Number, default: 0 },
+    mergeStatus: {
+      type: String,
+      enum: ["pending", "merging", "ready", "skipped", "failed"],
+      default: "pending",
+    },
+    mergeError: { type: String, default: "" },
+    mergedAt: { type: Date },
   },
   { timestamps: true }
 );

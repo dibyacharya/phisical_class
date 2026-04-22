@@ -409,6 +409,20 @@ export default function DeviceRemote() {
                   ))}
                 </div>
               )}
+
+              {/* v2.6.0: Hardware Inventory Panel
+                  —
+                  Surfaces the raw USB bus + Camera2 + audio-input snapshots
+                  produced by UsbHardwareInspector on-device. Three lenses,
+                  so when the Lumens camera doesn't show up in the video,
+                  the admin can tell immediately whether:
+                  - USB bus doesn't see it → cable / port / OTG adapter issue
+                  - USB sees it but Camera2 doesn't → no OEM UVC bridge
+                    (v2.6.0 UsbCameraDriver takes over in that case)
+                  - Camera2 sees EXTERNAL camera → working normally */}
+              {device?.health?.hardware && (
+                <HardwareInventoryPanel hw={device.health.hardware} />
+              )}
             </div>
           </div>
 
@@ -624,4 +638,135 @@ function formatUptime(seconds) {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+/**
+ * Hardware Inventory — surfaces the three-lens snapshot from the device's
+ * UsbHardwareInspector so an admin can diagnose camera/mic issues without
+ * physically going to the TV.
+ *
+ * Ordering of sections is deliberate: USB bus first (most authoritative),
+ * then Camera2 (what the API sees), then audio inputs. A red banner at top
+ * flags missing hardware loudly — the admin should notice before they
+ * try to start a class.
+ */
+function HardwareInventoryPanel({ hw }) {
+  const {
+    hasUsbCamera = false,
+    hasUsbMic = false,
+    hasUsableCamera = false,
+    cameraDetectedVia = "none",
+    cameras = [],
+    audioInputs = [],
+    usbDevices = [],
+  } = hw || {};
+
+  const missingCamera = !hasUsableCamera && !hasUsbCamera;
+  const missingMic = !hasUsbMic && !(audioInputs || []).some(a => a.type === "BUILTIN_MIC");
+
+  return (
+    <div className="bg-white rounded-xl border p-4">
+      <h4 className="font-medium text-slate-700 mb-3">Hardware Inventory</h4>
+
+      {(missingCamera || missingMic) && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+          <p className="text-xs font-medium text-red-700 mb-1">⚠ Missing hardware</p>
+          <p className="text-xs text-red-600">
+            {[missingCamera ? "camera" : null, missingMic ? "mic" : null].filter(Boolean).join(" + ")} not detected.
+            Check USB cable / OTG adapter. Recording will still work but without that input.
+          </p>
+        </div>
+      )}
+
+      {/* Camera detection mode — tells admin whether we're in Camera2 or
+          direct-USB mode, or if nothing works. */}
+      <div className="mb-3">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">Camera Mode</p>
+        <div className="text-xs">
+          {cameraDetectedVia === "camera2_external" && (
+            <span className="text-green-700 font-medium">✓ External via Camera2 (OEM bridge OK)</span>
+          )}
+          {cameraDetectedVia === "camera2_internal" && (
+            <span className="text-amber-700 font-medium">⚠ Internal camera only — no external USB camera</span>
+          )}
+          {cameraDetectedVia === "usb_only" && (
+            <span className="text-blue-700 font-medium">USB direct mode (no Camera2 bridge — UVCCamera driver active)</span>
+          )}
+          {cameraDetectedVia === "none" && (
+            <span className="text-red-700 font-medium">✗ No camera detected</span>
+          )}
+        </div>
+      </div>
+
+      {/* USB Bus — ground truth about what's physically connected */}
+      <div className="mb-3">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+          USB Bus ({usbDevices.length})
+        </p>
+        {usbDevices.length === 0 ? (
+          <p className="text-xs text-slate-400">No USB devices found</p>
+        ) : (
+          <ul className="text-xs space-y-1">
+            {usbDevices.map((d, i) => (
+              <li key={i} className="flex items-start gap-1">
+                <span className={d.hasVideo || d.hasAudio ? "text-green-600" : "text-slate-400"}>•</span>
+                <span className="flex-1">
+                  <span className="font-mono">{(d.manufacturer || "?")}/{d.product || "?"}</span>
+                  <span className="text-slate-400 ml-1">
+                    (vid 0x{Number(d.vendorId || 0).toString(16).padStart(4, "0")}{" "}
+                    pid 0x{Number(d.productId || 0).toString(16).padStart(4, "0")})
+                  </span>
+                  {(d.hasVideo || d.hasAudio) && (
+                    <span className="ml-1 text-green-700">
+                      [{[d.hasVideo && "video", d.hasAudio && "audio"].filter(Boolean).join("+")}]
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Camera2 list — what Android API sees */}
+      <div className="mb-3">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+          Camera2 API ({cameras.length})
+        </p>
+        {cameras.length === 0 ? (
+          <p className="text-xs text-slate-400">No cameras visible to Camera2</p>
+        ) : (
+          <ul className="text-xs space-y-1">
+            {cameras.map((c, i) => (
+              <li key={i}>
+                <span className="font-mono">id={c.id}</span>
+                <span className="text-slate-500 ml-1">({c.facing})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Audio inputs — mic enumeration */}
+      <div>
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+          Audio Inputs ({audioInputs.length})
+        </p>
+        {audioInputs.length === 0 ? (
+          <p className="text-xs text-slate-400">No audio input devices</p>
+        ) : (
+          <ul className="text-xs space-y-1">
+            {audioInputs.map((a, i) => (
+              <li key={i}>
+                <span className={a.type.startsWith("USB") ? "text-blue-700" : "text-slate-700"}>
+                  {a.name}
+                </span>
+                <span className="text-slate-400 ml-1">({a.type})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
 }

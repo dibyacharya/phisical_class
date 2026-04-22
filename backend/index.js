@@ -70,6 +70,19 @@ connectDB().then(async () => {
     if (!e.message.includes("ns not found")) console.log("[Migration] spaceCode index:", e.message);
   }
 
+  // v2.6.0: probe ffmpeg at boot so the first merge doesn't pay the
+  // "fork a process to learn if ffmpeg exists" penalty, and so the deploy
+  // log immediately surfaces an install regression (missing nixpacks.toml
+  // change on a re-deploy) rather than hiding it until the first class
+  // ends and a merge fails.
+  try {
+    const { probeFfmpeg } = require("./utils/segmentMerger");
+    const ok = await probeFfmpeg();
+    console.log(`[Boot] ffmpeg on PATH: ${ok ? "yes (segment merge enabled)" : "NO — segment merge disabled"}`);
+  } catch (e) {
+    console.warn("[Boot] ffmpeg probe threw:", e.message);
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });
