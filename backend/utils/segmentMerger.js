@@ -169,58 +169,100 @@ async function mergeSegmentsToFile(segments, recordingId) {
 /**
  * End-to-end merge: call this after a recording transitions to "completed".
  * Updates the Recording document with mergedVideoUrl + mergeStatus. Safe
- * to call multiple times (idempotent via mergeStatus gating).
+ * to call multiple times (idempotent via atomic mergeStatus gating).
+ *
+ * v2.6.3 hardening:
+ * - Reload from DB before checking mergeStatus (previous caller-provided
+ *   doc may be stale).
+ * - Use findOneAndUpdate with status gate to claim "merging" atomically —
+ *   two concurrent callers can't both start ffmpeg.
+ * - Every save() wrapped in try-catch so a DB failure never leaves the
+ *   recording stuck at mergeStatus="merging" forever.
  */
 async function runMergeForRecording(recording) {
   if (!recording) return { ok: false, error: "no_recording" };
 
-  // Skip single-segment recordings — no merge needed, videoUrl already points
-  // to the one file.
-  if (!recording.segments || recording.segments.length <= 1) {
-    recording.mergeStatus = "skipped";
-    if (recording.segments && recording.segments.length === 1 && !recording.videoUrl) {
-      recording.videoUrl = recording.segments[0].videoUrl;
+  // Reload — the doc the caller handed us may be stale relative to a
+  // concurrent heartbeat-reconcile or admin retry.
+  const Recording = require("../models/Recording");
+  const fresh = await Recording.findById(recording._id);
+  if (!fresh) return { ok: false, error: "recording_deleted" };
+
+  // Single-segment path: no merge needed, just promote the one segment's URL.
+  if (!fresh.segments || fresh.segments.length <= 1) {
+    const patch = { mergeStatus: "skipped" };
+    if (fresh.segments && fresh.segments.length === 1 && !fresh.videoUrl) {
+      patch.videoUrl = fresh.segments[0].videoUrl;
     }
-    await recording.save();
+    try {
+      await Recording.findByIdAndUpdate(fresh._id, { $set: patch });
+    } catch (err) {
+      console.error(`[segmentMerger] save-skipped failed ${fresh._id}: ${err.message}`);
+    }
     return { ok: true, skipped: true };
   }
 
-  // Idempotence: if another request beat us to it, bail out cleanly.
-  if (recording.mergeStatus === "merging") {
-    return { ok: false, error: "already_merging" };
-  }
-  if (recording.mergeStatus === "ready" && recording.mergedVideoUrl) {
+  // Fast-path: already merged.
+  if (fresh.mergeStatus === "ready" && fresh.mergedVideoUrl) {
     return { ok: true, alreadyMerged: true };
   }
 
-  recording.mergeStatus = "merging";
-  recording.mergeError = "";
-  await recording.save();
+  // Atomic claim: only one caller can flip from non-merging → merging.
+  // This prevents two concurrent runs from both spawning ffmpeg against
+  // the same output file.
+  const claim = await Recording.findOneAndUpdate(
+    { _id: fresh._id, mergeStatus: { $ne: "merging" } },
+    { $set: { mergeStatus: "merging", mergeError: "" } },
+    { new: true }
+  );
+  if (!claim) {
+    // Someone else is already merging this recording.
+    return { ok: false, error: "already_merging" };
+  }
 
-  const result = await mergeSegmentsToFile(recording.segments, recording._id.toString());
+  const result = await mergeSegmentsToFile(claim.segments, claim._id.toString());
 
   if (!result.ok) {
-    recording.mergeStatus = "failed";
-    recording.mergeError = JSON.stringify({
-      error: result.error,
-      detail: result.stderrTail || result.detail || result.missing || "",
-    }).slice(0, 2000);
-    await recording.save();
-    console.error(`[segmentMerger] Merge failed for ${recording._id}: ${recording.mergeError}`);
+    try {
+      await Recording.findByIdAndUpdate(claim._id, {
+        $set: {
+          mergeStatus: "failed",
+          mergeError: JSON.stringify({
+            error: result.error,
+            detail: result.stderrTail || result.detail || result.missing || "",
+          }).slice(0, 2000),
+        },
+      });
+    } catch (err) {
+      console.error(`[segmentMerger] save-failed persist failed ${claim._id}: ${err.message}`);
+    }
+    console.error(`[segmentMerger] Merge failed for ${claim._id}: ${result.error}`);
     return result;
   }
 
-  recording.mergedVideoUrl = result.videoUrl;
-  recording.mergedFileSize = result.size;
-  recording.mergeStatus = "ready";
-  recording.mergedAt = new Date();
-  // Promote merged URL to the canonical videoUrl — players/download endpoints
-  // use this going forward. Segments remain for audit + recovery.
-  recording.videoUrl = result.videoUrl;
-  await recording.save();
+  try {
+    await Recording.findByIdAndUpdate(claim._id, {
+      $set: {
+        mergedVideoUrl: result.videoUrl,
+        mergedFileSize: result.size,
+        mergeStatus: "ready",
+        mergedAt: new Date(),
+        // Promote merged URL to canonical videoUrl — players/download
+        // endpoints use this going forward. Segments remain for audit.
+        videoUrl: result.videoUrl,
+      },
+    });
+  } catch (err) {
+    // Merge succeeded on disk but DB save failed. Log loudly — admin can
+    // retry via POST /recordings/:id/merge to re-record the URL (idempotent
+    // because the merged file already exists and mergeSegmentsToFile will
+    // overwrite with identical content).
+    console.error(`[segmentMerger] FINAL SAVE FAILED ${claim._id} — file is at ${result.outPath}: ${err.message}`);
+    return { ok: false, error: "final_save_failed", detail: err.message, outPath: result.outPath };
+  }
 
-  console.log(`[segmentMerger] Merged ${recording.segments.length} segments → ` +
-    `${(result.size / 1024 / 1024).toFixed(1)} MB in ${result.durationMs}ms (${recording._id})`);
+  console.log(`[segmentMerger] Merged ${claim.segments.length} segments → ` +
+    `${(result.size / 1024 / 1024).toFixed(1)} MB in ${result.durationMs}ms (${claim._id})`);
   return result;
 }
 

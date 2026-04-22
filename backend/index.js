@@ -83,6 +83,34 @@ connectDB().then(async () => {
     console.warn("[Boot] ffmpeg probe threw:", e.message);
   }
 
+  // v2.6.3: reset any recordings that got stuck at mergeStatus="merging"
+  // because the previous instance crashed mid-ffmpeg. Without this, they'd
+  // be permanently wedged — runMergeForRecording's atomic claim refuses to
+  // start work on a doc that's already "merging".
+  //
+  // Only reset entries older than 1h so we don't clobber a merge that was
+  // genuinely in progress during a rolling restart.
+  try {
+    const Recording = require("./models/Recording");
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000);
+    const result = await Recording.updateMany(
+      {
+        mergeStatus: "merging",
+        $or: [
+          { mergedAt: { $lt: cutoff } },
+          { mergedAt: { $exists: false } },
+          { mergedAt: null },
+        ],
+      },
+      { $set: { mergeStatus: "pending", mergeError: "Interrupted by server restart" } }
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`[Boot] Reset ${result.modifiedCount} stale merge job(s) to pending (>1h old)`);
+    }
+  } catch (e) {
+    console.warn("[Boot] Stale-merge reset failed:", e.message);
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });

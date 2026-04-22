@@ -59,5 +59,11 @@ const recordingSchema = new mongoose.Schema(
 
 // Session lookup and room-based recording queries
 recordingSchema.index({ scheduledClass: 1 });
+// v2.6.3: speed up heartbeat reconcile + cleanup-stale queries that
+// filter on status. Without this, every heartbeat did a full collection
+// scan on Recording — fine today, fatal at 10k+ recordings.
+recordingSchema.index({ status: 1, recordingStart: 1 });
+// Merge retry job scans by mergeStatus to find failed/pending merges.
+recordingSchema.index({ mergeStatus: 1 });
 
 module.exports = mongoose.model("LCS_Recording", recordingSchema);

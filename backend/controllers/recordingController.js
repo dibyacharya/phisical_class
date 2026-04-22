@@ -1,5 +1,19 @@
+const mongoose = require("mongoose");
 const Recording = require("../models/Recording");
 const Room = require("../models/Room");
+
+/**
+ * Guard — return 400 if :id in req.params is not a valid ObjectId.
+ * Without this, Mongoose's CastError bubbles to the global error handler
+ * and returns a generic 500 with an unhelpful message.
+ */
+function requireValidId(req, res) {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    res.status(400).json({ error: "Invalid recording ID format" });
+    return false;
+  }
+  return true;
+}
 
 // GET /api/recordings
 exports.getAll = async (req, res) => {
@@ -40,6 +54,7 @@ exports.getAll = async (req, res) => {
 
 // GET /api/recordings/:id
 exports.getOne = async (req, res) => {
+  if (!requireValidId(req, res)) return;
   try {
     const rec = await Recording.findById(req.params.id).populate("scheduledClass");
     if (!rec) return res.status(404).json({ error: "Recording not found" });
@@ -51,6 +66,7 @@ exports.getOne = async (req, res) => {
 
 // PUT /api/recordings/:id/toggle-publish
 exports.togglePublish = async (req, res) => {
+  if (!requireValidId(req, res)) return;
   try {
     const rec = await Recording.findById(req.params.id);
     if (!rec) return res.status(404).json({ error: "Recording not found" });
@@ -64,6 +80,7 @@ exports.togglePublish = async (req, res) => {
 
 // DELETE /api/recordings/:id
 exports.remove = async (req, res) => {
+  if (!requireValidId(req, res)) return;
   try {
     await Recording.findByIdAndDelete(req.params.id);
     res.json({ message: "Deleted" });
@@ -77,6 +94,7 @@ exports.remove = async (req, res) => {
 // completed if segments exist, otherwise failed. Useful when device crashed
 // mid-recording and never called /merge to finalize.
 exports.forceStop = async (req, res) => {
+  if (!requireValidId(req, res)) return;
   try {
     const rec = await Recording.findById(req.params.id);
     if (!rec) return res.status(404).json({ error: "Recording not found" });
@@ -90,6 +108,17 @@ exports.forceStop = async (req, res) => {
     if (hasSegments && !rec.videoUrl) {
       const last = rec.segments[rec.segments.length - 1];
       if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+    }
+
+    // v2.6.3: keep mergeStatus coherent for the cases where merge will never
+    // run. Single-segment / zero-segment recordings have nothing to concat,
+    // so mark "skipped" explicitly instead of leaving the schema default
+    // "pending" — UI uses this to decide whether to show "Merge segments"
+    // button.
+    if (!hasSegments) {
+      rec.mergeStatus = "skipped";
+    } else if (rec.segments.length === 1) {
+      rec.mergeStatus = "skipped";
     }
 
     await rec.save();
@@ -139,6 +168,7 @@ exports.forceStop = async (req, res) => {
 // already "ready". Otherwise runs the merge synchronously (so the admin UI
 // knows when it's done) and returns the result.
 exports.retryMerge = async (req, res) => {
+  if (!requireValidId(req, res)) return;
   try {
     const rec = await Recording.findById(req.params.id);
     if (!rec) return res.status(404).json({ error: "Recording not found" });

@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
+const mongoose = require("mongoose");
 const ClassroomDevice = require("../models/ClassroomDevice");
 const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
@@ -306,23 +307,31 @@ exports.heartbeat = async (req, res) => {
       const orphaned = deviceTodaysRecordings.filter(r => r.scheduledClass?.roomNumber === device.roomNumber);
       for (const orphan of orphaned) {
         try {
-          const rec = await Recording.findById(orphan._id);
-          if (!rec || rec.status === "completed" || rec.status === "failed") continue;
-          const hasSegments = (rec.segments || []).length > 0;
-          rec.status = hasSegments ? "completed" : "failed";
-          rec.isPublished = hasSegments;
-          rec.recordingEnd = rec.recordingEnd || new Date();
-          if (hasSegments && !rec.videoUrl) {
-            const last = rec.segments[rec.segments.length - 1];
-            if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+          // Atomic claim: only one heartbeat can flip a recording out of
+          // "recording"/"uploading". Two near-simultaneous heartbeats (from
+          // flaky network retries) won't both run the finalise logic.
+          const hasSegments = (orphan.segments || []).length > 0;
+          const updateSet = {
+            status: hasSegments ? "completed" : "failed",
+            isPublished: hasSegments,
+            recordingEnd: orphan.recordingEnd || new Date(),
+          };
+          if (hasSegments && !orphan.videoUrl) {
+            const last = orphan.segments[orphan.segments.length - 1];
+            if (last?.videoUrl) updateSet.videoUrl = last.videoUrl;
           }
-          await rec.save();
-          console.log(`[Heartbeat/reconcile] Finalised orphan recording ${rec._id} (${rec.title}) — ${rec.segments?.length || 0} segment(s)`);
+          const claimed = await Recording.findOneAndUpdate(
+            { _id: orphan._id, status: { $in: ["recording", "uploading"] } },
+            { $set: updateSet },
+            { new: true }
+          );
+          if (!claimed) continue;  // another heartbeat beat us to it
+          console.log(`[Heartbeat/reconcile] Finalised orphan recording ${claimed._id} (${claimed.title}) — ${claimed.segments?.length || 0} segment(s)`);
           // Kick off merge for multi-segment orphans
-          if (hasSegments && rec.segments.length > 1) {
+          if (hasSegments && claimed.segments.length > 1) {
             setImmediate(() => {
               const { runMergeForRecording } = require("../utils/segmentMerger");
-              Recording.findById(rec._id)
+              Recording.findById(claimed._id)
                 .then(fresh => fresh && runMergeForRecording(fresh))
                 .catch(err => console.error(`[Merge/reconcile] ${err.message}`));
             });
@@ -691,11 +700,22 @@ exports.findOrCreateSession = async (req, res) => {
 };
 
 // POST /api/classroom-recording/recordings/:recordingId/segment-upload
+//
+// v2.6.3: atomic $push + $inc so two near-simultaneous segment uploads don't
+// clobber each other. Previously the controller did `findById` → in-memory
+// `segments.push` → `save`, which meant two concurrent requests could each
+// read the same stale segments array, push their own segment onto it, and
+// save — losing the other request's segment entirely.
 exports.segmentUpload = async (req, res) => {
   try {
     const { recordingId } = req.params;
-    const recording = await Recording.findById(recordingId);
-    if (!recording) {
+    if (!mongoose.Types.ObjectId.isValid(recordingId)) {
+      return res.status(400).json({ error: "Invalid recording ID" });
+    }
+    // Cheap existence check — still fetches the doc but we only use it for
+    // the sanity check. The actual mutation is atomic below.
+    const exists = await Recording.exists({ _id: recordingId });
+    if (!exists) {
       return res.status(404).json({ error: "Recording not found" });
     }
 
@@ -704,15 +724,24 @@ exports.segmentUpload = async (req, res) => {
 
     if (req.files && req.files.video) {
       const videoFile = req.files.video;
-      const blobName = `${recordingId}_${Date.now()}.mp4`;
+      // Add random suffix to prevent filename collision if two segments upload
+      // in the same millisecond (unlikely but possible with segment rotation
+      // races or clock skew).
+      const collisionSuffix = Math.random().toString(36).slice(2, 8);
+      const blobName = `${recordingId}_${Date.now()}_${collisionSuffix}.mp4`;
       fileSize = videoFile.size;
 
-      // Try Azure Blob first, fallback to local
+      // Try Azure Blob first, fallback to local. Defensive try-catch: a
+      // transient Azure outage must NOT crash the upload endpoint.
       if (isAzureConfigured()) {
-        const azureUrl = await uploadToBlob(videoFile.data, blobName, "video/mp4");
-        if (azureUrl) {
-          videoUrl = azureUrl;
-          console.log(`[Upload] Azure Blob: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+        try {
+          const azureUrl = await uploadToBlob(videoFile.data, blobName, "video/mp4");
+          if (azureUrl) {
+            videoUrl = azureUrl;
+            console.log(`[Upload] Azure Blob: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+          }
+        } catch (azureErr) {
+          console.warn(`[Upload] Azure failed, falling back to local: ${azureErr.message}`);
         }
       }
 
@@ -730,36 +759,56 @@ exports.segmentUpload = async (req, res) => {
       videoUrl = `/uploads/${path.basename(req.file.path)}`;
     }
 
-    // Append segment to recording (don't overwrite videoUrl — that's set on merge)
+    // Parse segment metadata before atomic update
     const duration = parseInt(req.body.duration) || 0;
-    const segmentIndex = parseInt(req.body.segmentIndex) || recording.segments?.length || 0;
-    recording.fileSize = (recording.fileSize || 0) + fileSize;
-    recording.duration = (recording.duration || 0) + duration;
-    recording.recordingEnd = new Date();
-
-    // Push segment to array — preserves all segment URLs
-    if (!recording.segments) recording.segments = [];
-    recording.segments.push({
-      segmentIndex,
-      videoUrl,
-      fileSize,
-      duration,
-      startTime: req.body.startTime ? new Date(req.body.startTime) : null,
-      endTime: req.body.endTime ? new Date(req.body.endTime) : null,
-      uploadedAt: new Date(),
-    });
-
-    // Keep status as "recording" during segment uploads.
-    // Only mark "completed" when merge is triggered (stopCurrentRecording → triggerMerge).
-    if (recording.status !== "recording") {
-      recording.status = "uploading";
+    // segmentIndex comes from the device. If missing we'd race; require it.
+    const segmentIndex = parseInt(req.body.segmentIndex);
+    if (isNaN(segmentIndex)) {
+      return res.status(400).json({ error: "segmentIndex required" });
     }
-    // Set videoUrl to latest segment as fallback (merge will overwrite with final URL)
-    if (videoUrl && recording.segments.length === 1) {
-      recording.videoUrl = videoUrl;
-      recording.isPublished = true;
+
+    // Atomic append — no read-modify-write race. $push adds to segments[],
+    // $inc bumps size + duration, $set bumps recordingEnd + status.
+    const updated = await Recording.findByIdAndUpdate(
+      recordingId,
+      {
+        $push: {
+          segments: {
+            segmentIndex,
+            videoUrl,
+            fileSize,
+            duration,
+            startTime: req.body.startTime ? new Date(req.body.startTime) : null,
+            endTime: req.body.endTime ? new Date(req.body.endTime) : null,
+            uploadedAt: new Date(),
+          },
+        },
+        $inc: { fileSize, duration },
+        $set: { recordingEnd: new Date() },
+      },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({ error: "Recording not found (concurrent delete)" });
     }
-    await recording.save();
+
+    // Post-push bookkeeping that can't be expressed in a single atomic op:
+    // promote videoUrl / flip status / publish. These are idempotent and
+    // always converge to the same final state regardless of concurrent
+    // segment uploads, so a second read-modify-write is safe here.
+    let needsSave = false;
+    if (updated.status !== "recording" && updated.status !== "uploading") {
+      updated.status = "uploading";
+      needsSave = true;
+    } else if (updated.status === "recording") {
+      // Stay as "recording" until triggerMerge — no change needed.
+    }
+    if (videoUrl && updated.segments.length === 1 && !updated.videoUrl) {
+      updated.videoUrl = videoUrl;
+      updated.isPublished = true;
+      needsSave = true;
+    }
+    if (needsSave) await updated.save();
 
     // DON'T mark device as not recording here — segment uploads happen during recording.
     // Device explicitly signals recording stop via heartbeat (isRecording: false).
