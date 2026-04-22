@@ -63,6 +63,21 @@ const healthSchema = new mongoose.Schema({
     message: { type: String },
     time: { type: Date, default: Date.now },
   }],
+  // v2.6.0+: three-lens hardware inventory from on-device UsbHardwareInspector.
+  // Declared so Mongoose doesn't strip the nested fields on save (otherwise
+  // the Hardware Inventory panel in admin portal shows empty for healthy
+  // devices). Leaving all values Mixed because we serialise dynamic lists
+  // — strict typing would force a schema change every time Android adds a
+  // new hardware lens.
+  hardware: {
+    hasUsbCamera: { type: Boolean },
+    hasUsbMic: { type: Boolean },
+    hasUsableCamera: { type: Boolean },
+    cameraDetectedVia: { type: String },    // "camera2_external" | "camera2_internal" | "usb_only" | "none"
+    cameras: { type: mongoose.Schema.Types.Mixed },
+    audioInputs: { type: mongoose.Schema.Types.Mixed },
+    usbDevices: { type: mongoose.Schema.Types.Mixed },
+  },
   updatedAt: { type: Date },
 }, { _id: false });
 

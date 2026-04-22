@@ -27,6 +27,7 @@ const deviceCommandSchema = new mongoose.Schema({
       "test_chime",      // Play the recording-start chime so admin can verify audio path (params.kind = start|stop|alert)
       "test_mic",        // Record short PCM sample, return peak/RMS dB + mic label (params.durationMs default 3000)
       "toggle_gl_compositor", // Flip GL compositor feature flag on device (params.enabled = true|false|null for toggle)
+      "toggle_software_encoder", // Flip prefs.forceSoftwareEncoder (params.enabled = true|false|null to toggle). Takes effect on NEXT recording.
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
