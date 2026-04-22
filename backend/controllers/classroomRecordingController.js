@@ -285,6 +285,54 @@ exports.heartbeat = async (req, res) => {
 
     await device.save();
 
+    // ── v2.6.2: auto-reconcile stuck recordings ───────────────────────
+    //
+    // If device reports isRecording=false but there's still a Recording
+    // document in "recording"/"uploading" status for a meeting that was
+    // on this device, the device's triggerMerge call must have failed
+    // silently (network glitch, timeout, crash before the POST). Without
+    // this reconcile, status sticks at "recording" forever and the admin
+    // has to click Force Stop manually.
+    //
+    // We kick off the same finalise logic triggerMerge uses — mark
+    // completed if segments exist, promote last-segment URL, and run the
+    // async merge worker. Safe and idempotent; runs at most once per
+    // heartbeat because the next one won't match the filter anymore.
+    if (req.body.isRecording === false) {
+      const deviceTodaysRecordings = await Recording.find({
+        status: { $in: ["recording", "uploading"] },
+        recordingStart: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) }, // last 4 hours
+      }).populate({ path: "scheduledClass", select: "_id roomNumber" }).lean();
+      const orphaned = deviceTodaysRecordings.filter(r => r.scheduledClass?.roomNumber === device.roomNumber);
+      for (const orphan of orphaned) {
+        try {
+          const rec = await Recording.findById(orphan._id);
+          if (!rec || rec.status === "completed" || rec.status === "failed") continue;
+          const hasSegments = (rec.segments || []).length > 0;
+          rec.status = hasSegments ? "completed" : "failed";
+          rec.isPublished = hasSegments;
+          rec.recordingEnd = rec.recordingEnd || new Date();
+          if (hasSegments && !rec.videoUrl) {
+            const last = rec.segments[rec.segments.length - 1];
+            if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+          }
+          await rec.save();
+          console.log(`[Heartbeat/reconcile] Finalised orphan recording ${rec._id} (${rec.title}) — ${rec.segments?.length || 0} segment(s)`);
+          // Kick off merge for multi-segment orphans
+          if (hasSegments && rec.segments.length > 1) {
+            setImmediate(() => {
+              const { runMergeForRecording } = require("../utils/segmentMerger");
+              Recording.findById(rec._id)
+                .then(fresh => fresh && runMergeForRecording(fresh))
+                .catch(err => console.error(`[Merge/reconcile] ${err.message}`));
+            });
+          }
+        } catch (err) {
+          console.error(`[Heartbeat/reconcile] Failed on ${orphan._id}: ${err.message}`);
+        }
+      }
+    }
+
     // ── Store time-series health snapshot for analytics ──────────────
     if (req.body.health) {
       const h = req.body.health;
