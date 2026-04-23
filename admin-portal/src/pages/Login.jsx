@@ -14,7 +14,12 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      if (data.user.role !== "admin") {
+      // Accept both "admin" and "superadmin" — superadmin is the site
+      // owner with the same UI access plus license/user management.
+      // Prior check hard-failed the portal for the seeded admin user
+      // (role=superadmin) which was the whole point of having that account.
+      const allowedRoles = ["admin", "superadmin"];
+      if (!allowedRoles.includes(data.user.role)) {
         setError("Admin access only. Use the Student Portal for student login.");
         return;
       }
