@@ -124,16 +124,53 @@ exports.forceStop = async (req, res) => {
     await rec.save();
 
     // If the device is still marked as recording this meeting, clear its state
+    // AND queue a real force_stop command so the device actually stops capture.
+    //
+    // v3.1.5: the previous implementation only flipped DB state — the Android
+    // service would keep recording, writing segments the admin portal had
+    // already marked as "completed". Admins force-stopped from the portal
+    // repeatedly with no effect because we never told the device.
+    //
+    // Now we also queue a DeviceCommand so the next heartbeat (within 30 s)
+    // carries a force_stop payload the device will execute. Combined with the
+    // Recording.status flip above this finalises *both* DB state and the
+    // actual capture pipeline.
+    let devicesNotified = 0;
     try {
       const ClassroomDevice = require("../models/ClassroomDevice");
+      const DeviceCommand = require("../models/DeviceCommand");
       const meetingId = rec.scheduledClass?.toString();
+
+      // Find every device currently claiming to record this meeting.
+      // We look it up BEFORE updateMany so we still have deviceIds to dispatch
+      // commands to (updateMany would null-out currentMeetingId on them).
+      // Match on either currentMeetingId (top-level flag) OR isRecording=true
+      // (since health desync can leave top=false while device still records).
+      const query = meetingId
+        ? { $or: [{ currentMeetingId: meetingId }, { isRecording: true, currentMeetingId: { $in: [null, ""] } }] }
+        : { isRecording: true };
+      const devices = await ClassroomDevice.find(query).select("deviceId").lean();
+
       if (meetingId) {
         await ClassroomDevice.updateMany(
           { currentMeetingId: meetingId, isRecording: true },
           { isRecording: false, currentMeetingId: null }
         );
       }
-    } catch (_) {}
+
+      for (const dev of devices) {
+        if (!dev.deviceId) continue;
+        await DeviceCommand.create({
+          deviceId: dev.deviceId,
+          command: "force_stop",
+          issuedBy: (req.user?.name || req.user?.email || "admin") + " (via recording force-stop)",
+          params: { recordingId: rec._id.toString() },
+        });
+        devicesNotified++;
+      }
+    } catch (err) {
+      console.error(`[forceStop] device command queue failed: ${err.message}`);
+    }
 
     // v3.1.3: also flip the ScheduledClass.status to "completed" so the
     // Room Booking page doesn't show stale "Live" chips after a force-stop.
@@ -164,9 +201,12 @@ exports.forceStop = async (req, res) => {
 
     res.json({
       message: hasSegments
-        ? `Recording marked completed with ${rec.segments.length} segment(s)`
-        : "Recording marked failed (no segments uploaded — device likely crashed before capturing any frames)",
+        ? `Recording marked completed with ${rec.segments.length} segment(s)` +
+          (devicesNotified ? ` — ${devicesNotified} device(s) force-stopped` : "")
+        : "Recording marked failed (no segments uploaded — device likely crashed before capturing any frames)" +
+          (devicesNotified ? ` — ${devicesNotified} device(s) force-stopped` : ""),
       recording: rec,
+      devicesNotified,
       mergeStatus: hasSegments && rec.segments.length > 1 ? "queued" : "skipped",
     });
   } catch (err) {

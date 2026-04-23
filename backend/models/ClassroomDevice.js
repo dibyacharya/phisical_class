@@ -64,6 +64,14 @@ const healthSchema = new mongoose.Schema({
     uvcState: { type: String },                // e.g. "PREVIEW_ACTIVE" / "ATTACHED_vid1ff7_pid0f32"
     uvcUsing: { type: Boolean },               // true = UVC path is active
     uvcLastError: { type: String },
+    // v3.1.5: frame-arrival counters. uvcFrameCount increments every time a
+    // raw YUV frame arrives from the USB device; uvcMsSinceLastFrame is the
+    // time since the most recent one. Together these disambiguate "USB
+    // stream dead but library says PREVIEW_ACTIVE" from "USB stream fine but
+    // render pipeline broken". See UsbCameraDriver.kt for the diagnostic
+    // matrix. Device sends as Number; store as Number here.
+    uvcFrameCount: { type: Number },
+    uvcMsSinceLastFrame: { type: Number },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
