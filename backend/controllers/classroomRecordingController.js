@@ -303,21 +303,46 @@ exports.heartbeat = async (req, res) => {
       // v3.1.3: auto-complete ScheduledClass rows whose end time is >5min
       // past for this room. Handles the "Live" chip staying forever when
       // the device was force-stopped or finished without triggerMerge.
+      //
+      // v3.1.10 rewrite: the previous version used a lexicographic HH:MM
+      // compare against today's now-5min. That worked within a single day,
+      // but a class from YESTERDAY with endTime "23:00" is never `<` today's
+      // morning `"03:25"` compare string — so yesterday's stuck "live"
+      // classes never cleared. Room Booking page accumulated stale chips.
+      // Fix: fetch each candidate and compare its full UTC datetime against
+      // `now - 5min`. A little more expensive (one extra query per
+      // heartbeat-reconcile pass per device) but correct across day
+      // boundaries and DST.
       try {
-        const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);  // IST
-        const todayStr = nowIst.toISOString().slice(0, 10);
-        const hhmm = nowIst.toISOString().slice(11, 16);  // "HH:MM"
-        const tMinusFive = new Date(nowIst.getTime() - 5 * 60 * 1000)
-          .toISOString().slice(11, 16);
-        await ScheduledClass.updateMany(
-          {
-            roomNumber: device.roomNumber,
-            status: "live",
-            date: { $lte: new Date(todayStr + "T23:59:59Z") },
-            endTime: { $lt: tMinusFive },  // lexicographic HH:MM works within the same day
-          },
-          { $set: { status: "completed" } }
-        );
+        const staleCutoff = new Date(Date.now() - 5 * 60 * 1000);
+        const candidates = await ScheduledClass.find({
+          roomNumber: device.roomNumber,
+          status: "live",
+          // Bound on date for index efficiency: only look at the last 3
+          // days — older live-state rows are definitely stale but shouldn't
+          // be swept here (some other cleanup should eventually delete
+          // them); no harm in leaving them out.
+          date: { $gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+        }).select("_id date endTime").lean();
+        const staleIds = [];
+        for (const c of candidates) {
+          // Reconstruct the full IST datetime the class actually ended at.
+          // cls.date is the IST midnight of the class's calendar day; endTime
+          // is "HH:MM" IST. Combine them into a UTC moment.
+          const dateIstMidnight = new Date(c.date); // stored as IST midnight UTC
+          const [hh, mm] = String(c.endTime).split(":").map(Number);
+          if (!Number.isFinite(hh) || !Number.isFinite(mm)) continue;
+          const endMomentUtc = new Date(
+            dateIstMidnight.getTime() + (hh * 60 + mm) * 60 * 1000 - 5.5 * 60 * 60 * 1000
+          );
+          if (endMomentUtc < staleCutoff) staleIds.push(c._id);
+        }
+        if (staleIds.length > 0) {
+          await ScheduledClass.updateMany(
+            { _id: { $in: staleIds } },
+            { $set: { status: "completed" } }
+          );
+        }
       } catch (e) {
         console.error("[Heartbeat/class-status] reconcile threw:", e.message);
       }
@@ -687,12 +712,26 @@ exports.findOrCreateSession = async (req, res) => {
       return res.status(400).json({ error: "meetingId required" });
     }
 
-    // Check if recording already exists for this meeting
-    let recording = await Recording.findOne({ scheduledClass: meetingId, status: { $ne: "failed" } });
+    // Check if recording already exists for this meeting.
+    //
+    // v3.1.10: only reuse recordings that are still in-flight. Previously
+    // the filter was `$ne: "failed"`, which let a "completed" recording
+    // (including one that was force-stopped to terminal state) be re-opened
+    // and its status flipped back to "recording" below. That broke the
+    // terminal-state invariant — an admin who force-stopped a class and
+    // then saw the device come back and reuse it would see the recording
+    // mutate back to live, and the paired ScheduledClass.status="completed"
+    // would mismatch. Restrict reuse to active states only; anything
+    // terminal gets a fresh Recording row.
+    let recording = await Recording.findOne({
+      scheduledClass: meetingId,
+      status: { $in: ["recording", "uploading"] },
+    });
 
-    if (recording && recording.status !== "failed") {
-      // Existing session — reuse existing HMAC secret, don't rotate it
-      // (rotating invalidates in-flight QR codes if device reconnects mid-class)
+    if (recording) {
+      // Existing in-flight session — reuse existing HMAC secret, don't rotate
+      // it (rotating invalidates in-flight QR codes if device reconnects
+      // mid-class).
       if (recording.status !== "recording") {
         recording.status = "recording";
         recording.recordingStart = new Date();

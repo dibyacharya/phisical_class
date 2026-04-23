@@ -39,9 +39,50 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Populate string fields from refs for backward compat (heartbeat etc.)
-    const courseDoc = await Course.findById(course);
-    const teacherDoc = await User.findById(teacher);
+    // v3.1.10: align validation with the bulk-create path so single-create
+    // isn't a back door for malformed bookings. Previously this endpoint
+    // skipped format / overlap / course-teacher-existence checks — a bad
+    // booking with `startTime="25:99"` would be accepted and the device's
+    // heartbeat would format it into a NaN timestamp, silently skipping the
+    // class with no error anywhere.
+    const timeRx = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!timeRx.test(startTime) || !timeRx.test(endTime)) {
+      return res.status(400).json({ error: "startTime/endTime must be HH:MM (24-hour)" });
+    }
+    if (endTime <= startTime) {
+      return res.status(400).json({ error: "endTime must be after startTime" });
+    }
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({ error: "date must be a valid ISO date string" });
+    }
+
+    // Verify course + teacher refs resolve before we persist a broken class.
+    const [courseDoc, teacherDoc] = await Promise.all([
+      Course.findById(course),
+      User.findById(teacher),
+    ]);
+    if (!courseDoc) return res.status(400).json({ error: `Course ${course} not found` });
+    if (!teacherDoc) return res.status(400).json({ error: `Teacher ${teacher} not found` });
+
+    // Same-room overlap check — two classes with overlapping time windows
+    // in the same room on the same day confuse the device's schedule
+    // ranker (both would be candidates at the same moment).
+    const dayStart = new Date(parsedDate); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd   = new Date(parsedDate); dayEnd.setHours(23, 59, 59, 999);
+    const overlap = await ScheduledClass.findOne({
+      roomNumber,
+      date: { $gte: dayStart, $lte: dayEnd },
+      status: { $in: ["scheduled", "live"] },
+      // Time overlap: existing.startTime < new.endTime AND existing.endTime > new.startTime
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+    if (overlap) {
+      return res.status(409).json({
+        error: `Room ${roomNumber} already booked ${overlap.startTime}-${overlap.endTime} on this date (${overlap.title})`,
+      });
+    }
 
     const cls = await ScheduledClass.create({
       title,
@@ -51,7 +92,7 @@ exports.create = async (req, res) => {
       courseCode: courseDoc?.courseCode || "",
       teacherName: teacherDoc?.name || "",
       roomNumber,
-      date: new Date(date),
+      date: parsedDate,
       startTime,
       endTime,
       createdBy: req.user._id,
