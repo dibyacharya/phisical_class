@@ -80,11 +80,19 @@ router.get("/", auth, adminOnly, async (req, res) => {
   }
 });
 
-// ── Revoke (permanently disable) — SUPER ADMIN ONLY ─────────────────────────
+// ── Revoke or hard-delete — SUPER ADMIN ONLY ────────────────────────────────
+// ?hard=true removes the row entirely (for DB resets / fresh trial setup).
+// Default is a soft revoke that flips isActive=false but keeps the audit row.
 router.delete("/:id", auth, superAdminOnly, async (req, res) => {
   try {
-    await License.findByIdAndUpdate(req.params.id, { isActive: false });
-    res.json({ message: "License revoked" });
+    const hard = req.query.hard === "true" || req.query.hard === "1";
+    if (hard) {
+      await License.findByIdAndDelete(req.params.id);
+      res.json({ message: "License hard-deleted" });
+    } else {
+      await License.findByIdAndUpdate(req.params.id, { isActive: false });
+      res.json({ message: "License revoked" });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
