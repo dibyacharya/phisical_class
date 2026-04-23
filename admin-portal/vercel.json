@@ -1,3 +1,5 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/((?!hardware-test\\.html|.*\\.(?:css|js|png|jpg|jpeg|svg|ico|webp|woff2?|ttf|map)$).*)", "destination": "/index.html" }
+  ]
 }
