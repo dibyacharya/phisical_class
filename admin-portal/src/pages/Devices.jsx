@@ -98,9 +98,58 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 <WifiOff size={10} /> Offline
               </span>
             )}
-            {device.isRecording && (
-              <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse">
-                <CircleDot size={10} /> Recording
+            {/* v3.1.10 — "Recording" badge must reflect ACTUAL capture state,
+                not just "findOrCreateSession was called." The top-level
+                device.isRecording flag is set the moment the device opens a
+                session with the backend, BEFORE the MediaCodec pipeline
+                succeeds. If the device hits the no-projection gate or the
+                encoder fails, that flag stays true but h.recording.isRecording
+                stays false and no segments upload. An admin looking at a
+                Recording badge while the TV is actually idle was today's
+                "backend jhoot bol raha hai" bug report.
+
+                Real logic:
+                  capture-live = top.isRecording AND health.recording.isRecording
+                  stuck        = top.isRecording AND NOT health.recording.isRecording
+                  idle         = NOT top.isRecording */}
+            {(() => {
+              const topRec = device.isRecording;
+              const healthRec = h.recording?.isRecording;
+              const segIdx = h.recording?.segmentIndex || 0;
+              if (topRec && healthRec) {
+                return (
+                  <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse">
+                    <CircleDot size={10} /> Recording · seg {segIdx}
+                  </span>
+                );
+              }
+              if (topRec && !healthRec) {
+                return (
+                  <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300" title="Backend opened a recording session, but the device's capture pipeline never actually started (no segments). Usually means MediaProjection consent is missing, or the encoder failed.">
+                    <AlertTriangle size={10} /> Session open, capture stuck
+                  </span>
+                );
+              }
+              return null;
+            })()}
+            {/* v3.1.8 zero-touch recovery indicators. Call these out at the top
+                level so an admin can see "can this TV record right now?" at
+                a glance, instead of having to drill into the expanded view
+                or cross-reference telemetry. */}
+            {h.recording?.projectionActive === false && (
+              <span
+                className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-300"
+                title="MediaProjection consent has not been granted on this device. Until a human (or the AutoInstallService) taps 'Start now' on the consent dialog on the TV, every scheduled recording will fail at the projection gate. Top-level isRecording can still be true here because the backend session was created before the pipeline hit this gate."
+              >
+                <XCircle size={10} /> No screen capture permission
+              </span>
+            )}
+            {h.recording?.projectionActive === true && h.recording?.accessibilityEnabled === false && (
+              <span
+                className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200"
+                title="Screen capture is granted right now, but the AutoInstall accessibility service is NOT enabled. The device will not self-heal after the next shutdown / OTA install — a human will need to tap 'Start now' again. Enable it in Settings → Accessibility on the TV."
+              >
+                <AlertTriangle size={10} /> Accessibility off (not self-healing)
               </span>
             )}
             {hasCritical && (
@@ -350,7 +399,21 @@ export default function Devices() {
   };
 
   const online = devices.filter(isOnline);
-  const recording = devices.filter((d) => d.isRecording);
+  // v3.1.10: "Recording" count means "actually capturing frames RIGHT NOW",
+  // not just "has an open backend session." The difference matters — a
+  // session can be open while the device's pipeline is stuck at the
+  // MediaProjection gate. Before this change the top stat said "Recording: 1"
+  // while the TV was visibly idle, which was a genuine "UI is lying to me"
+  // moment for admins today.
+  const recording = devices.filter(
+    (d) => d.isRecording && d.health?.recording?.isRecording
+  );
+  const recordingStuck = devices.filter(
+    (d) => d.isRecording && d.health?.recording?.isRecording === false
+  );
+  const noProjection = devices.filter(
+    (d) => d.health?.recording?.projectionActive === false && isOnline(d)
+  );
   const outdated = devices.filter((d) => !d.appVersionCode);
   const alerts = devices.filter((d) => {
     const h = d.health || {};
@@ -379,7 +442,17 @@ export default function Devices() {
         </div>
         <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center gap-3">
           <div className="bg-red-100 p-2.5 rounded-lg"><CircleDot size={20} className="text-red-600" /></div>
-          <div><p className="text-xs text-gray-500">Recording</p><p className="text-xl font-bold text-gray-800">{recording.length}</p></div>
+          <div>
+            <p className="text-xs text-gray-500">Recording</p>
+            <p className="text-xl font-bold text-gray-800">{recording.length}</p>
+            {(recordingStuck.length > 0 || noProjection.length > 0) && (
+              <p className="text-[10px] text-amber-700 mt-0.5" title="Capture pipelines stuck or no screen-capture permission — admin should act">
+                {recordingStuck.length > 0 && `${recordingStuck.length} stuck`}
+                {recordingStuck.length > 0 && noProjection.length > 0 && " · "}
+                {noProjection.length > 0 && `${noProjection.length} no-perm`}
+              </p>
+            )}
+          </div>
         </div>
         {outdated.length > 0 && (
           <Link to="/app-update" className={`rounded-xl shadow-sm border p-4 flex items-center gap-3 bg-red-50 border-red-200 hover:bg-red-100 transition-colors`}>
