@@ -172,20 +172,37 @@ exports.forceStop = async (req, res) => {
       console.error(`[forceStop] device command queue failed: ${err.message}`);
     }
 
-    // v3.1.3: also flip the ScheduledClass.status to "completed" so the
-    // Room Booking page doesn't show stale "Live" chips after a force-stop.
-    // Previously only the normal triggerMerge path did this — force-stop
-    // updated Recording.status but left ScheduledClass.status = "live"
-    // forever, confusing admins who saw 30-minute-old classes still showing
-    // as in progress on the booking board.
+    // v3.1.3: flip ScheduledClass.status so the Room Booking page doesn't show
+    // stale "Live" chips after a force-stop. Previously the status stayed at
+    // "live" forever — confusing admins who saw 30-min-old classes still in
+    // progress on the booking board.
+    //
+    // v3.1.8 correction: the previous version set status="cancelled" when the
+    // force-stopped recording had zero segments. That turned out to be
+    // user-hostile: the heartbeat schedule filter excludes cancelled classes
+    // (`status: { $ne: "cancelled" }`), so an admin force-stopping a stuck
+    // recording *before* any segment uploaded would kill the class itself —
+    // next time the device heartbeated, the class was gone from its schedule
+    // and no amount of retrying could recover it. User hit this exact trap
+    // today: five back-to-back "why isn't my booking being recorded?" reports,
+    // all traceable to a previous force-stop that silently cancelled the
+    // class row.
+    //
+    // New rule: force-stop is a recording-level action, not a class-level
+    // one. It should never transition a class to "cancelled" — an admin who
+    // actually wants to cancel a class should use the dedicated Cancel button
+    // on the booking UI. Here we only set "completed" when we have segments
+    // (the recording produced something worth keeping); otherwise we leave
+    // the class status alone so the device can still pick it up on the next
+    // heartbeat and retry.
     try {
       const ScheduledClass = require("../models/ScheduledClass");
       const meetingId = rec.scheduledClass?.toString();
-      if (meetingId) {
-        await ScheduledClass.findByIdAndUpdate(meetingId, {
-          status: hasSegments ? "completed" : "cancelled",
-        });
+      if (meetingId && hasSegments) {
+        await ScheduledClass.findByIdAndUpdate(meetingId, { status: "completed" });
       }
+      // hasSegments === false → do NOT touch ScheduledClass.status. Let the
+      // class remain "live" / "scheduled" so the device can retry.
     } catch (_) {}
 
     // v2.6.0: if the force-stopped recording has >1 segment, kick off a

@@ -350,10 +350,19 @@ exports.heartbeat = async (req, res) => {
           if (!claimed) continue;  // another heartbeat beat us to it
           // v3.1.3: flip the paired ScheduledClass to "completed" too
           // so the Room Booking page drops the stale "Live" chip.
+          //
+          // v3.1.8: same correction as recordingController.js force-stop —
+          // never set status="cancelled" from this reconcile path. The
+          // heartbeat schedule filter excludes cancelled classes, so
+          // orphan-reconciling an empty recording would silently evict
+          // the class from the device's schedule forever. Admin reports
+          // "my booking isn't being recorded" trace back to this exact
+          // bug. Leave status alone when there are zero segments — the
+          // device may yet pick the class up and retry.
           try {
-            if (orphan.scheduledClass?._id) {
+            if (orphan.scheduledClass?._id && hasSegments) {
               await ScheduledClass.findByIdAndUpdate(orphan.scheduledClass._id, {
-                status: hasSegments ? "completed" : "cancelled",
+                status: "completed",
               });
             }
           } catch (_) {}
