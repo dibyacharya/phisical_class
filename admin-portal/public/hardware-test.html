@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LectureLens Hardware Test</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; }
+  body { background: #0F172A; color: #E2E8F0; padding: 24px; min-height: 100vh; }
+  h1 { color: #F97316; font-size: 36px; margin-bottom: 4px; }
+  .sub { color: #94A3B8; font-size: 18px; margin-bottom: 24px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .card { background: #1E293B; border: 2px solid #334155; border-radius: 12px; padding: 20px; }
+  .card h2 { color: #60A5FA; font-size: 24px; margin-bottom: 12px; }
+  .status { font-size: 18px; padding: 10px 14px; border-radius: 8px; margin: 8px 0; }
+  .ok { background: #14532D; color: #BBF7D0; }
+  .warn { background: #78350F; color: #FED7AA; }
+  .err { background: #7F1D1D; color: #FECACA; }
+  video { width: 100%; background: #000; border-radius: 8px; aspect-ratio: 16/9; }
+  .meter-wrapper { background: #0F172A; border-radius: 8px; height: 40px; overflow: hidden; margin: 12px 0; border: 2px solid #334155; }
+  .meter-fill { height: 100%; background: linear-gradient(90deg, #22C55E 0%, #EAB308 60%, #EF4444 90%); width: 0%; transition: width 50ms linear; }
+  .db-readout { font-family: monospace; font-size: 22px; color: #F1F5F9; }
+  button { background: #F97316; color: white; font-size: 20px; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; margin: 4px; font-weight: bold; }
+  button:hover { background: #EA580C; }
+  button:focus { outline: 4px solid #FBBF24; }
+  button:disabled { background: #475569; cursor: not-allowed; }
+  pre { background: #020617; color: #94A3B8; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; max-height: 200px; overflow-y: auto; }
+  .device-row { padding: 8px 12px; background: #0F172A; border-radius: 6px; margin: 4px 0; font-size: 16px; }
+  .device-row .label { color: #64748B; font-size: 13px; display: block; }
+  .selected { border-left: 4px solid #22C55E; }
+  .legend { display: flex; gap: 20px; font-size: 14px; color: #94A3B8; margin-top: 8px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+  <h1>🎥 LectureLens Hardware Test</h1>
+  <div class="sub">Real-time browser-level check of camera + mic. If this works but LectureLens doesn't, the issue is Android Camera2/AudioRecord bridge.</div>
+
+  <div id="permBanner" class="status warn">⏳ Click "Start Test" to request camera + mic permission.</div>
+
+  <div class="row">
+    <!-- CAMERA CARD -->
+    <div class="card">
+      <h2>📷 Camera</h2>
+      <video id="video" autoplay playsinline muted></video>
+      <div id="videoStatus" class="status warn">Not started</div>
+      <div id="cameraDevices"></div>
+    </div>
+
+    <!-- MIC CARD -->
+    <div class="card">
+      <h2>🎤 Microphone</h2>
+      <div class="meter-wrapper">
+        <div id="meter" class="meter-fill"></div>
+      </div>
+      <div class="db-readout" id="dbReadout">peak: —  dBFS  |  rms: —  dBFS</div>
+      <div class="legend">
+        <span><span class="dot" style="background:#22C55E"></span>-∞ to -20 quiet</span>
+        <span><span class="dot" style="background:#EAB308"></span>-20 to -6 good</span>
+        <span><span class="dot" style="background:#EF4444"></span>-6 to 0 loud</span>
+      </div>
+      <div id="audioStatus" class="status warn">Not started</div>
+      <div id="micDevices"></div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin: 20px 0;">
+    <button id="startBtn">▶ Start Test</button>
+    <button id="stopBtn" disabled>⏹ Stop</button>
+    <button id="listBtn">🔍 List Devices</button>
+  </div>
+
+  <div class="card">
+    <h2>Raw Device Inventory</h2>
+    <pre id="deviceLog">(click "List Devices" to enumerate)</pre>
+  </div>
+
+  <div class="card" style="margin-top:20px;">
+    <h2>What the result means</h2>
+    <div style="color:#CBD5E1; font-size:16px; line-height:1.6;">
+      <p><b>✅ Video playing + audio meter bouncing:</b> Browser can see Lumens/mic perfectly. Android Camera2 bridge on this LG TV doesn't expose the camera the same way — we need <code>v2.7.0 with UVCCamera library</code> for LectureLens.</p>
+      <p style="margin-top:10px;"><b>⚠️ Video black / audio flat:</b> Browser also fails → TV hardware/USB/Lumens issue, not our app. Check USB power, Lumens mode button, and cable.</p>
+      <p style="margin-top:10px;"><b>❌ "NotAllowedError" / "Permission denied":</b> TV browser blocks camera/mic — check browser settings, try different browser (Firefox, Edge).</p>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let stream = null, audioCtx = null, analyser = null, rafId = null;
+
+    async function listDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        $('deviceLog').textContent = devices.map(d =>
+          `${d.kind.padEnd(12)}  id=${d.deviceId.substring(0,16)}…  label="${d.label || '(blocked until permission granted)'}"`
+        ).join('\n');
+
+        const cams = devices.filter(d => d.kind === 'videoinput');
+        const mics = devices.filter(d => d.kind === 'audioinput');
+
+        $('cameraDevices').innerHTML = '<div class="label">Video inputs:</div>' + (cams.length === 0
+          ? '<div class="device-row">No cameras detected</div>'
+          : cams.map((c,i) => `<div class="device-row ${i===0?'selected':''}">${c.label || 'unknown camera'}</div>`).join(''));
+
+        $('micDevices').innerHTML = '<div class="label">Audio inputs:</div>' + (mics.length === 0
+          ? '<div class="device-row">No microphones detected</div>'
+          : mics.map((m,i) => `<div class="device-row ${i===0?'selected':''}">${m.label || 'unknown mic'}</div>`).join(''));
+      } catch (e) {
+        $('deviceLog').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function startTest() {
+      $('permBanner').className = 'status warn';
+      $('permBanner').textContent = '⏳ Requesting camera + mic permission…';
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        });
+
+        // Wire video
+        const v = $('video');
+        v.srcObject = stream;
+
+        const vTracks = stream.getVideoTracks();
+        if (vTracks.length > 0) {
+          const s = vTracks[0].getSettings();
+          $('videoStatus').className = 'status ok';
+          $('videoStatus').innerHTML = `✅ ${vTracks[0].label}<br>${s.width}×${s.height} @ ${s.frameRate?.toFixed(0) ?? '?'}fps`;
+        } else {
+          $('videoStatus').className = 'status err';
+          $('videoStatus').textContent = '❌ No video track in stream';
+        }
+
+        // Wire audio analyser for live dB meter
+        const aTracks = stream.getAudioTracks();
+        if (aTracks.length > 0) {
+          $('audioStatus').className = 'status ok';
+          $('audioStatus').textContent = `✅ ${aTracks[0].label}`;
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const src = audioCtx.createMediaStreamSource(stream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 2048;
+          src.connect(analyser);
+
+          const buf = new Float32Array(analyser.fftSize);
+          function updateMeter() {
+            analyser.getFloatTimeDomainData(buf);
+            let peak = 0, rms = 0;
+            for (let i = 0; i < buf.length; i++) {
+              const v = Math.abs(buf[i]);
+              if (v > peak) peak = v;
+              rms += buf[i] * buf[i];
+            }
+            rms = Math.sqrt(rms / buf.length);
+            const peakDb = peak === 0 ? -Infinity : 20 * Math.log10(peak);
+            const rmsDb = rms === 0 ? -Infinity : 20 * Math.log10(rms);
+            const pct = Math.max(0, Math.min(100, (peakDb + 60) * 100 / 60));
+            $('meter').style.width = pct + '%';
+            $('dbReadout').textContent = `peak: ${peakDb === -Infinity ? '-∞' : peakDb.toFixed(1)}  dBFS  |  rms: ${rmsDb === -Infinity ? '-∞' : rmsDb.toFixed(1)}  dBFS`;
+            rafId = requestAnimationFrame(updateMeter);
+          }
+          updateMeter();
+        } else {
+          $('audioStatus').className = 'status err';
+          $('audioStatus').textContent = '❌ No audio track in stream';
+        }
+
+        $('permBanner').className = 'status ok';
+        $('permBanner').textContent = '✅ Camera + mic streaming. Speak to see mic meter move.';
+        $('startBtn').disabled = true;
+        $('stopBtn').disabled = false;
+        listDevices();  // re-enumerate — now with actual labels since perm granted
+      } catch (e) {
+        $('permBanner').className = 'status err';
+        $('permBanner').textContent = `❌ ${e.name}: ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    function stopTest() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (audioCtx) audioCtx.close();
+      if (rafId) cancelAnimationFrame(rafId);
+      $('video').srcObject = null;
+      $('meter').style.width = '0%';
+      $('dbReadout').textContent = 'peak: —  dBFS  |  rms: —  dBFS';
+      $('startBtn').disabled = false;
+      $('stopBtn').disabled = true;
+      $('permBanner').className = 'status warn';
+      $('permBanner').textContent = 'Stopped.';
+    }
+
+    $('startBtn').onclick = startTest;
+    $('stopBtn').onclick = stopTest;
+    $('listBtn').onclick = listDevices;
+    listDevices();
+  </script>
+</body>
+</html>
