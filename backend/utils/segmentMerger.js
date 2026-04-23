@@ -114,11 +114,12 @@ async function mergeSegmentsToFile(segments, recordingId) {
     return { ok: false, error: "list_write_failed", detail: err.message };
   }
 
-  // v3.1.2: `-fflags +genpts` tells ffmpeg to compute container-level PTS
-  // from packet timestamps rather than trusting the source mvhd duration.
-  // That's the fix for the Android MediaMuxer mvhd-bloat bug where a 5-min
-  // clip reports itself as 3+ hours in HTML5 <video>. Combined with -c copy
-  // it remains a pure metadata rewrite — no re-encoding, no quality loss.
+  // v3.1.3: back to pure remux. v3.1.2's re-encode attempt hit trouble
+  // scaling the GL-compositor PTS bug (40x inflated timestamps) — any
+  // server-side fix ended up either losing content or doubling duration.
+  // Since Android v3.1.3 flips GL compositor OFF by default, legacy
+  // direct-to-encoder path writes correct PTS, and `-c copy` just
+  // rewrites the container metadata cleanly.
   const args = [
     "-y",
     "-v", "error",
@@ -127,7 +128,7 @@ async function mergeSegmentsToFile(segments, recordingId) {
     "-fflags", "+genpts",
     "-i", listPath,
     "-c", "copy",
-    "-movflags", "+faststart",   // write moov atom up front — web player can seek
+    "-movflags", "+faststart",
     outPath,
   ];
 
