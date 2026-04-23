@@ -114,11 +114,17 @@ async function mergeSegmentsToFile(segments, recordingId) {
     return { ok: false, error: "list_write_failed", detail: err.message };
   }
 
+  // v3.1.2: `-fflags +genpts` tells ffmpeg to compute container-level PTS
+  // from packet timestamps rather than trusting the source mvhd duration.
+  // That's the fix for the Android MediaMuxer mvhd-bloat bug where a 5-min
+  // clip reports itself as 3+ hours in HTML5 <video>. Combined with -c copy
+  // it remains a pure metadata rewrite — no re-encoding, no quality loss.
   const args = [
     "-y",
     "-v", "error",
     "-f", "concat",
     "-safe", "0",
+    "-fflags", "+genpts",
     "-i", listPath,
     "-c", "copy",
     "-movflags", "+faststart",   // write moov atom up front — web player can seek
@@ -188,14 +194,19 @@ async function runMergeForRecording(recording) {
   const fresh = await Recording.findById(recording._id);
   if (!fresh) return { ok: false, error: "recording_deleted" };
 
-  // Single-segment path: no merge needed, just promote the one segment's URL.
-  if (!fresh.segments || fresh.segments.length <= 1) {
-    const patch = { mergeStatus: "skipped" };
-    if (fresh.segments && fresh.segments.length === 1 && !fresh.videoUrl) {
-      patch.videoUrl = fresh.segments[0].videoUrl;
-    }
+  // v3.1.2: Single-segment path now ALSO runs through ffmpeg (-c copy + genpts).
+  //
+  // Why: Android MediaMuxer on the 55TR3DK pilot TV (GL compositor mode)
+  // writes a bogus mvhd duration — stream packets span 293s but the MP4
+  // header declares 12458s, so browsers show a 3.5-hour timeline for a
+  // 5-minute clip. Remuxing with `-c copy -fflags +genpts` keeps the
+  // video/audio data byte-for-byte but rebuilds container metadata from
+  // actual packet timestamps, which fixes the duration.
+  //
+  // For zero segments there's nothing to do.
+  if (!fresh.segments || fresh.segments.length === 0) {
     try {
-      await Recording.findByIdAndUpdate(fresh._id, { $set: patch });
+      await Recording.findByIdAndUpdate(fresh._id, { $set: { mergeStatus: "skipped" } });
     } catch (err) {
       console.error(`[segmentMerger] save-skipped failed ${fresh._id}: ${err.message}`);
     }
