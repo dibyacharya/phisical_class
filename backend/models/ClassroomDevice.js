@@ -96,6 +96,11 @@ const healthSchema = new mongoose.Schema({
     // clear "PiP off (diagnostic mode)" badge instead of looking like
     // the device is silently broken.
     pipDisabled: { type: Boolean },
+    // v3.1.12 — UVC driver preference. True means PiP tries libuvc native
+    // driver first (preferred for 55TR3DK-style TVs where Camera2 HAL
+    // silently drops USB frames). False means Camera2 only. Useful
+    // diagnostic switch for TVs where libuvc crashes the service.
+    useUvcForPip: { type: Boolean },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
