@@ -90,6 +90,12 @@ const healthSchema = new mongoose.Schema({
     projectionActive: { type: Boolean },
     accessibilityEnabled: { type: Boolean },
     isDeviceOwner: { type: Boolean },
+    // v3.1.11 PiP kill-switch state. When true, admin has disabled the
+    // camera overlay via `toggle_pip` remote command — recordings are
+    // screen-only on this device. Surfaces so the portal can show a
+    // clear "PiP off (diagnostic mode)" badge instead of looking like
+    // the device is silently broken.
+    pipDisabled: { type: Boolean },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
