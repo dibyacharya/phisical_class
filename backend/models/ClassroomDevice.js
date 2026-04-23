@@ -72,6 +72,15 @@ const healthSchema = new mongoose.Schema({
     // matrix. Device sends as Number; store as Number here.
     uvcFrameCount: { type: Number },
     uvcMsSinceLastFrame: { type: Number },
+    // v3.1.6: once case (b) "frames=0 but PREVIEW_ACTIVE" was confirmed the
+    // Apr 23 test, the next diagnostic layer is "what sizes does this camera
+    // actually advertise to UVC?" and "which one did we pick for openCamera()?".
+    // supportedSizes is a short comma-separated list like "640x480@30/t4,
+    // 1280x720@30/t4" (t is UVC format type); selectedSize is the single
+    // tuple we chose. These make it obvious when the library's no-arg
+    // default resolved to a format the camera doesn't actually stream.
+    uvcSupportedSizes: { type: String },
+    uvcSelectedSize: { type: String },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
