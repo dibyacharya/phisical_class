@@ -56,6 +56,14 @@ const healthSchema = new mongoose.Schema({
     glCompositorEnabled: { type: Boolean },
     glCameraPiP: { type: Boolean },
     lastGlInitError: { type: String },
+    // v3.0.1: UVC direct-USB camera driver lifecycle state. Surfaces
+    // which stage the USB camera init reached so we can tell from the
+    // portal whether the library never attached, got USB permission
+    // denied, opened but no surface, etc. — all without needing on-device
+    // log upload which is blocked on some OEM ROMs.
+    uvcState: { type: String },                // e.g. "PREVIEW_ACTIVE" / "ATTACHED_vid1ff7_pid0f32"
+    uvcUsing: { type: Boolean },               // true = UVC path is active
+    uvcLastError: { type: String },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
