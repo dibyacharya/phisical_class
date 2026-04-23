@@ -322,11 +322,51 @@ exports.heartbeat = async (req, res) => {
         console.error("[Heartbeat/class-status] reconcile threw:", e.message);
       }
 
+      // v3.1.9 — add MINIMUM AGE gate before classifying a recording as orphan.
+      //
+      // The pre-v3.1.9 filter was too aggressive: it matched every
+      // recording in [recording, uploading] state whose recordingStart
+      // was within the last 4 hours — including one that started 900 ms
+      // ago. Segments upload every 5 min (SEGMENT_DURATION_MS on the
+      // Android side), so for the entire first-segment window a live
+      // recording has segments.length === 0. The very next heartbeat
+      // (≤30 s later) would run this block, see zero segments, and
+      // flip status="failed" / recordingEnd=now.
+      //
+      // End result: every scheduled class got killed ~30-60 s after it
+      // started, long before the device had a chance to upload anything.
+      // Admin looked at the portal and saw a failed recording with
+      // duration=0s + no error — exactly today's "nehi ho raha he
+      // recording" report for the 17:19 fvkdfm class.
+      //
+      // Fix: require the recording to be either
+      //   (a) older than 12 min (more than 2x the segment rotation,
+      //       so a live recording always has ≥1 uploaded segment by
+      //       this time), OR
+      //   (b) explicitly dropped by the device — currentMeetingId
+      //       on the ClassroomDevice row doesn't match the recording's
+      //       scheduledClass (set to null when the device stops cleanly,
+      //       or points to a different meeting entirely).
+      //
+      // This keeps the "device crashed 3 hours ago, recording is orphan"
+      // cleanup intact while leaving fresh live sessions alone.
+      const MIN_ORPHAN_AGE_MS = 12 * 60 * 1000;
+      const orphanWindowStart = new Date(Date.now() - 4 * 60 * 60 * 1000); // 4h outer bound
+      const orphanWindowEnd   = new Date(Date.now() - MIN_ORPHAN_AGE_MS);  // 12min inner bound
       const deviceTodaysRecordings = await Recording.find({
         status: { $in: ["recording", "uploading"] },
-        recordingStart: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) }, // last 4 hours
+        recordingStart: { $gte: orphanWindowStart, $lte: orphanWindowEnd },
       }).populate({ path: "scheduledClass", select: "_id roomNumber" }).lean();
-      const orphaned = deviceTodaysRecordings.filter(r => r.scheduledClass?.roomNumber === device.roomNumber);
+      const orphaned = deviceTodaysRecordings.filter(r => {
+        if (r.scheduledClass?.roomNumber !== device.roomNumber) return false;
+        // Extra guard: if device is still claiming this meeting as its
+        // current session, it's not orphan regardless of age. The device
+        // knows better than we do whether the pipeline is alive.
+        const recMeetingId = r.scheduledClass._id?.toString();
+        const devMeetingId = device.currentMeetingId?.toString();
+        if (recMeetingId && devMeetingId && recMeetingId === devMeetingId) return false;
+        return true;
+      });
       for (const orphan of orphaned) {
         try {
           // Atomic claim: only one heartbeat can flip a recording out of
