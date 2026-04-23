@@ -81,6 +81,15 @@ const healthSchema = new mongoose.Schema({
     // default resolved to a format the camera doesn't actually stream.
     uvcSupportedSizes: { type: String },
     uvcSelectedSize: { type: String },
+    // v3.1.8 zero-touch recovery diagnostics. projectionActive is the single
+    // field that tells an admin "is this device actually able to record RIGHT
+    // NOW?" — the difference between "heartbeat green, schedule green, but
+    // recording never starts" and "everything is fine." accessibilityEnabled
+    // + isDeviceOwner together reveal whether the next power-cycle will
+    // self-heal or whether a human has to visit the room.
+    projectionActive: { type: Boolean },
+    accessibilityEnabled: { type: Boolean },
+    isDeviceOwner: { type: Boolean },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
