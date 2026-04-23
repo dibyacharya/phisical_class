@@ -28,6 +28,7 @@ const deviceCommandSchema = new mongoose.Schema({
       "test_mic",        // Record short PCM sample, return peak/RMS dB + mic label (params.durationMs default 3000)
       "toggle_gl_compositor", // Flip GL compositor feature flag on device (params.enabled = true|false|null for toggle)
       "toggle_software_encoder", // Flip prefs.forceSoftwareEncoder (params.enabled = true|false|null to toggle). Takes effect on NEXT recording.
+      "toggle_pip",      // v3.1.11: Flip prefs.disablePip (params.disabled = true|false|null to toggle). Diagnostic kill-switch — when disabled=true, device records screen-only, no camera overlay + no UVC init. Use when the PiP subsystem is crashing the recording service at startRealTimeRecording.
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
