@@ -26,6 +26,10 @@ app.use(fileUpload({
 // Serve uploaded recordings
 app.use("/uploads", express.static(uploadsDir));
 
+// Serve static test pages (hardware-test.html for browser-side camera/mic
+// probing). HTTPS inherited from Railway custom domain so getUserMedia works.
+app.use("/static", express.static(path.join(__dirname, "static")));
+
 // Root & Health check (Render health check hits "/" by default)
 app.get("/", (_req, res) => res.json({ status: "ok", service: "LectureLens API" }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
