@@ -135,6 +135,22 @@ exports.forceStop = async (req, res) => {
       }
     } catch (_) {}
 
+    // v3.1.3: also flip the ScheduledClass.status to "completed" so the
+    // Room Booking page doesn't show stale "Live" chips after a force-stop.
+    // Previously only the normal triggerMerge path did this — force-stop
+    // updated Recording.status but left ScheduledClass.status = "live"
+    // forever, confusing admins who saw 30-minute-old classes still showing
+    // as in progress on the booking board.
+    try {
+      const ScheduledClass = require("../models/ScheduledClass");
+      const meetingId = rec.scheduledClass?.toString();
+      if (meetingId) {
+        await ScheduledClass.findByIdAndUpdate(meetingId, {
+          status: hasSegments ? "completed" : "cancelled",
+        });
+      }
+    } catch (_) {}
+
     // v2.6.0: if the force-stopped recording has >1 segment, kick off a
     // merge in the background so the admin gets a single playable file.
     if (hasSegments && rec.segments.length > 1) {

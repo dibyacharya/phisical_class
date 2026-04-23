@@ -300,6 +300,28 @@ exports.heartbeat = async (req, res) => {
     // async merge worker. Safe and idempotent; runs at most once per
     // heartbeat because the next one won't match the filter anymore.
     if (req.body.isRecording === false) {
+      // v3.1.3: auto-complete ScheduledClass rows whose end time is >5min
+      // past for this room. Handles the "Live" chip staying forever when
+      // the device was force-stopped or finished without triggerMerge.
+      try {
+        const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);  // IST
+        const todayStr = nowIst.toISOString().slice(0, 10);
+        const hhmm = nowIst.toISOString().slice(11, 16);  // "HH:MM"
+        const tMinusFive = new Date(nowIst.getTime() - 5 * 60 * 1000)
+          .toISOString().slice(11, 16);
+        await ScheduledClass.updateMany(
+          {
+            roomNumber: device.roomNumber,
+            status: "live",
+            date: { $lte: new Date(todayStr + "T23:59:59Z") },
+            endTime: { $lt: tMinusFive },  // lexicographic HH:MM works within the same day
+          },
+          { $set: { status: "completed" } }
+        );
+      } catch (e) {
+        console.error("[Heartbeat/class-status] reconcile threw:", e.message);
+      }
+
       const deviceTodaysRecordings = await Recording.find({
         status: { $in: ["recording", "uploading"] },
         recordingStart: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) }, // last 4 hours
@@ -326,6 +348,15 @@ exports.heartbeat = async (req, res) => {
             { new: true }
           );
           if (!claimed) continue;  // another heartbeat beat us to it
+          // v3.1.3: flip the paired ScheduledClass to "completed" too
+          // so the Room Booking page drops the stale "Live" chip.
+          try {
+            if (orphan.scheduledClass?._id) {
+              await ScheduledClass.findByIdAndUpdate(orphan.scheduledClass._id, {
+                status: hasSegments ? "completed" : "cancelled",
+              });
+            }
+          } catch (_) {}
           console.log(`[Heartbeat/reconcile] Finalised orphan recording ${claimed._id} (${claimed.title}) — ${claimed.segments?.length || 0} segment(s)`);
           // Kick off merge for multi-segment orphans
           if (hasSegments && claimed.segments.length > 1) {
