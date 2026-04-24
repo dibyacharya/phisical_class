@@ -59,6 +59,39 @@ app.get("/health/azure", (_req, res) => {
   });
 });
 
+// v3.1.21 — live Azure upload test. Writes a 32-byte test blob so we can see
+// the actual error message if the real credentials/container fail. Returns
+// the SDK error verbatim — removes the silent-fallback mystery that's made
+// previous recordings land on /uploads/ despite the env var being set.
+app.post("/health/azure/test-upload", async (_req, res) => {
+  try {
+    const { uploadToBlob } = require("./utils/azureBlob");
+    const testBuf = Buffer.from("lecturelens-azure-probe-" + Date.now(), "utf-8");
+    const blobName = `probe_${Date.now()}.txt`;
+    try {
+      const url = await uploadToBlob(testBuf, blobName, "text/plain");
+      if (!url) {
+        return res.status(500).json({
+          ok: false,
+          stage: "uploadToBlob-returned-null",
+          hint: "Either Azure client wasn't initialised (no connection string) OR the SDK caught an exception internally. Check Railway logs for [AzureBlob] lines.",
+        });
+      }
+      return res.json({ ok: true, url, blobName });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        stage: "uploadToBlob-threw",
+        error: err.message,
+        code: err.code || err.statusCode || "no-code",
+        requestId: err.requestId || null,
+      });
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, stage: "route-handler", error: err.message });
+  }
+});
+
 
 // Routes
 app.use("/api/auth", require("./routes/auth"));
