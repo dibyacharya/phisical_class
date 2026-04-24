@@ -25,9 +25,34 @@
 
 const { spawn } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+const https = require("https");
+const { uploadFileToBlob, isAzureConfigured } = require("./azureBlob");
 
 const UPLOADS_DIR = path.resolve(__dirname, "..", "uploads");
+
+/**
+ * Download a public Azure blob URL to a local file.
+ * Returns {ok, bytes, err}. Streams to disk; never loads full file in memory.
+ */
+function downloadUrlToFile(url, destPath) {
+  return new Promise((resolve) => {
+    const out = fs.createWriteStream(destPath);
+    let bytes = 0;
+    https.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume(); // drain
+        resolve({ ok: false, err: `HTTP ${res.statusCode} on download` });
+        return;
+      }
+      res.on("data", (chunk) => { bytes += chunk.length; });
+      res.pipe(out);
+      out.on("finish", () => out.close(() => resolve({ ok: true, bytes })));
+      out.on("error", (e) => resolve({ ok: false, err: e.message }));
+    }).on("error", (e) => resolve({ ok: false, err: e.message }));
+  });
+}
 
 let ffmpegAvailable = null;  // memoised after first probe
 
@@ -52,21 +77,46 @@ async function probeFfmpeg() {
 }
 
 /**
- * Convert a segment.videoUrl (e.g. "/uploads/abc.mp4") to an absolute
- * filesystem path for ffmpeg input.
+ * Convert a segment.videoUrl to an absolute filesystem path for ffmpeg input.
+ *
+ * v3.1.15 update — Azure-aware:
+ *   /uploads/abc.mp4                          → /app/uploads/abc.mp4 (legacy)
+ *   https://*.blob.core.windows.net/...       → downloaded to tmp path
+ *
+ * Returns { path, isTmp } — caller deletes the file if isTmp=true.
+ * Returns null if URL can't be resolved.
  */
-function resolveSegmentPath(videoUrl) {
+async function resolveSegmentPath(videoUrl, tmpDir) {
   if (!videoUrl) return null;
-  // Only /uploads/… paths are merge-eligible. GridFS segments would need
-  // a streaming-download pre-step — not in v2.6.0 scope.
-  if (!videoUrl.startsWith("/uploads/")) return null;
-  const rel = videoUrl.replace(/^\/uploads\//, "");
-  const full = path.join(UPLOADS_DIR, rel);
-  return full;
+
+  // Azure blob URL: download to tmp.
+  if (/^https:\/\/[^/]+\.blob\.core\.windows\.net\//.test(videoUrl)) {
+    const filename = "seg_" + path.basename(videoUrl).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const dest = path.join(tmpDir, filename);
+    const r = await downloadUrlToFile(videoUrl, dest);
+    if (!r.ok) {
+      console.warn(`[segmentMerger] download failed for ${videoUrl}: ${r.err}`);
+      return null;
+    }
+    console.log(`[segmentMerger] downloaded ${(r.bytes / 1024 / 1024).toFixed(1)} MB ← ${videoUrl.slice(-60)}`);
+    return { path: dest, isTmp: true };
+  }
+
+  // Legacy /uploads/ path (Railway local filesystem).
+  if (videoUrl.startsWith("/uploads/")) {
+    const rel = videoUrl.replace(/^\/uploads\//, "");
+    const full = path.join(UPLOADS_DIR, rel);
+    if (!fs.existsSync(full)) return null;
+    return { path: full, isTmp: false };
+  }
+
+  // Unknown scheme.
+  return null;
 }
 
 /**
- * Run ffmpeg concat. Returns { ok, outPath?, size?, durationMs?, stderrTail?, error? }.
+ * Run ffmpeg concat. Returns { ok, videoUrl?, size?, durationMs?, stderrTail?, error? }.
+ * videoUrl is an Azure blob URL (preferred) or /uploads/ path (fallback).
  * Does NOT mutate the Recording document — that's the caller's job.
  */
 async function mergeSegmentsToFile(segments, recordingId) {
@@ -82,27 +132,50 @@ async function mergeSegmentsToFile(segments, recordingId) {
   // race conditions on the device. segmentIndex is 1-based.
   const ordered = [...segments].sort((a, b) => (a.segmentIndex || 0) - (b.segmentIndex || 0));
 
-  // Validate every segment file exists before starting ffmpeg — saves time
-  // on bigger merges that would otherwise crash halfway through.
+  // v3.1.15 — Azure-aware segment resolution.
+  //
+  // Segments may live in three places depending on when the recording
+  // was made:
+  //   1. Historical: /uploads/xxx.mp4 (Railway local FS, may be gone
+  //      already if a redeploy happened between upload and merge)
+  //   2. Azure blob: https://stgkiitlmsdev.blob.core.windows.net/...
+  //      (current default — durable across redeploys)
+  //   3. Mixed (rare): some segs on Azure, some local (if Azure was
+  //      unreachable partway through a recording and fell back to local)
+  //
+  // For each segment, resolve to a local file path — downloading from
+  // Azure to /tmp/ if needed. Track which ones are tmp so we clean up.
+  // Use a per-merge tmp dir so concurrent merges don't collide.
+  const tmpMergeDir = fs.mkdtempSync(path.join(os.tmpdir(), `lens-merge-${recordingId}-`));
   const missing = [];
-  const paths = [];
-  for (const s of ordered) {
-    const p = resolveSegmentPath(s.videoUrl);
-    if (!p || !fs.existsSync(p)) {
-      missing.push(s.videoUrl || "<null>");
-    } else {
-      paths.push(p);
+  const resolved = []; // [{ path, isTmp }]
+  try {
+    for (const s of ordered) {
+      const r = await resolveSegmentPath(s.videoUrl, tmpMergeDir);
+      if (!r) {
+        missing.push(s.videoUrl || "<null>");
+      } else {
+        resolved.push(r);
+      }
     }
+  } catch (e) {
+    // Best-effort cleanup before bailing out.
+    try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
+    return { ok: false, error: "segment_resolve_threw", detail: e.message };
   }
+
   if (missing.length > 0) {
+    try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
     return { ok: false, error: "segments_missing", missing };
   }
 
-  // Build the concat list file: ffmpeg reads a plaintext manifest of
-  // `file '/abs/path.mp4'` lines. Using absolute paths avoids any confusion
-  // with the working directory of the spawned process.
-  const listPath = path.join(UPLOADS_DIR, `${recordingId}_mergelist.txt`);
-  const outPath  = path.join(UPLOADS_DIR, `${recordingId}_merged.mp4`);
+  const paths = resolved.map(r => r.path);
+
+  // Output also goes to tmp (ffmpeg concat writes here; we then upload to
+  // Azure). /uploads/ is only used as final-resting-place for the
+  // legacy-only case (all segments local AND Azure not configured).
+  const listPath = path.join(tmpMergeDir, "mergelist.txt");
+  const outPath  = path.join(tmpMergeDir, `${recordingId}_merged.mp4`);
   // ffmpeg concat list format: single-quote paths, escape embedded
   // single-quotes (none expected in our filenames but defensive).
   const listBody = paths
@@ -145,11 +218,12 @@ async function mergeSegmentsToFile(segments, recordingId) {
     p.on("exit", (code) => resolve({ ok: code === 0, exitCode: code }));
   });
 
-  // Clean up list file regardless of success
+  // Clean up list file regardless of success — keep outPath for now (may
+  // still need to upload it below). Tmp dir is cleaned at the end.
   try { fs.unlinkSync(listPath); } catch (_) {}
 
   if (!ok) {
-    try { fs.unlinkSync(outPath); } catch (_) {}
+    try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
     return {
       ok: false,
       error: "ffmpeg_failed",
@@ -161,13 +235,52 @@ async function mergeSegmentsToFile(segments, recordingId) {
   let size = 0;
   try { size = fs.statSync(outPath).size; } catch (_) {}
   if (size === 0) {
+    try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
     return { ok: false, error: "merge_output_empty" };
   }
 
+  // v3.1.15 — upload merged file to Azure if configured.
+  //
+  // Prefer Azure. If upload fails, fall back to /uploads/ (legacy, may get
+  // wiped on next Railway redeploy but at least this run of the recording
+  // is playable). Admin-portal side handles both URL forms already.
+  let videoUrl;
+  if (isAzureConfigured()) {
+    const blobName = `${recordingId}_merged.mp4`;
+    try {
+      const azureUrl = await uploadFileToBlob(outPath, blobName);
+      if (azureUrl) {
+        videoUrl = azureUrl;
+        console.log(`[segmentMerger] merged → Azure: ${azureUrl.slice(-80)}  (${(size / 1024 / 1024).toFixed(1)} MB)`);
+      } else {
+        console.warn(`[segmentMerger] Azure upload returned null for ${blobName} — falling back to /uploads/`);
+      }
+    } catch (err) {
+      console.warn(`[segmentMerger] Azure upload threw: ${err.message} — falling back to /uploads/`);
+    }
+  }
+
+  if (!videoUrl) {
+    // Legacy / Azure-not-configured path. Copy from tmp to /uploads/ so the
+    // file survives the tmp-cleanup below.
+    try {
+      if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      const legacyPath = path.join(UPLOADS_DIR, `${recordingId}_merged.mp4`);
+      fs.copyFileSync(outPath, legacyPath);
+      videoUrl = `/uploads/${recordingId}_merged.mp4`;
+      console.log(`[segmentMerger] merged → local /uploads/ (Azure not configured or upload failed)`);
+    } catch (e) {
+      try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
+      return { ok: false, error: "merge_final_copy_failed", detail: e.message };
+    }
+  }
+
+  // Tmp cleanup — removes outPath + all downloaded segment files in one shot.
+  try { fs.rmSync(tmpMergeDir, { recursive: true, force: true }); } catch (_) {}
+
   return {
     ok: true,
-    outPath,
-    videoUrl: `/uploads/${path.basename(outPath)}`,
+    videoUrl,
     size,
     durationMs: Date.now() - startMs,
   };
@@ -269,8 +382,11 @@ async function runMergeForRecording(recording) {
     // retry via POST /recordings/:id/merge to re-record the URL (idempotent
     // because the merged file already exists and mergeSegmentsToFile will
     // overwrite with identical content).
-    console.error(`[segmentMerger] FINAL SAVE FAILED ${claim._id} — file is at ${result.outPath}: ${err.message}`);
-    return { ok: false, error: "final_save_failed", detail: err.message, outPath: result.outPath };
+    // v3.1.15 — videoUrl is either an Azure blob URL (durable) or a
+    // /uploads/ path (legacy, may not survive redeploy). Either way the
+    // merge file exists and re-triggering the merge is idempotent.
+    console.error(`[segmentMerger] FINAL SAVE FAILED ${claim._id} — merged file available at ${result.videoUrl}: ${err.message}`);
+    return { ok: false, error: "final_save_failed", detail: err.message, videoUrl: result.videoUrl };
   }
 
   console.log(`[segmentMerger] Merged ${claim.segments.length} segments → ` +
