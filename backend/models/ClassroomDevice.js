@@ -101,6 +101,12 @@ const healthSchema = new mongoose.Schema({
     // silently drops USB frames). False means Camera2 only. Useful
     // diagnostic switch for TVs where libuvc crashes the service.
     useUvcForPip: { type: Boolean },
+    // v3.1.18 — stack trace from the most recent process-level crash (as
+    // captured by Thread.setDefaultUncaughtExceptionHandler in the prior
+    // process). Delivered exactly once per crash in the first heartbeat
+    // after a new process boots. Gives admin a direct "why did the
+    // service die" answer without having to SSH/ADB into the TV.
+    lastCrashReport: { type: String },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
