@@ -190,6 +190,38 @@ export default function Recordings() {
 
   useEffect(() => { fetchRecordings(); }, []);
 
+  // v3.1.24 UX fix — when the player modal opens with a recording whose
+  // mergeStatus isn't "ready" yet, poll the specific recording every 3 s
+  // and push the updated doc into both `playingRec` and `recordings[]`.
+  // Without this, opening the modal right after a class ends (merge
+  // takes ~15-20 s) caches the mid-merge state forever; even after the
+  // backend flips to mergeStatus=ready with a valid mergedVideoUrl, the
+  // UI keeps showing the segment player because React state is stale.
+  // Polling stops automatically once mergeStatus=ready OR modal closes.
+  useEffect(() => {
+    if (!playingRec) return;
+    if (playingRec.mergeStatus === "ready" && playingRec.mergedVideoUrl) return;
+
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled || !playingRec) return;
+      api.get(`/recordings/${playingRec._id}`)
+        .then((r) => {
+          if (cancelled) return;
+          const fresh = r.data;
+          setPlayingRec((prev) => (prev && prev._id === fresh._id ? fresh : prev));
+          setRecordings((list) =>
+            list.map((x) => (x._id === fresh._id ? fresh : x))
+          );
+        })
+        .catch(() => {});
+    };
+    // Immediate refresh on open, then every 3 s.
+    tick();
+    const iv = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [playingRec?._id, playingRec?.mergeStatus]);
+
   // Auto-expand all on first load
   useEffect(() => {
     if (recordings.length > 0) {
