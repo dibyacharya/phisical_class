@@ -1,4 +1,23 @@
 require("dotenv").config();
+
+// v3.1.21 — Node <19 compatibility shim for @azure/storage-blob.
+//
+// The Azure SDK calls `globalThis.crypto.randomUUID()` for x-ms-client-
+// request-id headers. In Node 19+, `globalThis.crypto` is the Web Crypto
+// API and is always available. In Node 16/18 (which Railway still runs by
+// default despite engines:">=18" allowing either), there's no global
+// `crypto` — only `require("crypto").webcrypto`. Without this shim every
+// Azure upload throws "crypto is not defined" and falls back to
+// /uploads/ ephemeral storage — exactly the Apr 24 pilot failure mode.
+if (!globalThis.crypto) {
+  try {
+    globalThis.crypto = require("crypto").webcrypto;
+    console.log("[Startup] Polyfilled globalThis.crypto from node:crypto.webcrypto");
+  } catch (e) {
+    console.error("[Startup] Unable to polyfill crypto:", e.message);
+  }
+}
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
