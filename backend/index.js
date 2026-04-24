@@ -34,6 +34,31 @@ app.use("/static", express.static(path.join(__dirname, "static")));
 app.get("/", (_req, res) => res.json({ status: "ok", service: "LectureLens API" }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
+// v3.1.21 — Azure readiness probe. Returns what the backend's azureBlob
+// helper sees for its connection-string + container-name env vars. Lets us
+// verify from the outside whether Railway has actually injected the vars
+// (previous recordings went to /uploads/ even though the variable WAS set
+// in the Railway dashboard — suggesting either a deploy-after-var-set
+// gap, a trailing-whitespace paste issue, or the helper seeing a different
+// string than what the dashboard shows). Only reveals boolean + length
+// flags; never the actual secret.
+app.get("/health/azure", (_req, res) => {
+  const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+  const container = process.env.AZURE_STORAGE_CONTAINER || "";
+  const prefix = process.env.AZURE_BLOB_PREFIX || "";
+  res.json({
+    configured: !!cs && cs.length > 0,
+    connectionStringLength: cs.length,
+    containerSet: !!container,
+    container: container || "(default: lms-storage)",
+    prefix: prefix || "(none)",
+    startsWithDefaultEndpoints: cs.startsWith("DefaultEndpointsProtocol"),
+    hasAccountName: cs.includes("AccountName="),
+    hasAccountKey: cs.includes("AccountKey="),
+    hasEndpointSuffix: cs.includes("EndpointSuffix="),
+  });
+});
+
 
 // Routes
 app.use("/api/auth", require("./routes/auth"));
