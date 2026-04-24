@@ -173,8 +173,12 @@ async function muxAudioIntoVideo(videoPath, audioPath, outPath) {
  * v3.1.24: accepts optional `audioUrl` — if present, runs a second ffmpeg
  * pass to mux audio into the concatenated video. Returns the final URL
  * pointing to the video+audio mp4 (either Azure blob or /uploads/).
+ *
+ * v3.1.25: accepts optional `blobPath` for hierarchical Azure storage
+ * (e.g. "2026-04-24/001/69eb.../final.mp4"). If omitted, falls back to
+ * flat legacy naming "${recordingId}_merged.mp4" for backward compat.
  */
-async function mergeSegmentsToFile(segments, recordingId, audioUrl = null) {
+async function mergeSegmentsToFile(segments, recordingId, audioUrl = null, blobPath = null) {
   const available = await probeFfmpeg();
   if (!available) {
     return { ok: false, error: "ffmpeg_missing" };
@@ -350,7 +354,11 @@ async function mergeSegmentsToFile(segments, recordingId, audioUrl = null) {
   // is playable). Admin-portal side handles both URL forms already.
   let videoUrl;
   if (isAzureConfigured()) {
-    const blobName = `${recordingId}_merged.mp4`;
+    // v3.1.25: prefer hierarchical blobPath (e.g. "2026-04-24/001/recId/final.mp4")
+    // when caller provides it. Otherwise fall back to legacy flat
+    // "{recordingId}_merged.mp4" so re-runs against old recordings keep
+    // working identically.
+    const blobName = blobPath || `${recordingId}_merged.mp4`;
     try {
       const azureUrl = await uploadFileToBlob(finalPath, blobName);
       if (azureUrl) {
@@ -453,10 +461,39 @@ async function runMergeForRecording(recording) {
   // into the final mp4. fresh.audioUrl is null for recordings made before
   // v3.1.24 Android rolled out — segmentMerger handles that gracefully
   // (keeps video-only output).
+  //
+  // v3.1.25: also compute a hierarchical blobPath for the merged output.
+  // Format: {YYYY-MM-DD}/{roomNumber}/{recordingId}/final.mp4. This
+  // groups all artifacts (segments, audio, merged) for a single
+  // recording into one Azure folder for easy browsing + cleanup.
+  let mergedBlobPath = null;
+  try {
+    const ScheduledClass = require("../models/ScheduledClass");
+    let classDate = null;
+    let roomNumber = null;
+    if (claim.scheduledClass) {
+      const sc = await ScheduledClass.findById(claim.scheduledClass).select("date roomNumber");
+      if (sc) {
+        if (sc.date) classDate = new Date(sc.date);
+        roomNumber = sc.roomNumber || null;
+      }
+    }
+    if (!classDate && claim.createdAt) classDate = new Date(claim.createdAt);
+    if (!classDate) classDate = new Date();
+    const yyyy = classDate.getUTCFullYear();
+    const mm = String(classDate.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(classDate.getUTCDate()).padStart(2, "0");
+    const roomPart = (roomNumber || "unknown").toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+    mergedBlobPath = `${yyyy}-${mm}-${dd}/${roomPart}/${claim._id}/final.mp4`;
+  } catch (e) {
+    console.warn(`[segmentMerger] blob path compute failed, using flat: ${e.message}`);
+  }
+
   const result = await mergeSegmentsToFile(
     claim.segments,
     claim._id.toString(),
-    fresh.audioUrl || null
+    fresh.audioUrl || null,
+    mergedBlobPath
   );
 
   if (!result.ok) {

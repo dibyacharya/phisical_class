@@ -13,6 +13,66 @@ const HealthSnapshot = require("../models/HealthSnapshot");
 const DeviceCommand = require("../models/DeviceCommand");
 const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
 
+/**
+ * v3.1.25 — hierarchical Azure blob path builder.
+ *
+ * Moves the flat `physical-class-recordings/{recordingId}_...mp4` naming
+ * into a directory tree that mirrors "what the user actually wants to find":
+ *
+ *   physical-class-recordings/
+ *     2026-04-24/                        ← class date (YYYY-MM-DD)
+ *       001/                             ← roomNumber (string, often "001"..)
+ *         69eb5006bf9f3339bb14a3ef/      ← Recording _id
+ *           final.mp4                    ← server-merged video+audio
+ *           audio.m4a                    ← standalone audio m4a from device
+ *           segments/
+ *             001.mp4                    ← per-segment video (zero-padded)
+ *             002.mp4
+ *             ...
+ *
+ * Benefits:
+ *   - Browse recordings in Azure Storage Explorer like a regular file tree
+ *   - Delete-per-class = delete one folder (vs. hunting flat names)
+ *   - Date-first = natural archive sorting + future retention policies
+ *   - Collision-free (recording _id is the parent folder, not a filename prefix)
+ *
+ * Backward compat: existing flat-path recordings keep their old URLs —
+ * Azure doesn't care about paths, blobs are accessible by exact URL.
+ * Only NEW uploads use the hierarchical structure.
+ *
+ * If the Recording has no scheduledClass (edge case / dev testing), the
+ * date portion falls back to the recording's createdAt date and
+ * roomNumber falls back to "unknown".
+ */
+async function buildRecordingBlobPath(recording, filename) {
+  let classDate = null;
+  let roomNumber = null;
+  try {
+    // Recording.scheduledClass is a ref; may or may not be populated.
+    if (recording.scheduledClass) {
+      const sc = typeof recording.scheduledClass === "object" && recording.scheduledClass.date
+        ? recording.scheduledClass
+        : await ScheduledClass.findById(recording.scheduledClass).select("date roomNumber");
+      if (sc) {
+        if (sc.date) classDate = new Date(sc.date);
+        roomNumber = sc.roomNumber || null;
+      }
+    }
+  } catch (_) { /* fall through to createdAt */ }
+
+  if (!classDate && recording.createdAt) classDate = new Date(recording.createdAt);
+  if (!classDate) classDate = new Date(); // final fallback = now
+
+  const yyyy = classDate.getUTCFullYear();
+  const mm = String(classDate.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(classDate.getUTCDate()).padStart(2, "0");
+  const datePart = `${yyyy}-${mm}-${dd}`;
+  const roomPart = (roomNumber || "unknown").toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+  const recIdPart = recording._id.toString();
+
+  return `${datePart}/${roomPart}/${recIdPart}/${filename}`;
+}
+
 // ============ DEVICE ENDPOINTS ============
 
 // POST /api/classroom-recording/devices/register
@@ -833,21 +893,28 @@ exports.segmentUpload = async (req, res) => {
     }
     // Cheap existence check — still fetches the doc but we only use it for
     // the sanity check. The actual mutation is atomic below.
-    const exists = await Recording.exists({ _id: recordingId });
-    if (!exists) {
+    // v3.1.25: fetch the full doc so we can compute a hierarchical Azure path.
+    const recordingDoc = await Recording.findById(recordingId).select("_id scheduledClass createdAt");
+    if (!recordingDoc) {
       return res.status(404).json({ error: "Recording not found" });
     }
+
+    // Read segmentIndex up-front so we can zero-pad it into the blob name.
+    const reqSegmentIndex = parseInt(req.body.segmentIndex);
 
     let fileSize = 0;
     let videoUrl = "";
 
     if (req.files && req.files.video) {
       const videoFile = req.files.video;
-      // Add random suffix to prevent filename collision if two segments upload
-      // in the same millisecond (unlikely but possible with segment rotation
-      // races or clock skew).
-      const collisionSuffix = Math.random().toString(36).slice(2, 8);
-      const blobName = `${recordingId}_${Date.now()}_${collisionSuffix}.mp4`;
+      // v3.1.25 — hierarchical blob path: date/room/recordingId/segments/NNN.mp4.
+      // Uses the segmentIndex from the device (1-based) zero-padded to 3
+      // digits so lexicographic sort in Azure Storage Explorer matches
+      // chronological order even past segment 9.
+      const segIdxPadded = isNaN(reqSegmentIndex)
+        ? `t${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+        : String(reqSegmentIndex).padStart(3, "0");
+      const blobName = await buildRecordingBlobPath(recordingDoc, `segments/${segIdxPadded}.mp4`);
       fileSize = videoFile.size;
 
       // v3.1.20 — robust bytes-getter.
@@ -913,8 +980,8 @@ exports.segmentUpload = async (req, res) => {
 
     // Parse segment metadata before atomic update
     const duration = parseInt(req.body.duration) || 0;
-    // segmentIndex comes from the device. If missing we'd race; require it.
-    const segmentIndex = parseInt(req.body.segmentIndex);
+    // v3.1.25: reuse the reqSegmentIndex parsed earlier (used for blob path).
+    const segmentIndex = reqSegmentIndex;
     if (isNaN(segmentIndex)) {
       return res.status(400).json({ error: "segmentIndex required" });
     }
@@ -983,8 +1050,9 @@ exports.audioUpload = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(recordingId)) {
       return res.status(400).json({ error: "Invalid recording ID" });
     }
-    const exists = await Recording.exists({ _id: recordingId });
-    if (!exists) {
+    // v3.1.25 — fetch full doc for hierarchical path computation.
+    const recordingDoc = await Recording.findById(recordingId).select("_id scheduledClass createdAt");
+    if (!recordingDoc) {
       return res.status(404).json({ error: "Recording not found" });
     }
     if (!req.files || !req.files.audio) {
@@ -992,7 +1060,8 @@ exports.audioUpload = async (req, res) => {
     }
 
     const audioFile = req.files.audio;
-    const blobName = `${recordingId}_audio.m4a`;
+    // v3.1.25 — hierarchical: date/room/recordingId/audio.m4a
+    const blobName = await buildRecordingBlobPath(recordingDoc, "audio.m4a");
     const fileSize = audioFile.size;
 
     // Same robust bytes-getter pattern as segmentUpload: handles
