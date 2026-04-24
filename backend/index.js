@@ -64,31 +64,64 @@ app.get("/health/azure", (_req, res) => {
 // the SDK error verbatim — removes the silent-fallback mystery that's made
 // previous recordings land on /uploads/ despite the env var being set.
 app.post("/health/azure/test-upload", async (_req, res) => {
+  // v3.1.21 — bypass the helper's internal try/catch so we see the raw
+  // SDK error. The helper's uploadToBlob() catches everything and returns
+  // null; that's convenient at runtime but makes root-cause diagnosis
+  // impossible. Here we call the SDK directly.
   try {
-    const { uploadToBlob } = require("./utils/azureBlob");
-    const testBuf = Buffer.from("lecturelens-azure-probe-" + Date.now(), "utf-8");
-    const blobName = `probe_${Date.now()}.txt`;
+    const { BlobServiceClient } = require("@azure/storage-blob");
+    const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+    const container = process.env.AZURE_STORAGE_CONTAINER || "lms-storage";
+    const prefix = process.env.AZURE_BLOB_PREFIX || "";
+    if (!cs) return res.status(500).json({ ok: false, stage: "no-env-var" });
+
+    const bs = BlobServiceClient.fromConnectionString(cs);
+    const cc = bs.getContainerClient(container);
+
+    // Step 1: container existence check
+    let containerExists = false;
     try {
-      const url = await uploadToBlob(testBuf, blobName, "text/plain");
-      if (!url) {
-        return res.status(500).json({
-          ok: false,
-          stage: "uploadToBlob-returned-null",
-          hint: "Either Azure client wasn't initialised (no connection string) OR the SDK caught an exception internally. Check Railway logs for [AzureBlob] lines.",
-        });
-      }
-      return res.json({ ok: true, url, blobName });
-    } catch (err) {
+      containerExists = await cc.exists();
+    } catch (e) {
       return res.status(500).json({
-        ok: false,
-        stage: "uploadToBlob-threw",
-        error: err.message,
-        code: err.code || err.statusCode || "no-code",
-        requestId: err.requestId || null,
+        ok: false, stage: "container-exists-threw",
+        error: e.message, code: e.code || e.statusCode || "no-code",
+      });
+    }
+    if (!containerExists) {
+      return res.status(500).json({
+        ok: false, stage: "container-not-found",
+        container, hint: `Container "${container}" doesn't exist. Create it in Azure Portal OR change AZURE_STORAGE_CONTAINER env.`,
+      });
+    }
+
+    // Step 2: upload a tiny blob
+    const blobName = `probe_${Date.now()}.txt`;
+    const fullPath = prefix ? `${prefix}/${blobName}` : blobName;
+    const bc = cc.getBlockBlobClient(fullPath);
+    const testBuf = Buffer.from("lecturelens-azure-probe-" + Date.now(), "utf-8");
+    try {
+      const up = await bc.uploadData(testBuf, {
+        blobHTTPHeaders: { blobContentType: "text/plain" },
+      });
+      return res.json({
+        ok: true,
+        url: bc.url,
+        fullPath,
+        container,
+        prefix,
+        etag: up.etag,
+        requestId: up.requestId,
+      });
+    } catch (e) {
+      return res.status(500).json({
+        ok: false, stage: "upload-threw",
+        error: e.message, code: e.code || e.statusCode || "no-code",
+        requestId: e.requestId || null, container, fullPath,
       });
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, stage: "route-handler", error: err.message });
+    return res.status(500).json({ ok: false, stage: "route-handler", error: err.message, stack: err.stack?.split("\n").slice(0,5) });
   }
 });
 
