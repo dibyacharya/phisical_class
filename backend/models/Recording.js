@@ -53,6 +53,18 @@ const recordingSchema = new mongoose.Schema(
     },
     mergeError: { type: String, default: "" },
     mergedAt: { type: Date },
+
+    // v3.1.24 — whole-recording audio file (decoupled from segment rotation).
+    //
+    // See I-025: MediaMuxer on 55TR3DK silently drops AAC writeSampleData
+    // calls when rotated across segments. Android records audio to a
+    // separate dedicated MediaMuxer producing a single m4a file covering
+    // the entire recording lifetime, uploads it here, and the segmentMerger
+    // does a second ffmpeg pass to mux this audio into the concatenated
+    // video. If the audio upload fails, the merge proceeds video-only
+    // (graceful degradation).
+    audioUrl: { type: String, default: "" },
+    audioSize: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

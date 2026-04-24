@@ -971,6 +971,90 @@ exports.segmentUpload = async (req, res) => {
   }
 };
 
+// v3.1.24 — whole-recording audio upload.
+//
+// See I-025 for why audio is captured separately from video. The device
+// sends a single m4a file covering the whole recording; we store it on
+// Azure and record the URL on the Recording doc. segmentMerger picks it
+// up during the final ffmpeg pass to mux audio into the merged mp4.
+exports.audioUpload = async (req, res) => {
+  try {
+    const { recordingId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(recordingId)) {
+      return res.status(400).json({ error: "Invalid recording ID" });
+    }
+    const exists = await Recording.exists({ _id: recordingId });
+    if (!exists) {
+      return res.status(404).json({ error: "Recording not found" });
+    }
+    if (!req.files || !req.files.audio) {
+      return res.status(400).json({ error: "audio file field required" });
+    }
+
+    const audioFile = req.files.audio;
+    const blobName = `${recordingId}_audio.m4a`;
+    const fileSize = audioFile.size;
+
+    // Same robust bytes-getter pattern as segmentUpload: handles
+    // useTempFiles mode where videoFile.data is Buffer(0).
+    async function audioBytes() {
+      if (audioFile.data && Buffer.isBuffer(audioFile.data) && audioFile.data.length > 0) {
+        return audioFile.data;
+      }
+      if (audioFile.tempFilePath) {
+        return await fs.promises.readFile(audioFile.tempFilePath);
+      }
+      throw new Error(`audio upload has neither .data bytes nor .tempFilePath (size=${fileSize})`);
+    }
+
+    let audioUrl = "";
+    if (isAzureConfigured()) {
+      try {
+        const buf = await audioBytes();
+        if (buf.length === 0) {
+          console.error(`[AudioUpload] zero-byte buffer for ${blobName}`);
+        } else {
+          const azureUrl = await uploadToBlob(buf, blobName, "audio/mp4");
+          if (azureUrl) {
+            audioUrl = azureUrl;
+            console.log(`[AudioUpload] Azure OK: ${blobName} (${(fileSize / 1024 / 1024).toFixed(2)} MB) → ${azureUrl}`);
+          } else {
+            console.warn(`[AudioUpload] Azure returned null for ${blobName}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[AudioUpload] Azure threw: ${err.message}`);
+      }
+    } else {
+      console.warn(`[AudioUpload] Azure not configured — saving to /uploads/ (ephemeral)`);
+    }
+
+    if (!audioUrl) {
+      // Local fallback (same pattern as segmentUpload).
+      const uploadsDir = path.join(__dirname, "..", "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      const localPath = path.join(uploadsDir, blobName);
+      await audioFile.mv(localPath);
+      audioUrl = `/uploads/${blobName}`;
+      console.log(`[AudioUpload] Local fallback: ${blobName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+    }
+
+    await Recording.findByIdAndUpdate(recordingId, {
+      $set: { audioUrl, audioSize: fileSize },
+    });
+
+    res.json({
+      message: "Audio uploaded",
+      recordingId,
+      audioUrl,
+      storage: audioUrl.startsWith("http") ? "azure" : "local",
+    });
+  } catch (err) {
+    console.error(`[AudioUpload] fatal: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // POST /api/classroom-recording/recordings/:recordingId/active-source
 exports.updateActiveSource = async (req, res) => {
   try {

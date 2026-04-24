@@ -115,11 +115,66 @@ async function resolveSegmentPath(videoUrl, tmpDir) {
 }
 
 /**
+ * v3.1.24 — run a second ffmpeg pass to mux an audio m4a into a video mp4.
+ *
+ * Called from mergeSegmentsToFile after the initial video concat is done.
+ * Takes the video-only concatenated output + the whole-recording audio m4a
+ * and produces a final mp4 with both streams, using stream copy (no re-
+ * encode — codecs match across both inputs). Returns the final path on
+ * success, or null if the mux fails (caller keeps video-only output).
+ */
+async function muxAudioIntoVideo(videoPath, audioPath, outPath) {
+  const args = [
+    "-y",
+    "-v", "error",
+    "-i", videoPath,
+    "-i", audioPath,
+    "-c", "copy",
+    "-map", "0:v:0",
+    "-map", "1:a:0",
+    // -shortest: truncate output at the shorter of video/audio. Protects
+    // against small duration mismatches (AudioRecord warmup vs video
+    // first-frame timing). Without it, ffmpeg emits a longer track with
+    // silence padding at the end.
+    "-shortest",
+    "-movflags", "+faststart",
+    outPath,
+  ];
+
+  let stderrBuf = "";
+  const { ok, exitCode } = await new Promise((resolve) => {
+    const p = spawn("ffmpeg", args);
+    p.stderr.on("data", (chunk) => {
+      stderrBuf += chunk.toString();
+      if (stderrBuf.length > 16384) stderrBuf = stderrBuf.slice(-16384);
+    });
+    p.on("error", (err) => resolve({ ok: false, exitCode: -1, err: err.message }));
+    p.on("exit", (code) => resolve({ ok: code === 0, exitCode: code }));
+  });
+
+  if (!ok) {
+    console.warn(`[segmentMerger] audio-mux ffmpeg failed (exit ${exitCode}): ${stderrBuf.slice(-500)}`);
+    return null;
+  }
+  try {
+    const sz = fs.statSync(outPath).size;
+    if (sz === 0) return null;
+    return outPath;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * Run ffmpeg concat. Returns { ok, videoUrl?, size?, durationMs?, stderrTail?, error? }.
  * videoUrl is an Azure blob URL (preferred) or /uploads/ path (fallback).
  * Does NOT mutate the Recording document — that's the caller's job.
+ *
+ * v3.1.24: accepts optional `audioUrl` — if present, runs a second ffmpeg
+ * pass to mux audio into the concatenated video. Returns the final URL
+ * pointing to the video+audio mp4 (either Azure blob or /uploads/).
  */
-async function mergeSegmentsToFile(segments, recordingId) {
+async function mergeSegmentsToFile(segments, recordingId, audioUrl = null) {
   const available = await probeFfmpeg();
   if (!available) {
     return { ok: false, error: "ffmpeg_missing" };
@@ -239,6 +294,55 @@ async function mergeSegmentsToFile(segments, recordingId) {
     return { ok: false, error: "merge_output_empty" };
   }
 
+  // v3.1.24 — audio mux pass.
+  //
+  // The concat step above gives us a video-only mp4 (audio track is
+  // dropped by ffmpeg's concat demuxer because of the per-segment
+  // MediaMuxer audio bug — see I-025 in engineering plan). If the device
+  // uploaded a separate whole-recording m4a, run a second ffmpeg pass to
+  // mux that audio into the concatenated video. Result is a single mp4
+  // with both streams, stream-copied (no re-encode).
+  //
+  // If the mux fails at any stage (download failure, ffmpeg error, zero
+  // output), we keep the video-only output — recording is still usable,
+  // just muted. Graceful degradation > stalling the merge.
+  let finalPath = outPath;
+  if (audioUrl) {
+    const audioLocalPath = path.join(tmpMergeDir, "recording_audio.m4a");
+    try {
+      let audioReady = false;
+      if (/^https:\/\/[^/]+\.blob\.core\.windows\.net\//.test(audioUrl)) {
+        const r = await downloadUrlToFile(audioUrl, audioLocalPath);
+        audioReady = r.ok && fs.existsSync(audioLocalPath) && fs.statSync(audioLocalPath).size > 1024;
+        if (!audioReady) {
+          console.warn(`[segmentMerger] audio download failed for ${audioUrl}: ${r.err || "empty"}`);
+        }
+      } else if (audioUrl.startsWith("/uploads/")) {
+        const rel = audioUrl.replace(/^\/uploads\//, "");
+        const full = path.join(UPLOADS_DIR, rel);
+        if (fs.existsSync(full) && fs.statSync(full).size > 1024) {
+          fs.copyFileSync(full, audioLocalPath);
+          audioReady = true;
+        }
+      }
+
+      if (audioReady) {
+        const videoAudioPath = path.join(tmpMergeDir, `${recordingId}_with_audio.mp4`);
+        const muxed = await muxAudioIntoVideo(outPath, audioLocalPath, videoAudioPath);
+        if (muxed) {
+          finalPath = muxed;
+          const newSize = fs.statSync(finalPath).size;
+          console.log(`[segmentMerger] audio-mux OK: ${newSize / 1024 / 1024}MB final (was ${size / 1024 / 1024}MB video-only)`);
+          size = newSize;
+        } else {
+          console.warn(`[segmentMerger] audio-mux ffmpeg failed — keeping video-only output`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[segmentMerger] audio-mux step threw: ${err.message} — keeping video-only`);
+    }
+  }
+
   // v3.1.15 — upload merged file to Azure if configured.
   //
   // Prefer Azure. If upload fails, fall back to /uploads/ (legacy, may get
@@ -248,7 +352,7 @@ async function mergeSegmentsToFile(segments, recordingId) {
   if (isAzureConfigured()) {
     const blobName = `${recordingId}_merged.mp4`;
     try {
-      const azureUrl = await uploadFileToBlob(outPath, blobName);
+      const azureUrl = await uploadFileToBlob(finalPath, blobName);
       if (azureUrl) {
         videoUrl = azureUrl;
         console.log(`[segmentMerger] merged → Azure: ${azureUrl.slice(-80)}  (${(size / 1024 / 1024).toFixed(1)} MB)`);
@@ -266,7 +370,7 @@ async function mergeSegmentsToFile(segments, recordingId) {
     try {
       if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
       const legacyPath = path.join(UPLOADS_DIR, `${recordingId}_merged.mp4`);
-      fs.copyFileSync(outPath, legacyPath);
+      fs.copyFileSync(finalPath, legacyPath);
       videoUrl = `/uploads/${recordingId}_merged.mp4`;
       console.log(`[segmentMerger] merged → local /uploads/ (Azure not configured or upload failed)`);
     } catch (e) {
@@ -345,7 +449,15 @@ async function runMergeForRecording(recording) {
     return { ok: false, error: "already_merging" };
   }
 
-  const result = await mergeSegmentsToFile(claim.segments, claim._id.toString());
+  // v3.1.24: pass audioUrl so the merger can mux the dedicated audio m4a
+  // into the final mp4. fresh.audioUrl is null for recordings made before
+  // v3.1.24 Android rolled out — segmentMerger handles that gracefully
+  // (keeps video-only output).
+  const result = await mergeSegmentsToFile(
+    claim.segments,
+    claim._id.toString(),
+    fresh.audioUrl || null
+  );
 
   if (!result.ok) {
     try {

@@ -21,6 +21,8 @@ router.post("/devices/:deviceId/force-stop", auth, adminOnly, ctrl.forceStop);
 // Recording session — device auth
 router.post("/recordings/session", deviceAuth, ctrl.findOrCreateSession);
 router.post("/recordings/:recordingId/segment-upload", deviceAuth, ctrl.segmentUpload);
+// v3.1.24 — whole-recording audio m4a upload (see I-025 for why audio is decoupled)
+router.post("/recordings/:recordingId/audio-upload", deviceAuth, ctrl.audioUpload);
 router.post("/recordings/:recordingId/active-source", deviceAuth, ctrl.updateActiveSource);
 router.post("/recordings/:recordingId/merge", deviceAuth, ctrl.triggerMerge);
 
