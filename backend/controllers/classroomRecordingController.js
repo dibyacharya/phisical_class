@@ -850,18 +850,51 @@ exports.segmentUpload = async (req, res) => {
       const blobName = `${recordingId}_${Date.now()}_${collisionSuffix}.mp4`;
       fileSize = videoFile.size;
 
-      // Try Azure Blob first, fallback to local. Defensive try-catch: a
-      // transient Azure outage must NOT crash the upload endpoint.
+      // v3.1.20 — robust bytes-getter.
+      //
+      // The backend is configured with `useTempFiles: true` which means
+      // videoFile.data is Buffer(0) and the real APK/video bytes live in
+      // videoFile.tempFilePath. Previous segment-upload code read `.data`
+      // directly and passed an empty Buffer to Azure — Azure accepted it
+      // and stored a 0-byte blob, then admin-portal playback showed
+      // blank video. The 7 MB we observed on /uploads/ (Apr 24 class)
+      // were only there because we fell through to the local fallback
+      // path which uses `videoFile.mv(localPath)` — that helper already
+      // handles both useTempFiles modes, unlike the direct `.data` read.
+      //
+      // This function mirrors apkBytesFrom() from appUpdate.js and
+      // returns a real Node Buffer regardless of upload mode.
+      async function videoBytes() {
+        if (videoFile.data && Buffer.isBuffer(videoFile.data) && videoFile.data.length > 0) {
+          return videoFile.data;
+        }
+        if (videoFile.tempFilePath) {
+          return await fs.promises.readFile(videoFile.tempFilePath);
+        }
+        throw new Error(`segment upload has neither .data bytes nor .tempFilePath (size=${videoFile.size})`);
+      }
+
+      // Azure-first upload. Only fall back to /uploads/ on explicit failure,
+      // and LOG LOUDLY so Railway logs show the actual reason.
       if (isAzureConfigured()) {
         try {
-          const azureUrl = await uploadToBlob(videoFile.data, blobName, "video/mp4");
-          if (azureUrl) {
-            videoUrl = azureUrl;
-            console.log(`[Upload] Azure Blob: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+          const buf = await videoBytes();
+          if (buf.length === 0) {
+            console.error(`[Upload] skip Azure — zero-byte buffer for ${blobName} (size=${fileSize}, tmp=${videoFile.tempFilePath || "none"})`);
+          } else {
+            const azureUrl = await uploadToBlob(buf, blobName, "video/mp4");
+            if (azureUrl) {
+              videoUrl = azureUrl;
+              console.log(`[Upload] Azure OK: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB) → ${azureUrl}`);
+            } else {
+              console.warn(`[Upload] Azure returned null for ${blobName} — client check failed?`);
+            }
           }
         } catch (azureErr) {
-          console.warn(`[Upload] Azure failed, falling back to local: ${azureErr.message}`);
+          console.error(`[Upload] Azure threw for ${blobName}: ${azureErr.message}`);
         }
+      } else {
+        console.warn(`[Upload] Azure NOT CONFIGURED — set AZURE_STORAGE_CONNECTION_STRING env var on Railway to enable persistent segment storage. Falling back to /uploads/ (EPHEMERAL — wiped on every deploy).`);
       }
 
       // Fallback: save locally if Azure not configured or failed
@@ -871,7 +904,7 @@ exports.segmentUpload = async (req, res) => {
         const localPath = path.join(uploadsDir, blobName);
         await videoFile.mv(localPath);
         videoUrl = `/uploads/${blobName}`;
-        console.log(`[Upload] Local: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+        console.log(`[Upload] Local fallback: ${blobName} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
       }
     } else if (req.file) {
       fileSize = req.file.size;
