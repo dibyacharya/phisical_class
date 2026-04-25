@@ -11,7 +11,9 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFiles": ["<rootDir>/tests/setup.js"],
+    "setupFiles": [
+      "<rootDir>/tests/setup.js"
+    ],
     "testTimeout": 30000,
     "verbose": true
   },
@@ -23,6 +25,7 @@
     "express": "^4.21.0",
     "express-fileupload": "^1.5.2",
     "jsonwebtoken": "^9.0.2",
+    "livekit-server-sdk": "^2.15.1",
     "mongoose": "^8.7.0",
     "qrcode": "^1.5.4"
   },

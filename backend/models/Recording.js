@@ -65,6 +65,47 @@ const recordingSchema = new mongoose.Schema(
     // (graceful degradation).
     audioUrl: { type: String, default: "" },
     audioSize: { type: Number, default: 0 },
+
+    // ── v3.2.0 — LiveKit Egress pipeline (see LIVEKIT_MIGRATION_PLAN.md) ──
+    //
+    // When the device opts in to the LiveKit pipeline (PreferencesManager.
+    // useLiveKitPipeline = true and LIVEKIT_ENABLED=true on backend), the
+    // recording flow is:
+    //
+    //   1. Device POSTs /recordings/session as today.
+    //   2. Backend creates a LiveKit room ("phyclass-<recordingId>"),
+    //      generates a 4-hour publisher token for the device, and starts
+    //      a RoomCompositeEgress writing directly to Azure Blob.
+    //   3. Device connects via LiveKit Android SDK and publishes 3 tracks
+    //      (screen, camera, mic) — no MediaCodec, no GL compositor, no
+    //      segment muxer.
+    //   4. When recording stops, backend calls EgressClient.stopEgress.
+    //   5. LiveKit fires `egress_ended` webhook → backend marks
+    //      mergedVideoUrl + mergeStatus="ready". No ffmpeg, no smoothing.
+    //
+    // The `segments[]` and `audioUrl` paths above remain populated only
+    // for legacy-pipeline recordings; LiveKit recordings populate the
+    // fields below instead.
+    livekitRoomName: { type: String, default: "" },
+    livekitEgressId: { type: String, default: "", index: true },
+    livekitEgressStatus: {
+      type: String,
+      enum: ["pending", "recording", "processing", "available", "failed", ""],
+      default: "",
+    },
+    livekitEgressStartedAt: { type: Date },
+    livekitEgressEndedAt: { type: Date },
+    livekitEgressErrorReason: { type: String, default: "" },
+    // Pipeline marker — "legacy" (MediaCodec + segments) or "livekit"
+    // (RoomCompositeEgress). Lets queries differentiate without inspecting
+    // the populated fields. Defaults to "legacy" for back-compat with all
+    // pre-v3.2 recordings already in the collection.
+    pipeline: {
+      type: String,
+      enum: ["legacy", "livekit"],
+      default: "legacy",
+      index: true,
+    },
   },
   { timestamps: true }
 );

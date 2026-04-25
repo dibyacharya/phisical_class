@@ -1,4 +1,5 @@
-const router = require("express").Router();
+const express = require("express");
+const router = express.Router();
 const ctrl = require("../controllers/classroomRecordingController");
 const { auth, adminOnly } = require("../middleware/auth");
 const { deviceAuth } = require("../middleware/deviceAuth");
@@ -28,5 +29,36 @@ router.post("/recordings/:recordingId/merge", deviceAuth, ctrl.triggerMerge);
 
 // Dashboard — admin auth
 router.get("/dashboard", auth, adminOnly, ctrl.dashboard);
+
+// ── LiveKit endpoints (v3.2.0+) ─────────────────────────────────────
+//
+// Admin-watch token: lets an authenticated admin generate a subscriber
+// (read-only) LiveKit token to watch a physical-class room live while
+// it's recording. Token TTL is 2h; multiple concurrent admins are fine.
+router.post(
+  "/recordings/:recordingId/admin-watch-token",
+  auth,
+  adminOnly,
+  ctrl.adminWatchToken
+);
+
+// LiveKit Egress webhook: receives JWT-signed POSTs from the LiveKit
+// server (egress_started / egress_updated / egress_ended) and updates
+// the corresponding Recording document.
+//
+// IMPORTANT: this route uses express.raw() because livekit-server-sdk's
+// WebhookReceiver verifies the signature against the raw request body —
+// any prior JSON-parse middleware would invalidate the JWT. The router-
+// level express.raw call here overrides the global express.json() set
+// up in index.js for this route only.
+router.post(
+  "/livekit-webhook",
+  express.raw({ type: "application/webhook+json", limit: "1mb" }),
+  // Some LiveKit deployments send `application/json` instead of the
+  // custom MIME type — accept both by falling back to a generic raw
+  // parser when the first didn't match.
+  express.raw({ type: "application/json", limit: "1mb" }),
+  ctrl.livekitWebhook
+);
 
 module.exports = router;

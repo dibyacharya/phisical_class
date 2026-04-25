@@ -12,6 +12,8 @@ const AppVersion = require("../models/AppVersion");
 const HealthSnapshot = require("../models/HealthSnapshot");
 const DeviceCommand = require("../models/DeviceCommand");
 const { uploadToBlob, isAzureConfigured } = require("../utils/azureBlob");
+const livekitService = require("../services/livekitService");
+const livekitWebhook = require("../services/livekitWebhook");
 
 /**
  * v3.1.25 — hierarchical Azure blob path builder.
@@ -765,9 +767,95 @@ exports.forceStop = async (req, res) => {
 // ============ RECORDING SESSION ENDPOINTS ============
 
 // POST /api/classroom-recording/recordings/session
+/**
+ * Try to attach LiveKit publisher creds + start Egress for a recording. Pure
+ * helper — never throws. The caller passes the response object that's about
+ * to be returned to the device; we mutate it in place to add a `livekit`
+ * envelope when (and only when) all three preconditions hold:
+ *
+ *   1. Backend has LIVEKIT_ENABLED=true and credentials configured
+ *   2. Device opted in by sending `pipeline === "livekit"` in the request
+ *   3. The Recording document exists
+ *
+ * If any precondition fails or the LiveKit calls error out, we silently
+ * fall back to legacy behaviour — the device sees no `livekit` field in
+ * the response and recording proceeds via MediaCodec / segments.
+ */
+async function attachLiveKitIfEnabled({
+  recording,
+  device,
+  pipelineRequested,
+  responsePayload,
+}) {
+  if (!recording) return;
+  if (!livekitService.isEnabled()) return;
+  if (pipelineRequested !== "livekit") return;
+
+  try {
+    // Pre-create the room (idempotent if it already exists)
+    const roomName = livekitService.roomNameForRecording(recording._id);
+    await livekitService.createRoom(recording._id);
+
+    // Issue the publisher token for the TV
+    const token = await livekitService.generateDeviceToken({
+      recordingId: recording._id,
+      deviceId: device?.deviceId || String(recording._id),
+      deviceName: device?.name || "Smart TV",
+    });
+
+    // Start Egress only the first time we mint a session for this
+    // recording. If it's already started (reconnect / retry), keep using
+    // the existing egressId.
+    let egressId = recording.livekitEgressId;
+    if (!egressId) {
+      try {
+        // Look up roomNumber from scheduledClass for the blob path
+        let roomNumber = "unknown";
+        if (recording.scheduledClass) {
+          const sc = await ScheduledClass.findById(
+            recording.scheduledClass
+          ).select("roomNumber");
+          if (sc?.roomNumber) roomNumber = sc.roomNumber;
+        }
+        const info = await livekitService.startCompositeEgress(recording, {
+          roomNumber,
+        });
+        egressId = info?.egressId || "";
+        recording.livekitEgressId = egressId;
+        recording.livekitRoomName = roomName;
+        recording.livekitEgressStatus = "pending";
+        recording.pipeline = "livekit";
+        await recording.save();
+      } catch (egressErr) {
+        // Egress failure shouldn't block the device — log and proceed
+        // with token-only response. The TV will still publish; Egress
+        // can be retried separately or the recording can fall back.
+        console.warn(
+          `[LiveKit] startCompositeEgress failed for ${recording._id}:`,
+          egressErr.message
+        );
+      }
+    }
+
+    responsePayload.livekit = {
+      enabled: true,
+      wsUrl: livekitService.LIVEKIT_WS_URL,
+      roomName,
+      token,
+      egressId: egressId || "",
+    };
+  } catch (err) {
+    console.warn(
+      `[LiveKit] attachLiveKitIfEnabled failed (rec=${recording._id}):`,
+      err.message
+    );
+    // Swallow — device falls back to legacy pipeline.
+  }
+}
+
 exports.findOrCreateSession = async (req, res) => {
   try {
-    const { meetingId, deviceId, source } = req.body;
+    const { meetingId, deviceId, source, pipeline } = req.body;
     if (!meetingId) {
       return res.status(400).json({ error: "meetingId required" });
     }
@@ -813,18 +901,27 @@ exports.findOrCreateSession = async (req, res) => {
       }
 
       // Mark device as recording
+      let deviceDoc = null;
       if (deviceId) {
-        await ClassroomDevice.findOneAndUpdate(
+        deviceDoc = await ClassroomDevice.findOneAndUpdate(
           { deviceId },
-          { isRecording: true, currentMeetingId: meetingId }
+          { isRecording: true, currentMeetingId: meetingId },
+          { new: true }
         );
       }
 
-      return res.json({
+      const reusePayload = {
         recordingId: recording._id.toString(),
         isNew: false,
         hmacSecret,
+      };
+      await attachLiveKitIfEnabled({
+        recording,
+        device: deviceDoc,
+        pipelineRequested: pipeline,
+        responsePayload: reusePayload,
       });
+      return res.json(reusePayload);
     }
 
     // Generate HMAC secret for new session only
@@ -861,18 +958,27 @@ exports.findOrCreateSession = async (req, res) => {
     );
 
     // Mark device as recording
+    let deviceDoc = null;
     if (deviceId) {
-      await ClassroomDevice.findOneAndUpdate(
+      deviceDoc = await ClassroomDevice.findOneAndUpdate(
         { deviceId },
-        { isRecording: true, currentMeetingId: meetingId }
+        { isRecording: true, currentMeetingId: meetingId },
+        { new: true }
       );
     }
 
-    res.json({
+    const newPayload = {
       recordingId: recording._id.toString(),
       isNew: true,
       hmacSecret,
+    };
+    await attachLiveKitIfEnabled({
+      recording,
+      device: deviceDoc,
+      pipelineRequested: pipeline,
+      responsePayload: newPayload,
     });
+    res.json(newPayload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1181,18 +1287,49 @@ exports.triggerMerge = async (req, res) => {
       status: "completed",
     });
 
+    // ── LiveKit pipeline finalisation ────────────────────────────────
+    // If this Recording was on the LiveKit pipeline, stop the Egress
+    // and let the egress_ended webhook deliver the final blob URL.
+    // Egress.stopEgress() is idempotent and best-effort — if it fails
+    // (Egress already finalised, network blip), we just log.
+    const isLiveKit =
+      recording.pipeline === "livekit" || !!recording.livekitEgressId;
+    if (isLiveKit && recording.livekitEgressId) {
+      try {
+        await livekitService.stopEgress(recording.livekitEgressId);
+      } catch (e) {
+        console.warn(
+          `[LiveKit] stopEgress on triggerMerge for ${recordingId}:`,
+          e.message
+        );
+      }
+      // Best-effort room cleanup — empty_timeout in livekit.yaml will also
+      // garbage-collect after 5 min, but explicit delete is cleaner.
+      try {
+        await livekitService.deleteRoom(recording._id);
+      } catch (_) {}
+    }
+
     res.json({
       message: "Merge triggered",
       recordingId,
+      pipeline: recording.pipeline,
       segmentCount: recording.segments?.length || 0,
-      mergeStatus: (recording.segments?.length || 0) > 1 ? "queued" : "skipped",
+      mergeStatus: isLiveKit
+        ? "egress_pending" // webhook will flip to ready/failed
+        : (recording.segments?.length || 0) > 1
+        ? "queued"
+        : "skipped",
     });
 
-    // Kick off the actual merge AFTER the response is sent — device doesn't
-    // need to wait on ffmpeg. If the server dies mid-merge, mergeStatus is
-    // left as "merging" and a daily cleanup job can re-run it (or admin
-    // hits POST /merge again — idempotent).
-    if ((recording.segments?.length || 0) > 1) {
+    // Kick off the legacy ffmpeg merge AFTER the response is sent —
+    // device doesn't need to wait on it. If the server dies mid-merge,
+    // mergeStatus is left as "merging" and a daily cleanup job can
+    // re-run it (or admin hits POST /merge again — idempotent).
+    //
+    // SKIPPED for LiveKit pipeline — Egress writes the final MP4
+    // directly to Azure, so no segment merge is needed.
+    if (!isLiveKit && (recording.segments?.length || 0) > 1) {
       setImmediate(() => {
         const { runMergeForRecording } = require("../utils/segmentMerger");
         // Reload the document to avoid version conflicts with any concurrent
@@ -1233,5 +1370,103 @@ exports.dashboard = async (_req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+// ============ LIVEKIT ENDPOINTS ============
+
+/**
+ * POST /api/classroom-recording/recordings/:recordingId/admin-watch-token
+ *
+ * Admin-only endpoint that issues a SUBSCRIBER (read-only) LiveKit token
+ * so an admin can watch a physical-class recording **live** while it's
+ * still in progress. Multiple admins can hold valid tokens for the same
+ * room concurrently — LiveKit SFU broadcasts to all of them without
+ * adding load on the publishing TV.
+ *
+ * 200 OK body:
+ *   { wsUrl, roomName, token, expiresAt }
+ *
+ * 400 — recording exists but is not on the LiveKit pipeline (legacy
+ *       segment-based recordings can't be watched live).
+ * 404 — recording not found.
+ * 503 — LiveKit isn't configured on the backend.
+ */
+exports.adminWatchToken = async (req, res) => {
+  try {
+    if (!livekitService.isEnabled()) {
+      return res.status(503).json({
+        error: "LiveKit pipeline not enabled on backend",
+      });
+    }
+
+    const { recordingId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(recordingId)) {
+      return res.status(400).json({ error: "Invalid recording ID" });
+    }
+
+    const recording = await Recording.findById(recordingId).select(
+      "_id pipeline livekitRoomName livekitEgressStatus status"
+    );
+    if (!recording) {
+      return res.status(404).json({ error: "Recording not found" });
+    }
+    if (recording.pipeline !== "livekit") {
+      return res.status(400).json({
+        error:
+          "This recording is not on the LiveKit pipeline (legacy recordings cannot be watched live)",
+      });
+    }
+
+    const adminUser = req.user || {};
+    const token = await livekitService.generateAdminWatchToken({
+      recordingId: recording._id,
+      adminUserId: adminUser._id || adminUser.id || "anonymous-admin",
+      adminName: adminUser.name || adminUser.email || "Admin",
+      ttl: "2h",
+    });
+
+    res.json({
+      wsUrl: livekitService.LIVEKIT_WS_URL,
+      roomName: livekitService.roomNameForRecording(recording._id),
+      token,
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      recordingStatus: recording.status,
+      egressStatus: recording.livekitEgressStatus,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * POST /api/classroom-recording/livekit-webhook
+ *
+ * Public endpoint hit by the LiveKit server when an Egress transitions
+ * state. The body is a JWT-signed payload (signed with the LIVEKIT API
+ * secret); we delegate verification + parsing to livekitWebhook.verifyAndParse.
+ *
+ * For this endpoint to receive raw bytes (so the JWT signature stays
+ * valid), the index.js JSON middleware MUST skip parsing for this path.
+ * See app-level setup in index.js — express.raw is applied there.
+ *
+ * Returns 200 even on no-op events (egress_updated, unknown room) to
+ * keep LiveKit from retrying needlessly.
+ */
+exports.livekitWebhook = async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    const rawBody = req.body; // Buffer — see index.js mounting
+    const event = await livekitWebhook.verifyAndParse(rawBody, auth);
+    const result = await livekitWebhook.processEgressEvent(event);
+    res.json({ ok: true, result });
+  } catch (err) {
+    console.error("[LiveKit webhook] error:", err.message);
+    // Use 401 for signature failures so LiveKit's retry policy treats
+    // them as terminal; 500 for everything else.
+    const code = /signature|verify|jwt|expired/i.test(err.message)
+      ? 401
+      : 500;
+    res.status(code).json({ error: err.message });
   }
 };
