@@ -124,51 +124,46 @@ async function resolveSegmentPath(videoUrl, tmpDir) {
  * success, or null if the mux fails (caller keeps video-only output).
  */
 /**
- * v3.1.28 — motion-interpolated smoothing pass.
+ * v3.1.29 — fast frame-rate normalization pass.
  *
- * The Android device's software H.264 encoder on the 55TR3DK SoC
- * physically maxes out at ~1.6 fps when encoding 1280×720 with
- * Cortex-A53 cores. Each frame held for ~600 ms = "ruk-ruk-ke chal
- * raha he" perception during playback. We can't make the encoder
- * faster on this hardware (the hardware H.264 block is broken — see
- * I-003), and we don't want to lower resolution per user request.
+ * v3.1.28 attempted motion-compensated interpolation via ffmpeg's
+ * `minterpolate` filter. Testing on Railway's shared CPU showed:
+ *   - 6-min source got stuck >13 min (likely OOM-killed)
+ *   - 22% duration loss when source had segment-rotation gaps
+ *   - 4-6 min processing for 3-min source = 1:1 ratio (acceptable)
+ *     but unreliable at scale
  *
- * Solution: ffmpeg's `minterpolate` filter synthesizes intermediate
- * frames via motion-compensated interpolation. For static slide
- * content the output is visually identical to source (interpolation
- * just produces duplicates). For motion content (cursor moves, scroll,
- * animations) the filter generates plausible intermediate positions
- * giving a smooth 15 fps appearance.
+ * Replaced with simple frame duplication via the `fps` filter:
+ *   - Source 1.6 fps → duplicates each frame to fill 15 fps timeline
+ *   - Each unique frame still shown for ~600 ms (visually same as before)
+ *   - BUT player plays at smooth 15 fps cadence, no stuttery feel
+ *   - Container metadata + actual frame timing match → clean playback
+ *   - Static content (slides) looks identical to source
+ *   - Motion content (cursor) NOT smoothed (would need real interpolation)
  *
- * Cost: heavy. ~30-60 min server CPU per 40-min source on Railway.
- * Acceptable as a one-time post-class processing step.
+ * Cost: ~30 sec for 6-min source. ~10x faster than minterpolate.
+ * Reliable on Railway. Audio stream-copied (perfect preservation).
  *
- * Quality preserved: re-encode at libx264 CRF 18 (visually lossless).
- * Original audio is stream-copied (no re-encode).
- *
- * Returns smoothed file path on success, null on failure (caller
- * keeps the un-smoothed audio-muxed file).
+ * Hard timeout: 5 min. If ffmpeg hasn't completed by then, kill it
+ * and fall back to un-smoothed file. No more indefinite stuck-merging.
  */
 async function smoothInterpolate(inputPath, outPath) {
   const args = [
     "-y",
     "-v", "error",
     "-i", inputPath,
-    // Motion-compensated interpolation to 15 fps. Defaults pick MCI
-    // mode (motion-compensated) with bidirectional motion estimation
-    // — best quality for our static-mostly lecture content.
-    "-filter:v", "minterpolate=fps=15:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
-    // Re-encode video at visually-lossless quality. preset=medium
-    // balances compression efficiency vs encoder speed (slower preset
-    // = slightly smaller files but much longer processing).
+    // Simple frame-rate normalization: fps=15 with frame duplication
+    // (default mode). Adds duplicate frames to fill the 15 fps grid
+    // without any motion estimation. Fast.
+    "-filter:v", "fps=15",
+    // Use ultrafast preset since this is a cheap re-encode anyway.
+    // Quality stays high because CRF 20 produces visually lossless
+    // output and source is mostly static.
     "-c:v", "libx264",
-    "-preset", "medium",
-    "-crf", "18",
-    // Pixel format yuv420p maximizes player compatibility (Quicktime,
-    // Chrome, Firefox, mobile players all accept this).
+    "-preset", "ultrafast",
+    "-crf", "20",
     "-pix_fmt", "yuv420p",
-    // Audio passthrough — the original AAC track from device is
-    // already perfect, no need to re-encode.
+    // Audio: stream copy from input (no re-encode = perfect).
     "-c:a", "copy",
     "-movflags", "+faststart",
     outPath,
@@ -176,18 +171,41 @@ async function smoothInterpolate(inputPath, outPath) {
 
   let stderrBuf = "";
   const startMs = Date.now();
-  const { ok, exitCode } = await new Promise((resolve) => {
+  const HARD_TIMEOUT_MS = 5 * 60 * 1000; // 5-min cap
+
+  const { ok, exitCode, timedOut } = await new Promise((resolve) => {
     const p = spawn("ffmpeg", args);
+    let didFinish = false;
     p.stderr.on("data", (chunk) => {
       stderrBuf += chunk.toString();
       if (stderrBuf.length > 16384) stderrBuf = stderrBuf.slice(-16384);
     });
-    p.on("error", (err) => resolve({ ok: false, exitCode: -1, err: err.message }));
-    p.on("exit", (code) => resolve({ ok: code === 0, exitCode: code }));
+    p.on("error", (err) => {
+      if (didFinish) return;
+      didFinish = true;
+      resolve({ ok: false, exitCode: -1, err: err.message, timedOut: false });
+    });
+    p.on("exit", (code) => {
+      if (didFinish) return;
+      didFinish = true;
+      resolve({ ok: code === 0, exitCode: code, timedOut: false });
+    });
+    // Hard timeout — kill stuck ffmpeg processes so the merge worker
+    // can fall back to un-smoothed output instead of hanging forever.
+    setTimeout(() => {
+      if (didFinish) return;
+      didFinish = true;
+      try { p.kill("SIGKILL"); } catch (_) {}
+      resolve({ ok: false, exitCode: -1, timedOut: true });
+    }, HARD_TIMEOUT_MS);
   });
 
   if (!ok) {
-    console.warn(`[segmentMerger] smoothing ffmpeg failed (exit ${exitCode}, ${Date.now()-startMs}ms): ${stderrBuf.slice(-500)}`);
+    if (timedOut) {
+      console.warn(`[segmentMerger] smoothing TIMED OUT after ${HARD_TIMEOUT_MS/1000}s — falling back to un-smoothed`);
+    } else {
+      console.warn(`[segmentMerger] smoothing ffmpeg failed (exit ${exitCode}, ${Date.now()-startMs}ms): ${stderrBuf.slice(-500)}`);
+    }
     return null;
   }
   try {
