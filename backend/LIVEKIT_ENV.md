@@ -17,19 +17,26 @@ picks these up on subsequent deploys).
 | `LIVEKIT_API_SECRET` | `<48-char base64>` | Paired with `LIVEKIT_API_KEY`. Same secret as the LMS — keep it identical. |
 | `LIVEKIT_WS_URL` | `wss://livekit.kiitdev.online` | The Smart TV connects to this. Production resolves directly to the Azure VM IP (no Front Door in path). |
 
-## Egress destination (only needed once Egress is deployed in Phase 0b)
+## Egress destination — already configured
 
-The Egress server itself reads these from its own config file on the VM. The
-backend only needs them if we ever want to `EgressClient.startRoomCompositeEgress`
-with an explicit Azure destination at trigger time. Today, the simpler
-deployment is to bake them into the Egress YAML on the VM and leave the
-backend out of the storage credential chain.
+Egress writes recordings directly to Azure Blob via a per-request `Output`
+config sent by `livekitService.startCompositeEgress()`. The credentials it
+needs (account name + key + container) are derived from env vars the
+backend already has set for the legacy pipeline:
 
-| Var | Example |
+| Source var | What we extract |
 |---|---|
-| `LIVEKIT_EGRESS_CONTAINER` | `physical-class-recordings` |
-| `AZURE_ACCOUNT_NAME` | reuse existing — the legacy pipeline already uses it |
-| `AZURE_ACCOUNT_KEY` | reuse existing |
+| `AZURE_STORAGE_CONNECTION_STRING` | parsed → `AccountName` and `AccountKey` |
+| `AZURE_STORAGE_CONTAINER` (default `lms-storage`) | container name |
+| `AZURE_BLOB_PREFIX` (default `physical-class-recordings`) | path prefix |
+
+No new Azure-related env vars are required — recordings end up at
+`{container}/{prefix}/{date}/{room}/{recId}/full.mp4`, the same
+hierarchy as legacy.
+
+To override (e.g. point Egress at a separate container), set:
+- `LIVEKIT_EGRESS_CONTAINER` — override container name for LiveKit only
+- `AZURE_ACCOUNT_NAME` / `AZURE_ACCOUNT_KEY` — bypass parsing, set explicitly
 
 ## Smoke-test commands (run locally before flipping LIVEKIT_ENABLED on Railway)
 

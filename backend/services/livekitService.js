@@ -39,13 +39,47 @@ const LIVEKIT_ENABLED =
   String(process.env.LIVEKIT_ENABLED || "").toLowerCase() === "true";
 
 // Egress destination — Azure Blob (same storage account as legacy pipeline).
-// Egress writes the final MP4 directly to Azure with no Render hop.
-const AZURE_ACCOUNT_NAME = process.env.AZURE_ACCOUNT_NAME || "";
-const AZURE_ACCOUNT_KEY = process.env.AZURE_ACCOUNT_KEY || "";
+// Egress writes the final MP4 directly to Azure with no Railway hop.
+//
+// We reuse the existing AZURE_STORAGE_CONNECTION_STRING var that
+// utils/azureBlob.js uses for legacy uploads — no need to add a second
+// pair of secrets to Railway. Connection strings come in the canonical
+// form `DefaultEndpointsProtocol=https;AccountName=…;AccountKey=…;
+// EndpointSuffix=core.windows.net`, so we parse out the two pieces
+// Egress wants. Falls back to explicit AZURE_ACCOUNT_NAME / KEY if
+// someone really wants to override.
+function parseAzureConnString(cs) {
+  if (!cs) return { name: "", key: "" };
+  const parts = String(cs)
+    .split(";")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .reduce((acc, p) => {
+      const idx = p.indexOf("=");
+      if (idx > 0) acc[p.slice(0, idx).toLowerCase()] = p.slice(idx + 1);
+      return acc;
+    }, {});
+  return {
+    name: parts.accountname || "",
+    key: parts.accountkey || "",
+  };
+}
+const _parsedAzure = parseAzureConnString(
+  process.env.AZURE_STORAGE_CONNECTION_STRING
+);
+const AZURE_ACCOUNT_NAME =
+  process.env.AZURE_ACCOUNT_NAME || _parsedAzure.name || "";
+const AZURE_ACCOUNT_KEY =
+  process.env.AZURE_ACCOUNT_KEY || _parsedAzure.key || "";
+// Existing legacy pipeline writes into AZURE_STORAGE_CONTAINER (default
+// "lms-storage"); we keep recordings in the same container under the
+// "physical-class-recordings/" prefix so the admin portal's playback
+// URL logic doesn't need to know which pipeline produced the file.
 const AZURE_CONTAINER =
   process.env.LIVEKIT_EGRESS_CONTAINER ||
+  process.env.AZURE_STORAGE_CONTAINER ||
   process.env.AZURE_CONTAINER ||
-  "physical-class-recordings";
+  "lms-storage";
 
 const isConfigured = () =>
   !!(LIVEKIT_API_KEY && LIVEKIT_API_SECRET && LIVEKIT_WS_URL);
