@@ -31,6 +31,7 @@ const deviceCommandSchema = new mongoose.Schema({
       "toggle_pip",      // v3.1.11: Flip prefs.disablePip (params.disabled = true|false|null to toggle). Diagnostic kill-switch — when disabled=true, device records screen-only, no camera overlay + no UVC init. Use when the PiP subsystem is crashing the recording service at startRealTimeRecording.
       "toggle_uvc",      // v3.1.12: Flip prefs.useUvcForPip (params.enabled = true|false|null to toggle). When false, PiP uses Camera2 instead of the libuvc native driver. Use on TVs where libuvc SIGSEGV-crashes the recording service.
       "clear_ota_lock",  // v3.1.23: force-reset isUpdating flag + OTA cooldown. Fixes the stuck-OTA state when a crash mid-download leaves isUpdating=true persisted in EncryptedSharedPreferences.
+      "toggle_livekit_pipeline", // v3.2.0: Flip prefs.useLiveKitPipeline (params.enabled = true|false|null to toggle). When true, the device opts into the LiveKit publish pipeline on the next recording session — backend issues a publisher token + starts Egress instead of running the legacy MediaCodec/segment uploader. Backend must also have LIVEKIT_ENABLED=true; otherwise the device transparently falls back to legacy.
     ],
   },
   params: { type: mongoose.Schema.Types.Mixed }, // command-specific parameters
