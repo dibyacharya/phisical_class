@@ -79,8 +79,36 @@ const processEgressEvent = async (payload) => {
   const egressInfo = payload.egressInfo || {};
   const egressId = egressInfo.egressId || payload.egressId || "";
   const roomName = egressInfo.roomName || payload.roomName || "";
-  const status = egressInfo.status || ""; // EGRESS_COMPLETE | EGRESS_FAILED ...
-  const fileResult = (egressInfo.fileResults && egressInfo.fileResults[0]) || {};
+  // LiveKit's webhook serialiser sends EgressStatus as either the enum
+  // name string ("EGRESS_COMPLETE") or the protobuf enum integer (3).
+  // Map both forms to a normalised lowercase string so isComplete /
+  // isFailure checks work regardless of SDK version. Discovered on
+  // spike #5 where status=3 (success) was getting flagged as failure
+  // and the success path's blob URL never made it to the Recording row.
+  //
+  // Enum values from livekit_egress_pb: STARTING=0, ACTIVE=1, ENDING=2,
+  //   COMPLETE=3, FAILED=4, ABORTED=5.
+  const STATUS_MAP = {
+    0: "egress_starting",
+    1: "egress_active",
+    2: "egress_ending",
+    3: "egress_complete",
+    4: "egress_failed",
+    5: "egress_aborted",
+  };
+  const rawStatus = egressInfo.status;
+  let status;
+  if (typeof rawStatus === "number") {
+    status = STATUS_MAP[rawStatus] || `unknown-${rawStatus}`;
+  } else if (typeof rawStatus === "string") {
+    status = rawStatus.toLowerCase();
+  } else {
+    status = "";
+  }
+  // fileResults can be camelCase (JS SDK) or snake_case (proto JSON).
+  const fileResults =
+    egressInfo.fileResults || egressInfo.file_results || [];
+  const fileResult = (Array.isArray(fileResults) && fileResults[0]) || {};
   const errorReason = egressInfo.error || "";
 
   // 1. Find by egressId (preferred)
@@ -120,8 +148,11 @@ const processEgressEvent = async (payload) => {
   }
 
   if (event === "egress_ended") {
-    const isFailed =
-      !!errorReason || (status && status !== "EGRESS_COMPLETE");
+    // Treat both the explicit enum-name and integer-3 forms as success.
+    // EGRESS_FAILED (4) and EGRESS_ABORTED (5) plus any populated error
+    // string mark the row as failed.
+    const isComplete = status === "egress_complete";
+    const isFailed = !isComplete || !!errorReason;
 
     recording.livekitEgressEndedAt = now;
     recording.recordingEnd = recording.recordingEnd || now;
@@ -129,10 +160,9 @@ const processEgressEvent = async (payload) => {
 
     if (isFailed) {
       recording.livekitEgressStatus = "failed";
-      recording.livekitEgressErrorReason = String(errorReason || status).slice(
-        0,
-        500
-      );
+      recording.livekitEgressErrorReason = String(
+        errorReason || status || "unknown"
+      ).slice(0, 500);
       recording.status = "failed";
       recording.mergeStatus = "failed";
       recording.mergeError = `LiveKit Egress: ${recording.livekitEgressErrorReason}`;
