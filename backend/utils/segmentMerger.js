@@ -123,6 +123,83 @@ async function resolveSegmentPath(videoUrl, tmpDir) {
  * encode — codecs match across both inputs). Returns the final path on
  * success, or null if the mux fails (caller keeps video-only output).
  */
+/**
+ * v3.1.28 — motion-interpolated smoothing pass.
+ *
+ * The Android device's software H.264 encoder on the 55TR3DK SoC
+ * physically maxes out at ~1.6 fps when encoding 1280×720 with
+ * Cortex-A53 cores. Each frame held for ~600 ms = "ruk-ruk-ke chal
+ * raha he" perception during playback. We can't make the encoder
+ * faster on this hardware (the hardware H.264 block is broken — see
+ * I-003), and we don't want to lower resolution per user request.
+ *
+ * Solution: ffmpeg's `minterpolate` filter synthesizes intermediate
+ * frames via motion-compensated interpolation. For static slide
+ * content the output is visually identical to source (interpolation
+ * just produces duplicates). For motion content (cursor moves, scroll,
+ * animations) the filter generates plausible intermediate positions
+ * giving a smooth 15 fps appearance.
+ *
+ * Cost: heavy. ~30-60 min server CPU per 40-min source on Railway.
+ * Acceptable as a one-time post-class processing step.
+ *
+ * Quality preserved: re-encode at libx264 CRF 18 (visually lossless).
+ * Original audio is stream-copied (no re-encode).
+ *
+ * Returns smoothed file path on success, null on failure (caller
+ * keeps the un-smoothed audio-muxed file).
+ */
+async function smoothInterpolate(inputPath, outPath) {
+  const args = [
+    "-y",
+    "-v", "error",
+    "-i", inputPath,
+    // Motion-compensated interpolation to 15 fps. Defaults pick MCI
+    // mode (motion-compensated) with bidirectional motion estimation
+    // — best quality for our static-mostly lecture content.
+    "-filter:v", "minterpolate=fps=15:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
+    // Re-encode video at visually-lossless quality. preset=medium
+    // balances compression efficiency vs encoder speed (slower preset
+    // = slightly smaller files but much longer processing).
+    "-c:v", "libx264",
+    "-preset", "medium",
+    "-crf", "18",
+    // Pixel format yuv420p maximizes player compatibility (Quicktime,
+    // Chrome, Firefox, mobile players all accept this).
+    "-pix_fmt", "yuv420p",
+    // Audio passthrough — the original AAC track from device is
+    // already perfect, no need to re-encode.
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    outPath,
+  ];
+
+  let stderrBuf = "";
+  const startMs = Date.now();
+  const { ok, exitCode } = await new Promise((resolve) => {
+    const p = spawn("ffmpeg", args);
+    p.stderr.on("data", (chunk) => {
+      stderrBuf += chunk.toString();
+      if (stderrBuf.length > 16384) stderrBuf = stderrBuf.slice(-16384);
+    });
+    p.on("error", (err) => resolve({ ok: false, exitCode: -1, err: err.message }));
+    p.on("exit", (code) => resolve({ ok: code === 0, exitCode: code }));
+  });
+
+  if (!ok) {
+    console.warn(`[segmentMerger] smoothing ffmpeg failed (exit ${exitCode}, ${Date.now()-startMs}ms): ${stderrBuf.slice(-500)}`);
+    return null;
+  }
+  try {
+    const sz = fs.statSync(outPath).size;
+    if (sz === 0) return null;
+    console.log(`[segmentMerger] smoothing complete: ${(sz / 1024 / 1024).toFixed(1)} MB in ${((Date.now()-startMs)/1000).toFixed(0)}s`);
+    return outPath;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function muxAudioIntoVideo(videoPath, audioPath, outPath) {
   const args = [
     "-y",
@@ -345,6 +422,41 @@ async function mergeSegmentsToFile(segments, recordingId, audioUrl = null, blobP
     } catch (err) {
       console.warn(`[segmentMerger] audio-mux step threw: ${err.message} — keeping video-only`);
     }
+  }
+
+  // v3.1.28 — motion-interpolated smoothing pass.
+  //
+  // Source content from the device is encoded at ~1.6 fps because
+  // the Cortex-A53 software H.264 encoder physically can't go faster
+  // at 720p. Players display each frame for ~600ms → "ruk-ruk-ke chal
+  // raha he" perception even though static slides remain readable.
+  //
+  // This 3rd ffmpeg pass uses minterpolate to synthesize intermediate
+  // frames at 15 fps via motion-compensated interpolation. Static
+  // content is preserved exactly; motion content (cursor moves, page
+  // scroll, animations) gets smooth interpolation.
+  //
+  // Quality is preserved (libx264 CRF 18 = visually lossless). Heavy
+  // CPU cost (~30-60 min per 40-min source on Railway), accepted as
+  // post-class processing. Audio is stream-copied — no re-encode.
+  //
+  // If smoothing fails for any reason, we keep the un-smoothed file
+  // and proceed with upload — graceful degradation is preferable to
+  // failing the whole merge.
+  try {
+    const smoothPath = path.join(tmpMergeDir, `${recordingId}_smooth.mp4`);
+    console.log(`[segmentMerger] starting motion-interpolated smoothing pass on ${(size / 1024 / 1024).toFixed(1)} MB source — this may take 30-60 min for long recordings`);
+    const smoothed = await smoothInterpolate(finalPath, smoothPath);
+    if (smoothed) {
+      finalPath = smoothed;
+      const smoothSize = fs.statSync(finalPath).size;
+      console.log(`[segmentMerger] smoothing OK: ${(smoothSize / 1024 / 1024).toFixed(1)} MB smoothed (was ${(size / 1024 / 1024).toFixed(1)} MB)`);
+      size = smoothSize;
+    } else {
+      console.warn(`[segmentMerger] smoothing failed — uploading un-smoothed video`);
+    }
+  } catch (err) {
+    console.warn(`[segmentMerger] smoothing step threw: ${err.message} — uploading un-smoothed video`);
   }
 
   // v3.1.15 — upload merged file to Azure if configured.
