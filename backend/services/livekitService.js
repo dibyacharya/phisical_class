@@ -19,6 +19,8 @@ const {
   EgressClient,
   EncodedFileType,
   EncodingOptionsPreset,
+  EncodedFileOutput,
+  AzureBlobUpload,
 } = require("livekit-server-sdk");
 
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
@@ -269,15 +271,25 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
   // this for a custom HTML layout later that pins the screen as the
   // background and overlays the camera as a PiP — see Phase 4 in the
   // migration plan.
-  const output = {
+  //
+  // v3.2.2 — output destination uses the protobuf oneof (case/value)
+  // shape via EncodedFileOutput + AzureBlobUpload. Earlier we passed
+  // a plain `{ azure: {...} }` object which the JS SDK serialised as
+  // an unknown field at the EncodedFileOutput level — Egress saw no
+  // destination, fell back to local-file mode, and crashed with
+  // "mkdir /physical-class-recordings: permission denied" on spike #4.
+  const fileOutput = new EncodedFileOutput({
     fileType: EncodedFileType.MP4,
     filepath,
-    azure: {
-      accountName: AZURE_ACCOUNT_NAME,
-      accountKey: AZURE_ACCOUNT_KEY,
-      containerName: AZURE_CONTAINER,
+    output: {
+      case: "azure",
+      value: new AzureBlobUpload({
+        accountName: AZURE_ACCOUNT_NAME,
+        accountKey: AZURE_ACCOUNT_KEY,
+        containerName: AZURE_CONTAINER,
+      }),
     },
-  };
+  });
 
   const opts = {
     layout: "speaker",
@@ -286,7 +298,7 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
     videoOnly: false,
   };
 
-  const info = await client.startRoomCompositeEgress(roomName, output, opts);
+  const info = await client.startRoomCompositeEgress(roomName, fileOutput, opts);
   return info;
 };
 
