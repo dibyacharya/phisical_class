@@ -107,6 +107,14 @@ const healthSchema = new mongoose.Schema({
     // after a new process boots. Gives admin a direct "why did the
     // service die" answer without having to SSH/ADB into the TV.
     lastCrashReport: { type: String },
+    // v3.2.0 — LiveKit pipeline status. When useLiveKitPipeline=true on
+    // the device AND backend has LIVEKIT_ENABLED=true, the next recording
+    // bypasses MediaCodec/segments and publishes via WebRTC instead. The
+    // connection state mirrors LiveKit Room.State ("DISCONNECTED",
+    // "CONNECTING", "CONNECTED", "RECONNECTING") and lets the admin
+    // portal show "TV connected to room" without a separate channel.
+    livekitEnabled: { type: Boolean },
+    livekitConnectionState: { type: String },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
