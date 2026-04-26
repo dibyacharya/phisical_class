@@ -479,11 +479,64 @@ router.get("/versions", auth, adminOnly, async (_req, res) => {
   }
 });
 
-// DELETE /api/app/versions/:id — Delete a version (admin)
+// DELETE /api/app/versions/:id — Delete a version (admin) + purge GridFS
+//
+// Previously this only deleted the AppVersion document; the GridFS file
+// in lcs_apks bucket stayed forever. The LiveKit migration spike chain
+// (10+ test APKs at ~55 MB each) blew the 512 MB MongoDB quota. Now
+// we drop the chunks too.
 router.delete("/versions/:id", auth, adminOnly, async (req, res) => {
   try {
+    const v = await AppVersion.findById(req.params.id).select("apkGridFsId versionCode versionName");
+    if (v?.apkGridFsId) {
+      try {
+        await getApkBucket().delete(v.apkGridFsId);
+        console.log(`[AppUpdate] Purged GridFS file ${v.apkGridFsId} for v${v.versionName} (code ${v.versionCode})`);
+      } catch (e) {
+        console.warn(`[AppUpdate] GridFS purge failed for ${v.apkGridFsId}: ${e.message}`);
+      }
+    }
     await AppVersion.findByIdAndDelete(req.params.id);
     res.json({ message: "Version deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/app/versions/purge-orphans — One-shot recovery for the
+// pre-fix chunks. Deletes any GridFS file in lcs_apks that isn't
+// referenced by an AppVersion document.
+router.post("/versions/purge-orphans", auth, adminOnly, async (_req, res) => {
+  try {
+    const filesCol = mongoose.connection.db.collection("lcs_apks.files");
+    const allFiles = await filesCol.find({}).project({ _id: 1, length: 1 }).toArray();
+    const validIds = new Set(
+      (await AppVersion.find({}).select("apkGridFsId").lean())
+        .map((v) => v.apkGridFsId && String(v.apkGridFsId))
+        .filter(Boolean)
+    );
+    const bucket = getApkBucket();
+    let purged = 0;
+    let bytes = 0;
+    const failures = [];
+    for (const f of allFiles) {
+      if (validIds.has(String(f._id))) continue;
+      try {
+        await bucket.delete(f._id);
+        purged++;
+        bytes += Number(f.length || 0);
+      } catch (e) {
+        failures.push({ id: String(f._id), error: e.message });
+      }
+    }
+    res.json({
+      message: "Orphan purge complete",
+      filesScanned: allFiles.length,
+      validReferenced: validIds.size,
+      purged,
+      bytesFreedMB: (bytes / 1024 / 1024).toFixed(1),
+      failures,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
