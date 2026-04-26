@@ -221,53 +221,36 @@ const createRoom = async (recordingId, { maxParticipants = 5, roomNumber } = {})
   const client = getRoomServiceClient();
   const roomName = roomNameForRecording(recordingId);
 
-  // v3.3.16 — AutoTrackEgress added at room creation. LiveKit Egress
-  // server saves every published track AS-IS to Azure (no re-encode,
-  // bit-for-bit RTP→MP4 mux). Output runs in PARALLEL with the existing
-  // RoomCompositeEgress that startCompositeEgress() spins up — we keep
-  // composite for single-file admin-portal playback convenience and use
-  // raw-track files as max-quality archive.
+  // v3.3.17 — REVERTED v3.3.16 AutoTrackEgress.
   //
-  // File layout per recording:
-  //   physical-class-recordings/<date>/<roomNumber>/<recordingId>/
-  //     full.mp4                       ← RoomComposite (re-encoded, current)
-  //     raw-{track_source}-{track_id}.mp4   ← AutoTrackEgress (raw, NEW)
-  //     raw-{track_source}-{track_id}.ogg   ← (audio is Opus → .ogg)
+  // The 1-hour stress test on 2026-04-26 21:00 IST proved 4K+15Mbps+
+  // AutoTrackEgress was technically functional (TV sustained the load,
+  // 3 egresses ran in parallel for 30+ min) but the parallel-egress
+  // pattern broke the backend's recording-document tracking flow:
+  //   - Recording doc tracks ONE egressId (livekitEgressId field)
+  //   - When 3 egresses fire (1 RoomComposite + 2 AutoTrack), the
+  //     init-time egressId assigned to the doc was occasionally a
+  //     TrackEgress instead of the RoomComposite
+  //   - Admin portal showed the recording as "failed" because of an
+  //     init-RPC timeout, even though all 3 egresses ran fine on
+  //     the LiveKit side
+  //   - User-visible result: admin portal looked broken
   //
-  // The {track_source} placeholder fills with screen_share / camera /
-  // microphone / unknown depending on what the publisher tagged. {track_id}
-  // is the LiveKit track SID, unique per session.
+  // For the production pilot, single-egress flow is the right path.
+  // Revert to bare createRoom; rely on RoomCompositeEgress which
+  // backend already tracks correctly.
   //
-  // disableManifest=true skips the JSON manifest LiveKit otherwise writes
-  // alongside each file — we don't need it since recording metadata
-  // already lives in Mongo via the standard webhook flow.
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const rNum = String(roomNumber || "unknown");
-  const rawFilepathTemplate =
-    `physical-class-recordings/${dateStr}/${rNum}/${recordingId}/raw-{track_source}-{track_id}`;
-
-  const azure = new AzureBlobUpload({
-    accountName: AZURE_ACCOUNT_NAME,
-    accountKey: AZURE_ACCOUNT_KEY,
-    containerName: AZURE_CONTAINER,
-  });
-
-  const autoTrack = new AutoTrackEgress({
-    filepath: rawFilepathTemplate,
-    disableManifest: true,
-    output: { case: "azure", value: azure },
-  });
-
-  const egressConfig = new RoomEgress({ tracks: autoTrack });
-
+  // Future improvement: if we want raw track archives, we'd need to
+  // extend the Recording schema to track multiple egressIds per
+  // recording AND update the webhook handler to handle multiple
+  // egress_ended events per recording. Out of scope for tomorrow's
+  // pilot.
   try {
     const room = await client.createRoom({
       name: roomName,
       maxParticipants, // Just the TV + a handful of admin observers
       emptyTimeout: 300, // 5-minute idle grace period
-      egress: egressConfig,
     });
-    console.log(`[LiveKit] Room created with AutoTrackEgress → ${rawFilepathTemplate}.{ext}`);
     return room;
   } catch (err) {
     if (err?.message?.includes("already exists")) {
