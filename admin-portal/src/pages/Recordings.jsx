@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Video, Eye, EyeOff, Trash2, Clock, HardDrive, Play, X, Download,
   Search, Filter, Building2, Layers, MapPin, CalendarDays, ChevronDown,
-  RefreshCw, BarChart3, ChevronRight, DoorOpen, FileVideo,
+  RefreshCw, BarChart3, ChevronRight, DoorOpen, FileVideo, Radio,
 } from "lucide-react";
 import api from "../services/api";
+import LiveWatchModal from "../components/LiveWatchModal";
 
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:5020";
 
@@ -168,6 +169,10 @@ export default function Recordings() {
   const [recordings, setRecordings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [playingRec, setPlayingRec] = useState(null);
+  // v3.3.x — admin Watch-Live modal state. Holds the recording row whose
+  // live LiveKit room we're subscribed to. Only meaningful when the row
+  // has pipeline=livekit AND status=recording AND a livekitRoomName.
+  const [liveWatchRec, setLiveWatchRec] = useState(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -686,6 +691,12 @@ export default function Recordings() {
                                                                   <X size={11} /> Force Stop
                                                                 </button>
                                                               )}
+                                                              {rec.pipeline === "livekit" && rec.status === "recording" && (
+                                                                <button onClick={() => setLiveWatchRec(rec)}
+                                                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-red-50 text-red-600 hover:bg-red-100 transition">
+                                                                  <Radio size={11} className="animate-pulse" /> Watch Live
+                                                                </button>
+                                                              )}
                                                               <button onClick={() => togglePublish(rec._id)}
                                                                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
                                                                   rec.isPublished ? "bg-amber-50 text-amber-600 hover:bg-amber-100" : "bg-blue-50 text-blue-600 hover:bg-blue-100"
@@ -723,6 +734,15 @@ export default function Recordings() {
             );
           })}
         </div>
+      )}
+
+      {/* Live Watch Modal — admin subscribes to a live LiveKit-pipeline class */}
+      {liveWatchRec && (
+        <LiveWatchModal
+          recordingId={liveWatchRec._id}
+          recordingTitle={liveWatchRec.title}
+          onClose={() => setLiveWatchRec(null)}
+        />
       )}
 
       {/* Video Player Modal */}
