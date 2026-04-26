@@ -792,9 +792,22 @@ async function attachLiveKitIfEnabled({
   if (pipelineRequested !== "livekit") return;
 
   try {
-    // Pre-create the room (idempotent if it already exists)
+    // Look up roomNumber from scheduledClass for blob filepath templates.
+    // We need this BEFORE createRoom so AutoTrackEgress's filepath uses
+    // the right path. Reused later when starting RoomCompositeEgress.
+    let roomNumber = "unknown";
+    if (recording.scheduledClass) {
+      const sc = await ScheduledClass.findById(recording.scheduledClass)
+        .select("roomNumber");
+      if (sc?.roomNumber) roomNumber = sc.roomNumber;
+    }
+
+    // Pre-create the room (idempotent if it already exists). v3.3.16
+    // attaches an AutoTrackEgress here so each published track is
+    // saved AS-IS to Azure (no re-encode) in parallel with the
+    // separate RoomCompositeEgress below.
     const roomName = livekitService.roomNameForRecording(recording._id);
-    await livekitService.createRoom(recording._id);
+    await livekitService.createRoom(recording._id, { roomNumber });
 
     // Issue the publisher token for the TV
     const token = await livekitService.generateDeviceToken({
@@ -809,14 +822,8 @@ async function attachLiveKitIfEnabled({
     let egressId = recording.livekitEgressId;
     if (!egressId) {
       try {
-        // Look up roomNumber from scheduledClass for the blob path
-        let roomNumber = "unknown";
-        if (recording.scheduledClass) {
-          const sc = await ScheduledClass.findById(
-            recording.scheduledClass
-          ).select("roomNumber");
-          if (sc?.roomNumber) roomNumber = sc.roomNumber;
-        }
+        // (roomNumber already resolved above — passed to createRoom for
+        //  AutoTrackEgress filepath; reused here for RoomComposite path.)
         const info = await livekitService.startCompositeEgress(recording, {
           roomNumber,
         });
