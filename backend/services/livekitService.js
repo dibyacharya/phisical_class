@@ -291,23 +291,44 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
     },
   });
 
-  // v3.3.11 — bump Egress output to 1080p.
+  // v3.3.12 — explicit high-bitrate EncodingOptions (replaces preset).
   //
-  // The TV publishes screen + camera at 1920×1080 (post-v3.3.10 capture
-  // bump that bypassed the LG MediaProjection HAL crop bug). With Egress
-  // pinned at 720p the source 1080p was being downscaled, AND Egress's
-  // default 720p bitrate caps out around 1500 kbps — but the actual
-  // recorded video came back at ~219 kbps because the H.264 encoder
-  // sees mostly-static screen content and aggressively compresses.
-  // Result: recording readable but text edges soft, dialog text blurry.
+  // History:
+  //   v3.3.10 → preset H264_720P_30. Recorded bitrate 219 kbps for 720p.
+  //   v3.3.11 → preset H264_1080P_30. Recorded bitrate 386 kbps for 1080p.
+  //   Both produce soft / unreadable text. The presets target ~1.5–3 Mbps
+  //   max but H.264 VBR rate-control drops aggressively to <500 kbps when
+  //   content is mostly static (LectureLens setup UI, classroom slide
+  //   between teacher actions). Result: text edges blurry on screen-share
+  //   recordings, dialog content barely legible.
   //
-  // 1080p preset preserves the source resolution end-to-end and gives
-  // the encoder a higher per-pixel budget. Total Azure storage cost
-  // increases ~2.5× but recordings become genuinely usable for slide /
-  // text content.
+  // This build replaces the preset with explicit EncodingOptions that
+  // FORCE a high target bitrate (8 Mbps) and a tighter keyframe interval
+  // (1 sec instead of preset default 4 sec). Static frames now get
+  // sharper because each keyframe re-establishes pixel quality, and the
+  // encoder has 8 Mbps of headroom to spend when motion happens.
+  //
+  // Tradeoffs:
+  //   - Storage: ~30 MB / 8 min at 386 kbps  →  ~480 MB / 8 min at 8 Mbps
+  //     For a 1-hour class: ~3.6 GB. Acceptable for clarity.
+  //   - Bandwidth: TV-side LiveKit publish is already 4 Mbps per video
+  //     track. Egress just re-encodes the composite → no extra TV upload.
+  //   - LiveKit Egress server CPU load goes up slightly; not bottleneck.
+  //
+  // EncodingOptions is the protobuf message under the `advanced` oneof in
+  // RoomCompositeEgressRequest. The JS SDK accepts a plain object here;
+  // unknown fields are ignored. Field names mirror egress.proto.
   const opts = {
     layout: "speaker",
-    encodingOptions: EncodingOptionsPreset.H264_1080P_30,
+    encodingOptions: {
+      width: 1920,
+      height: 1080,
+      framerate: 30,
+      videoBitrate: 8000,        // 8 Mbps — sharp text + headroom for motion
+      audioBitrate: 192,         // 192 kbps stereo — clear voice
+      audioFrequency: 48000,     // 48 kHz matches our publish rate
+      keyFrameInterval: 1,       // 1 sec keyframes — sharper static-content quality
+    },
     audioOnly: false,
     videoOnly: false,
   };
