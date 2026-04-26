@@ -30,6 +30,27 @@ const { WebhookReceiver } = require("livekit-server-sdk");
 const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
 
+// Helper — Egress's webhook payload reports `fileResult.location` as a
+// URL but on this Azure deployment the URL is built without the container
+// segment (account_name.blob.core.windows.net/{filepath} instead of
+// account_name.blob.core.windows.net/{container}/{filepath}). The actual
+// blob is correctly written to {container}/{filepath} though, so we
+// reconstruct the public URL from filepath + the env-known container.
+function buildAzureBlobUrl(filepath) {
+  const account = (() => {
+    const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+    const m = cs.match(/AccountName=([^;]+)/i);
+    return m ? m[1] : process.env.AZURE_ACCOUNT_NAME || "";
+  })();
+  const container =
+    process.env.LIVEKIT_EGRESS_CONTAINER ||
+    process.env.AZURE_STORAGE_CONTAINER ||
+    process.env.AZURE_CONTAINER ||
+    "lms-storage";
+  if (!account || !filepath) return "";
+  return `https://${account}.blob.core.windows.net/${container}/${String(filepath).replace(/^\/+/, "")}`;
+}
+
 const ALLOWED_EVENTS = new Set([
   "egress_started",
   "egress_updated",
@@ -174,19 +195,33 @@ const processEgressEvent = async (payload) => {
       // source of truth. Both videoUrl and mergedVideoUrl are set so the
       // admin portal (which prefers mergedVideoUrl) and any legacy
       // consumer (which reads videoUrl) both work.
-      const fileLocation = fileResult.location || fileResult.filename || "";
+      //
+      // Egress's reported `location` is missing the container segment on
+      // this Azure deployment (verified iter3: stored URL gave 404, but
+      // the same path with /lms-storage/ inserted gave HTTP 200 +
+      // valid MP4). Always rebuild from filepath + env to guarantee a
+      // playable URL.
+      const filepath = fileResult.filename || "";
+      const rebuilt = buildAzureBlobUrl(filepath);
+      const fileLocation = rebuilt || fileResult.location || filepath || "";
       if (fileLocation) {
         recording.videoUrl = fileLocation;
         recording.mergedVideoUrl = fileLocation;
       }
       if (fileResult.size) {
-        recording.fileSize = Number(fileResult.size) || recording.fileSize;
-        recording.mergedFileSize =
-          Number(fileResult.size) || recording.mergedFileSize;
+        const sz = Number(fileResult.size) || 0;
+        if (sz > 0) {
+          recording.fileSize = sz;
+          recording.mergedFileSize = sz;
+        }
       }
+      // Egress reports duration in NANOSECONDS (protobuf int64). Earlier
+      // we stored the raw value (40 124 286 059) which displayed as
+      // ~40 124 286 059 seconds (= 1271 years). Convert to seconds.
       if (fileResult.duration) {
-        recording.duration =
-          Math.max(0, Number(fileResult.duration)) || recording.duration;
+        const ns = Number(fileResult.duration) || 0;
+        const secs = Math.max(0, Math.round(ns / 1_000_000_000));
+        if (secs > 0) recording.duration = secs;
       }
       recording.mergedAt = now;
     }
