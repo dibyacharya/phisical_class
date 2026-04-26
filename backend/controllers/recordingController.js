@@ -322,3 +322,94 @@ exports.cleanupStale = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// POST /api/recordings/:id/relink-livekit — backfill mergedVideoUrl for
+// LiveKit recordings whose webhook stored a broken URL (Egress reports a
+// URL missing the container segment on this Azure deployment). Reconstructs
+// the canonical URL from the recording's livekitRoomName + AZURE env, hits
+// the blob with HEAD to validate, then saves.
+exports.relinkLiveKit = async (req, res) => {
+  if (!requireValidId(req, res)) return;
+  try {
+    const recording = await Recording.findById(req.params.id);
+    if (!recording) return res.status(404).json({ error: "Recording not found" });
+    if (recording.pipeline !== "livekit") {
+      return res
+        .status(400)
+        .json({ error: "Recording is not on the LiveKit pipeline" });
+    }
+
+    // Pull the same env vars the webhook handler uses
+    const account = (() => {
+      const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+      const m = cs.match(/AccountName=([^;]+)/i);
+      return m ? m[1] : process.env.AZURE_ACCOUNT_NAME || "";
+    })();
+    const container =
+      process.env.LIVEKIT_EGRESS_CONTAINER ||
+      process.env.AZURE_STORAGE_CONTAINER ||
+      process.env.AZURE_CONTAINER ||
+      "lms-storage";
+    if (!account) {
+      return res
+        .status(500)
+        .json({ error: "Azure account name not resolvable from env" });
+    }
+
+    // Reconstruct filepath using the same convention as livekitService.blobKeyForRecording
+    let roomNumber = "unknown";
+    if (recording.scheduledClass) {
+      const ScheduledClass = require("../models/ScheduledClass");
+      const sc = await ScheduledClass.findById(recording.scheduledClass).select(
+        "roomNumber"
+      );
+      if (sc?.roomNumber) roomNumber = sc.roomNumber;
+    }
+    const startedAt =
+      recording.recordingStart ||
+      recording.livekitEgressStartedAt ||
+      recording.createdAt ||
+      new Date();
+    const date = new Date(startedAt).toISOString().slice(0, 10);
+    const filepath = `physical-class-recordings/${date}/${roomNumber}/${recording._id}/full.mp4`;
+    const url = `https://${account}.blob.core.windows.net/${container}/${filepath}`;
+
+    // HEAD-validate before persisting
+    const head = await fetch(url, { method: "HEAD" }).catch(() => null);
+    const ok = head && head.status === 200;
+    const contentLength = ok ? Number(head.headers.get("content-length") || 0) : 0;
+
+    if (!ok) {
+      return res.status(404).json({
+        error: "Reconstructed URL not found on Azure (file may have been deleted, or path convention mismatched)",
+        triedUrl: url,
+        headStatus: head?.status || null,
+      });
+    }
+
+    recording.videoUrl = url;
+    recording.mergedVideoUrl = url;
+    if (contentLength > 0) {
+      recording.fileSize = contentLength;
+      recording.mergedFileSize = contentLength;
+    }
+    if (recording.livekitEgressStatus !== "available") {
+      recording.livekitEgressStatus = "available";
+    }
+    if (recording.status !== "completed") recording.status = "completed";
+    if (recording.mergeStatus !== "ready") recording.mergeStatus = "ready";
+    recording.livekitEgressErrorReason = "";
+    recording.mergeError = "";
+    if (!recording.mergedAt) recording.mergedAt = new Date();
+    await recording.save();
+
+    res.json({
+      message: "Recording relinked",
+      url,
+      contentLength,
+      pipeline: recording.pipeline,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

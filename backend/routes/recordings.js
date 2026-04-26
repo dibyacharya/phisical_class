@@ -11,6 +11,11 @@ router.post("/:id/force-stop", auth, adminOnly, ctrl.forceStop);
 // failed (ffmpeg missing, file missing, etc). Idempotent — returns the
 // cached merged URL if merge is already `ready`.
 router.post("/:id/merge", auth, adminOnly, ctrl.retryMerge);
+// v3.2.8 — backfill the LiveKit-stored URL for recordings created before
+// the webhook was teaching itself to insert the container segment. Re-
+// computes mergedVideoUrl from the recording's livekitRoomName + the
+// canonical Azure path, validates with HEAD, then saves.
+router.post("/:id/relink-livekit", auth, adminOnly, ctrl.relinkLiveKit);
 router.delete("/:id", auth, adminOnly, ctrl.remove);
 
 module.exports = router;
