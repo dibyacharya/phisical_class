@@ -197,13 +197,39 @@ const processEgressEvent = async (payload) => {
       // consumer (which reads videoUrl) both work.
       //
       // Egress's reported `location` is missing the container segment on
-      // this Azure deployment (verified iter3: stored URL gave 404, but
-      // the same path with /lms-storage/ inserted gave HTTP 200 +
-      // valid MP4). Always rebuild from filepath + env to guarantee a
-      // playable URL.
+      // this Azure deployment (verified iter3 + iter4: stored URL gave
+      // 404 because container "lms-storage" wasn't in the URL path; the
+      // actual MP4 lives at the URL with /lms-storage/ inserted). Try
+      // three sources in order to get a playable URL:
+      //   (a) fileResult.filename → build URL from it
+      //   (b) extract path from fileResult.location and insert container
+      //   (c) raw values as-is (last resort, may still be broken)
+      const container =
+        process.env.LIVEKIT_EGRESS_CONTAINER ||
+        process.env.AZURE_STORAGE_CONTAINER ||
+        process.env.AZURE_CONTAINER ||
+        "lms-storage";
+      let fileLocation = "";
       const filepath = fileResult.filename || "";
-      const rebuilt = buildAzureBlobUrl(filepath);
-      const fileLocation = rebuilt || fileResult.location || filepath || "";
+      if (filepath) {
+        fileLocation = buildAzureBlobUrl(filepath);
+      }
+      if (!fileLocation && fileResult.location) {
+        // Parse https://host/path → split, insert container if missing
+        const m = String(fileResult.location).match(/^(https?:\/\/[^/]+)\/(.*)$/);
+        if (m) {
+          const host = m[1];
+          const path = m[2];
+          if (path.startsWith(container + "/")) {
+            fileLocation = `${host}/${path}`;
+          } else {
+            fileLocation = `${host}/${container}/${path}`;
+          }
+        } else {
+          fileLocation = fileResult.location;
+        }
+      }
+      if (!fileLocation && filepath) fileLocation = filepath;
       if (fileLocation) {
         recording.videoUrl = fileLocation;
         recording.mergedVideoUrl = fileLocation;
