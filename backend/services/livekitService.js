@@ -335,8 +335,30 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
   // trigger higher bitrate naturally. We can revisit explicit
   // EncodingOptions later via `new EncodingOptions({...})` instead of
   // the plain-object shortcut that broke this build.
+  // v3.3.19 — switch Egress layout from "speaker" to "grid".
+  //
+  // BACKGROUND. With "speaker" layout, Egress shows the active speaker
+  // OR the screen-share track filling the main view (screen-share
+  // priority). Other participants tile in a sidebar. For our setup
+  // (single TV publisher with screen + camera + audio tracks):
+  //   - With v3.3.17 mislabeled-camera (camera tagged as ScreenShare):
+  //     speaker layout sees 2 screen tracks, picks one (the actual
+  //     screen, usually) → recording shows ONLY screen, no camera.
+  //   - With v3.3.18 correct labels but broken screen track:
+  //     speaker layout shows screen (black) + camera as sidebar.
+  //   - With v3.3.19 (back to v3.3.17 settings): same mislabel issue,
+  //     same speaker behavior, camera invisible in recording.
+  //
+  // FIX. Use "grid" layout. Tiles ALL video tracks regardless of source
+  // label or active-speaker detection. With 2 video tracks (screen +
+  // camera), grid renders them side-by-side or 2-up. Camera ALWAYS
+  // visible in recording.
+  //
+  // Tradeoff: screen and camera each get half the frame (since grid
+  // splits equally). For lecture content that's fine — slides on one
+  // half, teacher on other. Better than camera-invisible.
   const opts = {
-    layout: "speaker",
+    layout: "grid",
     encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     audioOnly: false,
     videoOnly: false,
