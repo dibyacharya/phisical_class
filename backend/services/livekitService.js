@@ -291,44 +291,26 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
     },
   });
 
-  // v3.3.12 — explicit high-bitrate EncodingOptions (replaces preset).
+  // v3.3.13 — back to H264_1080P_30 preset.
   //
-  // History:
-  //   v3.3.10 → preset H264_720P_30. Recorded bitrate 219 kbps for 720p.
-  //   v3.3.11 → preset H264_1080P_30. Recorded bitrate 386 kbps for 1080p.
-  //   Both produce soft / unreadable text. The presets target ~1.5–3 Mbps
-  //   max but H.264 VBR rate-control drops aggressively to <500 kbps when
-  //   content is mostly static (LectureLens setup UI, classroom slide
-  //   between teacher actions). Result: text edges blurry on screen-share
-  //   recordings, dialog content barely legible.
+  // v3.3.12 attempted to replace the preset with a plain JS object for
+  // explicit 8 Mbps EncodingOptions. The Egress server rejected the
+  // request with `Start signal not received` and produced size=0
+  // recordings — the JS object didn't serialise to the protobuf
+  // EncodingOptions message correctly. The proper fix is to import the
+  // EncodingOptions CLASS from livekit-server-sdk and instantiate it,
+  // but that requires testing and we're rolling back to the known-good
+  // path now to unblock real-world recording.
   //
-  // This build replaces the preset with explicit EncodingOptions that
-  // FORCE a high target bitrate (8 Mbps) and a tighter keyframe interval
-  // (1 sec instead of preset default 4 sec). Static frames now get
-  // sharper because each keyframe re-establishes pixel quality, and the
-  // encoder has 8 Mbps of headroom to spend when motion happens.
-  //
-  // Tradeoffs:
-  //   - Storage: ~30 MB / 8 min at 386 kbps  →  ~480 MB / 8 min at 8 Mbps
-  //     For a 1-hour class: ~3.6 GB. Acceptable for clarity.
-  //   - Bandwidth: TV-side LiveKit publish is already 4 Mbps per video
-  //     track. Egress just re-encodes the composite → no extra TV upload.
-  //   - LiveKit Egress server CPU load goes up slightly; not bottleneck.
-  //
-  // EncodingOptions is the protobuf message under the `advanced` oneof in
-  // RoomCompositeEgressRequest. The JS SDK accepts a plain object here;
-  // unknown fields are ignored. Field names mirror egress.proto.
+  // v3.3.11 quality (386 kbps for 1080p) is soft for static content, but
+  // it produces working files end-to-end. Acceptable for tomorrow's pilot
+  // — real classroom motion (teacher gestures, slide transitions) will
+  // trigger higher bitrate naturally. We can revisit explicit
+  // EncodingOptions later via `new EncodingOptions({...})` instead of
+  // the plain-object shortcut that broke this build.
   const opts = {
     layout: "speaker",
-    encodingOptions: {
-      width: 1920,
-      height: 1080,
-      framerate: 30,
-      videoBitrate: 8000,        // 8 Mbps — sharp text + headroom for motion
-      audioBitrate: 192,         // 192 kbps stereo — clear voice
-      audioFrequency: 48000,     // 48 kHz matches our publish rate
-      keyFrameInterval: 1,       // 1 sec keyframes — sharper static-content quality
-    },
+    encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     audioOnly: false,
     videoOnly: false,
   };
