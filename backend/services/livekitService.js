@@ -291,9 +291,23 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
     },
   });
 
+  // v3.3.11 — bump Egress output to 1080p.
+  //
+  // The TV publishes screen + camera at 1920×1080 (post-v3.3.10 capture
+  // bump that bypassed the LG MediaProjection HAL crop bug). With Egress
+  // pinned at 720p the source 1080p was being downscaled, AND Egress's
+  // default 720p bitrate caps out around 1500 kbps — but the actual
+  // recorded video came back at ~219 kbps because the H.264 encoder
+  // sees mostly-static screen content and aggressively compresses.
+  // Result: recording readable but text edges soft, dialog text blurry.
+  //
+  // 1080p preset preserves the source resolution end-to-end and gives
+  // the encoder a higher per-pixel budget. Total Azure storage cost
+  // increases ~2.5× but recordings become genuinely usable for slide /
+  // text content.
   const opts = {
     layout: "speaker",
-    encodingOptions: EncodingOptionsPreset.H264_720P_30,
+    encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     audioOnly: false,
     videoOnly: false,
   };

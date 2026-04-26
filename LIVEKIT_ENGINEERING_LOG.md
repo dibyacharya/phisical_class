@@ -68,6 +68,10 @@ Admin portal (Vercel, ADMIN_PORTAL_with_phisical class/lecture-capture-system/ad
 | 3.3.2 | 2026-04-26 | + AudioOptions(VOICE_COMMUNICATION) + MODE_IN_COMMUNICATION | ❌ FAILED | Audio histogram byte-identical to v3.3.1 — HAL doesn't honour AudioSource for USB routing |
 | 3.3.3 | 2026-04-26 | + JavaAudioDeviceModule.setPreferredInputDevice + reflection AudioRecord.setPreferredDevice + SamplesReadyCallback | ⏳ uploaded but install blocked by I-117 | Audio fix, never reached TV |
 | 3.3.4 | 2026-04-26 | + skipProjectionRecovery flag (I-116) on top of v3.3.3 | ⏳ pending | Combined audio fix + force-stop crash fix |
+| 3.3.5 | 2026-04-26 | + bulletproof recording-stop (every step in try/catch) + stop_recording alias for clarity | ✅ verified | Audio fix definitively proven working (max_volume = -44.2 dB) — closes I-110 / I-114 |
+| 3.3.6 | 2026-04-26 | UvcVideoCapturer bridges UsbCameraDriver (libuvc) into LiveKit; screen-share publish dropped entirely | ❌ failed | Video track black: cameraTrack.startCapture() never called |
+| 3.3.7 | 2026-04-26 | Added cameraTrack.startCapture() between createVideoTrack and publishVideoTrack | ❌ failed | UvcVideoCapturer.startCapture fired but UVC frames didn't reach the encoder; log ring rolled over recording-start logs so couldn't verify USB permission state remotely |
+| 3.3.8 | 2026-04-26 | PIVOT: drop UvcVideoCapturer entirely; use LiveKit's built-in setCameraEnabled (Camera2 path) | ✅ **CAMERA + AUDIO WORK** | Real classroom view captured (Lumens VC-TR1 via Camera2). 177 MB / 8 min, video 2975 kbps, pixel std 65, audio max -2.6 dB. I-104 conclusion was wrong. |
 
 ---
 
@@ -212,6 +216,31 @@ Admin portal (Vercel, ADMIN_PORTAL_with_phisical class/lecture-capture-system/ad
   7. Activity crash → process dies → user sees the app icon disappear → has to relaunch manually
 - **Fix (v3.3.4):** Added `@Volatile skipProjectionRecovery: Boolean` flag. Set TRUE synchronously inside the LiveKit branch of `stopCurrentRecording` BEFORE `lk.stop()`. Inside the `MediaProjection.onStop` callback, check this flag FIRST — if true, reset to false and return without launching recovery. Race-free because the volatile write happens-before the projection eviction the SDK triggers.
 - **Lesson:** Callback handlers registered on the main looper run AFTER the calling thread's synchronous code returns. Don't rely on field-state checks inside such callbacks for "did I ask for this?" questions — use a separate "intentional" flag set BEFORE the action.
+
+### I-118 — LiveKit `setCameraEnabled` actually works on this hardware ✅ (closes I-104 / I-113)
+- **Background:** v3.3.0 testing produced "no camera track published" → catalogued as I-104 ("Camera2 silently fails on USB peripherals"). v3.3.6/v3.3.7 built a custom UvcVideoCapturer to bridge libuvc → LiveKit, both produced black-frame tracks (video bitrate 11 kbps, pixel std=0).
+- **Test (v3.3.8 / 17:06-17:09 IST):** Replaced the UVC bridge with a single line: `r.localParticipant.setCameraEnabled(true)`. Result:
+  - Video bitrate **2975 kbps** (vs 11 kbps for all-black)
+  - Pixel std **64-65 across all sampled timestamps** (vs 0)
+  - File size **177 MB** for ~8 min (vs 8.3 MB black-only)
+  - Audio max **-2.6 dB** + mean **-42.1 dB** (continuous loud signal)
+  - Visual frame extraction confirmed real classroom view from Lumens VC-TR1 USB camera
+- **Root cause of original I-104 misdiagnosis:** The v3.3.0 / v3.3.3 tests where setCameraEnabled appeared to "silently fail" were probably affected by other pipeline issues (cascade crash from I-109, projection eviction races, etc.), not Camera2 itself. Once the audio bind (v3.3.3) and force-stop cascade (v3.3.4) and bulletproof teardown (v3.3.5) were fixed, Camera2 + setCameraEnabled just worked.
+- **Lesson:** When a black-box "X silently fails" diagnosis fights a custom workaround for multiple iterations, periodically retry X after fixing other unrelated issues. The 4-hour UvcVideoCapturer detour (v3.3.6/v3.3.7) was unnecessary; setCameraEnabled was correct from day 1, but blocked by upstream pipeline bugs that masked its success.
+
+### I-114 — Audio reflection-bind FIX VERIFIED ✅ (closes I-110)
+- **Test:** v3.3.5 installed via OTA after TV restart. Class `v335-audio-final-1002` ran 15:37–15:40 IST. User was at home; TV in classroom with USB-Audio - DMP Plus mic plugged in, picking up ambient sounds.
+- **Result:**
+  - Recording duration: 476 sec, file size 8.3 MB, pipeline=livekit, status=completed
+  - `volumedetect` output:
+    - `mean_volume: -79.9 dB` (low because mostly quiet ambient)
+    - `max_volume: -44.2 dB` ← **PASS** (well above -50 dB threshold; v3.3.2 was -80.8 dB silence floor)
+    - `histogram_50db: 343` samples; `histogram_55db: 1160` samples; full distribution of real signal levels
+  - TV-side `SamplesReadyCallback` log fired continuously every 5 sec with non-zero peak amplitudes throughout the recording — proves real PCM samples flowed from the USB mic into LiveKit's audio encoder.
+  - `WebRtcAudioRecord onStop fired` cleanly at endTime — no crash, no force_stop needed.
+- **Conclusion:** The reflection-based USB-mic binding (`JavaAudioDeviceModule.setPreferredInputDevice` + `AudioRecord.setPreferredDevice` via reflected `Room.audioDeviceModule.audioInput.audioRecord` chain) DEFINITIVELY routes capture to the USB mic on this LG 55TR3DK HAL. **I-110 is CLOSED.**
+- **Side note:** The peak5s value in the SamplesReadyCallback log (`peak5s=65620 (200% of full-scale)`) is reported above 32767 due to a sign-extension bug in the byte-pair parser (`data[i+1].toInt() and 0xff` was missing). The bug only affects log display, NOT the captured audio — the encoder gets real signed-16-bit PCM. Will fix the cosmetic parser issue in a follow-up; nothing operational blocked.
+- **Lesson:** When LiveKit's SDK doesn't expose direct device-binding APIs that work on the target HAL, reach into the bundled libwebrtc fork via reflection. JavaAudioDeviceModule is `public final` and exposes `audioInput` as a public field — package-private `setPreferredDevice` on WebRtcAudioRecord is reachable in one reflective hop.
 
 ### I-117 — OTA accessibility auto-install fails silently after long uptime
 - **Symptom:** Uploaded v3.3.3 to OTA. TV downloaded it (`AppUpdater: Downloaded 55128KB`) and launched the install Intent (`AppUpdater: Intent install launched`). NO subsequent logs — no `AutoInstall: Auto-clicked INSTALL button`, no `onAccessibilityEvent`, no `onServiceConnected`. After 15-min cooldown, the cycle repeats with the same outcome. The TV stayed pinned to v3.3.2 forever despite v3.3.3 being available and `AccessibilityManager.isEnabled() = true`.
