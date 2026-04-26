@@ -338,3 +338,58 @@ print(f'min={min(data)} max={max(data)} avg={sum(data)/len(data):.1f}')
 ## Append new entries here
 
 (date — version — issue — root cause — fix — lesson)
+
+### I-119 — `isScreencast=false` at room level breaks screen capture (2026-04-26 v3.3.18)
+- **Symptom:** v3.3.18 set `LocalVideoTrackOptions(isScreencast=false)` at room level (videoTrackCaptureDefaults) intending to fix the camera-source-mislabel bug (I-118 follow-up). After install, admin Watch Live showed black main view; recording also had screen track at 0 frames despite the screen track existing in the LiveKit room with the correct `source=SCREEN_SHARE` label and right resolution.
+- **Forensic:** `listParticipants` for the live room showed:
+  - audio: src=MIC ✓
+  - camera: src=CAMERA(1), 1920×1080 ✓ (label fix worked!)
+  - screen: src=SCREEN(3), 1920×1080 ✓ — but 0 frames in recording / black in live
+- **Root cause hypothesis:** LiveKit Android SDK's `setScreenShareEnabled` is supposed to internally override isScreencast=true on the screen track, but doesn't reliably do so when the room default is false. The screen track's encoder runs in regular-video mode rather than screen-content mode, breaking MediaProjection-fed frames.
+- **Fix (v3.3.19):** Reverted to `isScreencast=true` at room level. Screen capture works again. Camera source-label cosmetic bug returns but is handled by:
+  1. Frontend Watch Live resolution-based discrimination (already deployed)
+  2. Backend Egress switch from "speaker" to "grid" layout (see I-121) — tiles all video tracks regardless of label
+- **Real fix (post-pilot, v3.3.20+):** Don't use room-level isScreencast at all. Publish camera via explicit `createVideoTrack(name, capturer, options=isScreencast=false)` + `publishVideoTrack(track, options.source=CAMERA)`. Bypasses room defaults entirely.
+- **Lesson:** Room-level defaults that leak into specific publish APIs are dangerous. Test ANY room-default change with BOTH publish paths (screen + camera) before declaring success.
+
+### I-120 — TV crashes at end of long recording when in v3.3.18 broken-screen state (2026-04-26)
+- **Symptom:** 30-min v3.3.18 test class completed normally (status=completed, 318 MB recording, mergeStatus=ready), but TV stopped sending heartbeats ~3 minutes after class endTime. Heartbeat age grew from 60s to 7+ min with no recovery. `isOnline: false`. Required physical TV restart to recover.
+- **Root cause hypothesis:** Not yet root-caused. Likely the LiveKit teardown path (Room.disconnect, track release) interacts badly with the broken-screen-publishing state — probably some native resource the dead encoder was supposed to release got stuck, leading to process death after foreground service teardown timing.
+- **Mitigation:** Don't run with isScreencast=false in production (already addressed by I-119 fix).
+- **Lesson:** A "successful" recording (file exists, mergeStatus=ready) doesn't prove the TV survived the teardown. Heartbeat continuity for 5+ min after class endTime is the real "system healthy" signal.
+
+### I-121 — Egress "speaker" layout makes camera invisible when both video tracks have source=SCREEN_SHARE (2026-04-26)
+- **Symptom:** Recordings with v3.3.17 (camera mislabeled as ScreenShare due to room-default isScreencast=true) showed only ONE video track in the recording. The "missing" track was effectively invisible despite being published.
+- **Root cause:** LiveKit Egress "speaker" layout prioritises a screen-share track if any exists. With both tracks labeled SCREEN_SHARE, Egress picked one (the actual screen, usually) and left the other ungridded. Camera publish was happening but not appearing in composite output.
+- **Fix (v3.3.19):** Backend `livekitService.js` switched `layout: "speaker"` → `layout: "grid"`. Grid tiles ALL video tracks 2-up regardless of source labels.
+- **Tradeoff:** Each tile gets half frame area; per-tile resolution effectively halved. Acceptable for lecture content (slides + teacher visible together).
+- **Lesson:** Composite layout choice matters as much as track publish. "speaker" assumes labels are correct; "grid" is robust to labeling bugs.
+
+### I-122 — AutoTrackEgress + RoomCompositeEgress in parallel breaks recording-doc tracking (2026-04-26 v3.3.16)
+- **Symptom:** v3.3.16 added AutoTrackEgress at room creation alongside the existing RoomCompositeEgress for raw track archive. 3 egresses ran fine on LiveKit side (`listEgress({active:true})` showed all ACTIVE for 30+ min), recording even produced 402 MB final file. BUT admin portal showed the recording as `status=failed` with `egressErr="no response from servers"` for the entire test duration.
+- **Root cause:** Recording schema has a single `livekitEgressId` field. With multiple parallel egresses firing simultaneously, the init-time RPC to start RoomCompositeEgress sometimes timed out client-side (backend gave up waiting), even though server-side the egress started fine. Recording doc got marked failed. Webhook-handler matching by `livekitEgressId` then either matched the wrong egress (if it happened to be a TrackEgress) or missed the right one.
+- **Fix (v3.3.17 / v3.3.19 backend):** Reverted AutoTrackEgress. Single-egress flow restored. Recording doc tracks single composite egress cleanly.
+- **Re-enable later (post-pilot):** Need:
+  1. Recording schema with `livekitEgressIds: [String]` array
+  2. Webhook handler that updates per-egress, not per-recording
+  3. Admin portal UI listing all available files (composite + raw originals)
+  4. Don't replace composite — add raw alongside as bonus archive
+- **Lesson:** When changing the parallelism model of egresses, the data model + webhook handler need to match. Single-egress assumption is baked deeper than just the createRoom call.
+
+---
+
+## Tomorrow's pilot (2026-04-27) — pre-flight + runbook
+
+See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. TL;DR:
+
+1. User reboots TV physically (currently offline since 2026-04-26 22:54 IST due to I-120)
+2. After boot: BootReceiver → foreground service → AccessibilityService rebinds → first heartbeat with `appVersionCode=94` (v3.3.18 currently installed)
+3. Backend offers v3.3.19 (vc=95, OTA latest) → AppUpdater downloads → AutoInstallService taps Install → v3.3.19 active
+4. 5-min validation class (verify recording grid layout shows BOTH screen + camera, status=completed)
+5. If clean: 1-hour real classroom pilot
+6. If broken: diagnose + fix (probably Egress grid layout interaction with single-publisher-multi-track scenario)
+
+**Stack as of pilot start:**
+- TV-side: v3.3.19 (1080p + 10 Mbps + isScreencast=true + audio reflection-bind + skipProjectionRecovery + bulletproof stop + Camera2 setCameraEnabled)
+- Backend Egress: H264_1080P_30 preset + grid layout + single-egress flow
+- Frontend: resolution-based Watch Live track discrimination + 90-min relaxed visibility
