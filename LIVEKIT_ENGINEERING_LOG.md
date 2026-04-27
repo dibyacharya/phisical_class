@@ -531,3 +531,42 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
   3. Or write a custom `VideoCapturer` that wraps a UVC driver (jiangdongguo or similar) — the v3.3.6/v3.3.7 path that produced its own issues
 - **Future work (post-pilot):** Implement option 2 — explicit deviceId enumeration for the USB camera. That gives us BOTH reliable camera detection AND proper source label. Best of both worlds.
 
+
+---
+
+## v3.3.24 — Final pilot-ready state (2026-04-27 ~13:11 IST)
+
+After a full day of forensics through I-123 → I-127, the system reached its first verified-clean state:
+
+```
+LiveKit room (verified via listParticipants):
+  src=MIC                            muted=false
+  src=SCREEN   1920×1080             muted=false
+  src=CAMERA   1280×720              muted=false  ← FIRST time today with correct label
+Egress: ACTIVE, recording cleanly
+```
+
+### What was finally needed (full forensic chain):
+
+| Issue | Fixed by |
+|---|---|
+| I-123 — camera mislabel as SCREEN_SHARE | v3.3.20 explicit createVideoTrack |
+| I-124 — custom HTML template "Start signal not received" | Disabled circle-pip, kept grid |
+| I-125 — false QR-overlay correlation (real cause was Azure VM) | Reverted v3.3.21 in v3.3.22 |
+| Azure VM duplicate docker stack port conflicts | Manual cleanup of `livekit-*` containers + Egress restart |
+| I-126 — QR overlay was load-bearing for MediaProjection | v3.3.22 restored QR overlay |
+| LG Create Board / HDMI HDCP-protected screen-share | Workflow change: TV-native content only |
+| TV state degradation after hours of test cycles | Physical TV reboot |
+| I-127 — createVideoTrack heuristic skipping USB cameras | **v3.3.24: explicit deviceId via CameraManager.LENS_FACING_EXTERNAL** |
+
+### Final shipped stack:
+
+- **TV (v3.3.24, vc=100)**:
+  - Screen: setScreenShareEnabled, room defaults isScreencast=true, 1920×1080@15fps, 10 Mbps
+  - Camera: createVideoTrack with explicit USB deviceId from CameraManager, isScreencast=false, 1280×720@15fps, 2.5 Mbps, source=CAMERA
+  - Audio: setMicrophoneEnabled with reflection-based USB mic bind (v3.3.3+)
+  - QR overlay: ENABLED (load-bearing for MediaProjection on this hardware)
+- **Backend Egress**: H264_1080P_30 preset + grid layout (no customBaseUrl), webhook auto-applies faststart re-mux post-completion
+- **Frontend Watch Live**: 2-up grid layout, deterministic via SID sort
+- **Azure VM**: Production stack only (`livekitkiitdevonline-*`), Egress freshly restarted, no port conflicts
+
