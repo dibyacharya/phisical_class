@@ -357,12 +357,51 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
   // Tradeoff: screen and camera each get half the frame (since grid
   // splits equally). For lecture content that's fine — slides on one
   // half, teacher on other. Better than camera-invisible.
+  //
+  // v3.3.20 — switch to a CUSTOM HTML template hosted on the admin
+  // portal for the Zoom-style "screen full + teacher camera as
+  // circular PiP" layout (client-requested polish). Template lives at:
+  //
+  //   admin-portal/public/egress-templates/circle-pip.html
+  //
+  // Egress's headless Chromium loads this URL with ?url=...&token=...
+  // appended automatically. The template subscribes as a viewer,
+  // attaches SCREEN_SHARE to the main viewport and CAMERA to a 240×240
+  // circular div in the bottom-right corner. Egress then captures the
+  // rendered viewport into the MP4.
+  //
+  // PRECONDITION. Requires v3.3.20+ on the TV so the camera track is
+  // labeled `source=CAMERA`. With <=v3.3.19 the camera was mislabeled
+  // as `source=SCREEN_SHARE` — the template can't disambiguate, both
+  // tracks would race for the screen viewport, only one wins, camera
+  // goes missing in the recording.
+  //
+  // REVERT PATH (no redeploy). Set `LIVEKIT_LAYOUT_OVERRIDE=grid` (or
+  // `speaker`) in Railway env vars to fall back to LiveKit's hosted
+  // built-in template. New egresses pick up the env var on next call;
+  // already-running ones are unaffected (Egress params are locked at
+  // start). For an in-progress recording, just stop + restart the
+  // class — the next egress uses the new layout.
+  const layoutOverride = (process.env.LIVEKIT_LAYOUT_OVERRIDE || "")
+    .trim()
+    .toLowerCase();
+  const useCirclePip =
+    layoutOverride !== "grid" && layoutOverride !== "speaker";
+  const customBaseUrl = useCirclePip
+    ? process.env.LIVEKIT_CUSTOM_BASE_URL ||
+      "https://lecturelens-admin.draisol.com/egress-templates/circle-pip.html"
+    : undefined;
   const opts = {
-    layout: "grid",
+    layout: useCirclePip ? "circle-pip" : layoutOverride || "grid",
+    customBaseUrl,
     encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     audioOnly: false,
     videoOnly: false,
   };
+  console.log(
+    `[LiveKit] Egress layout=${opts.layout}` +
+      (customBaseUrl ? ` customBaseUrl=${customBaseUrl}` : ""),
+  );
 
   const info = await client.startRoomCompositeEgress(roomName, fileOutput, opts);
   return info;

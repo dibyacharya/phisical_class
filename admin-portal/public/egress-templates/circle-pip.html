@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LectureLens — Circle PiP Egress Layout</title>
+  <!--
+    Custom LiveKit Egress template — "screen full + teacher camera as
+    circle PiP in the bottom-right corner".
+
+    HOW IT WORKS.
+    LiveKit Cloud's RoomCompositeEgress launches a headless Chromium and
+    navigates to:
+
+      <customBaseUrl>?url=<wsUrl>&token=<token>&layout=circle-pip
+
+    This page reads url + token from the query string, connects to the
+    same room the TV is publishing to, and renders:
+
+      • The SCREEN_SHARE track full-canvas (object-contain so it
+        letterboxes if aspect != 16:9)
+      • The CAMERA track as a 240×240 circular video pinned to the
+        bottom-right corner with a white border + drop shadow
+      • The MICROPHONE track to a hidden <audio> element so Egress's
+        page-audio capture picks it up
+
+    Egress records this rendered viewport at 1920×1080 (H264_1080P_30
+    preset) and writes the final MP4 to Azure Blob.
+
+    WHY SOURCE LABELS MATTER (v3.3.20 prerequisite).
+    The TV's LiveKit publish path was fixed in v3.3.20 to label its
+    tracks correctly:
+      - screen → source=SCREEN_SHARE (was incorrectly SCREEN_SHARE before
+        too, but camera also shared this label)
+      - camera → source=CAMERA (was source=SCREEN_SHARE in <=v3.3.19)
+    With proper labels this template can deterministically pick which
+    video goes to the main viewport and which to the circle. Don't ship
+    this template unless v3.3.20 (or later) is installed on the TV.
+
+    DEFENSIVE DESIGN.
+    • SDK load timeout — wait up to 5s for LivekitClient to be defined.
+    • Already-subscribed tracks are walked on Connected (in case the
+      Subscribed event fired before our listener attached).
+    • Hidden by default — if camera never publishes, the circle stays
+      collapsed instead of showing a black blob.
+    • All errors logged to console (visible in Egress's debug output)
+      but never crash — the page either renders correctly or stays
+      black, never throws an uncaught exception.
+
+    REVERTING.
+    If anything goes wrong with this template the backend can switch
+    back to the built-in "grid" layout in livekitService.js by removing
+    the `customBaseUrl` field. Built-in layout uses LiveKit's official
+    template hosted at template.livekit.io and is well-tested.
+  -->
+  <style>
+    /* Reset + fullscreen black background.
+       Egress's headless Chromium uses a fixed viewport (1920×1080 for
+       the H264_1080P_30 preset). 100vw/100vh = exactly that viewport. */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      position: relative;
+    }
+
+    /* Main viewport — SCREEN_SHARE track. object-contain letterboxes
+       gracefully when the captured screen is not exactly 16:9. */
+    #screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      background: #000;
+      z-index: 1;
+    }
+
+    /* Circle PiP — CAMERA track. Bottom-right corner, white-bordered
+       circle with subtle shadow. 240×240 inside a 1920×1080 viewport
+       reads at the right size — recognisable but not dominating. */
+    #camera-pip {
+      position: absolute;
+      bottom: 40px;
+      right: 40px;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 4px solid rgba(255, 255, 255, 0.92);
+      box-shadow: 0 6px 32px rgba(0, 0, 0, 0.65);
+      background: #111;
+      z-index: 2;
+      transition: opacity 200ms ease;
+    }
+    #camera-pip.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #camera-pip video {
+      width: 100%;
+      height: 100%;
+      /* object-cover crops the camera's 4:3 / 16:9 down to a 1:1 square
+         in the circle. We want the teacher's face filling the circle,
+         not letterboxed inside it. */
+      object-fit: cover;
+    }
+
+    /* Hidden audio sink — Egress captures audio from the page's
+       <audio> elements via the WebAudio capture path. We don't want
+       it visible; just need it in the DOM so audio plays + Egress
+       picks it up. */
+    #audio-sink {
+      display: none;
+    }
+
+    /* Loading hint — subtly visible while we wait for tracks to come
+       in. Auto-hides as soon as ANY video track attaches. */
+    #status {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      z-index: 0;
+      transition: opacity 250ms ease;
+    }
+    #status.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+  </style>
+  <!-- LiveKit Client SDK from jsDelivr CDN. Pinned to ^2 so we get
+       2.x patches but no surprise major bumps. -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+  <div id="status">Connecting…</div>
+  <video id="screen" autoplay playsinline muted></video>
+  <div id="camera-pip" class="hidden"><video autoplay playsinline muted></video></div>
+  <div id="audio-sink"></div>
+
+  <script>
+    (async function main() {
+      // ─── 1. Read params ───────────────────────────────────────────
+      const params = new URLSearchParams(window.location.search);
+      const url = params.get("url");
+      const token = params.get("token");
+      const layout = params.get("layout") || "circle-pip";
+
+      const statusEl = document.getElementById("status");
+      const screenEl = document.getElementById("screen");
+      const pipEl = document.getElementById("camera-pip");
+      const cameraEl = pipEl.querySelector("video");
+      const audioSink = document.getElementById("audio-sink");
+
+      const fail = (msg) => {
+        console.error("[circle-pip]", msg);
+        statusEl.textContent = msg;
+        statusEl.classList.remove("hidden");
+      };
+
+      if (!url || !token) {
+        fail("Missing url/token in query string");
+        return;
+      }
+
+      console.log("[circle-pip] starting layout=" + layout + " url=" + url);
+
+      // ─── 2. Wait for SDK ──────────────────────────────────────────
+      // The CDN <script> is a normal blocking script load in <head>,
+      // but defensive: poll for `LivekitClient` global up to 5s in case
+      // the CDN is slow or the script tag was async-loaded by accident.
+      const sdkAvailable = () =>
+        typeof window.LivekitClient !== "undefined" &&
+        window.LivekitClient.Room;
+      if (!sdkAvailable()) {
+        await new Promise((resolve, reject) => {
+          let tries = 0;
+          const id = setInterval(() => {
+            if (sdkAvailable()) {
+              clearInterval(id);
+              resolve();
+            } else if (++tries > 50) {
+              clearInterval(id);
+              reject(new Error("LivekitClient SDK never loaded after 5s"));
+            }
+          }, 100);
+        }).catch((e) => {
+          fail(e.message);
+          throw e;
+        });
+      }
+
+      const Track = window.LivekitClient.Track;
+      const RoomEvent = window.LivekitClient.RoomEvent;
+
+      // ─── 3. Build the room ────────────────────────────────────────
+      // adaptiveStream + dynacast are off because we're a subscriber
+      // (Egress) — let LiveKit deliver every frame and let the page
+      // render naturally. The SFU + Egress own bandwidth control here.
+      const room = new window.LivekitClient.Room({
+        adaptiveStream: false,
+        dynacast: false,
+      });
+
+      // ─── 4. Track attach helpers ──────────────────────────────────
+      const attachVideoTrack = (track, publication) => {
+        try {
+          const src = publication && publication.source;
+          if (src === Track.Source.ScreenShare) {
+            track.attach(screenEl);
+            statusEl.classList.add("hidden");
+            console.log("[circle-pip] screen attached");
+          } else if (src === Track.Source.Camera) {
+            track.attach(cameraEl);
+            pipEl.classList.remove("hidden");
+            statusEl.classList.add("hidden");
+            console.log("[circle-pip] camera attached (circle PiP)");
+          } else {
+            console.warn("[circle-pip] unknown video source", src, publication);
+          }
+        } catch (err) {
+          console.error("[circle-pip] attachVideoTrack failed:", err);
+        }
+      };
+
+      const attachAudioTrack = (track) => {
+        try {
+          // Each audio publication gets its own <audio> element so
+          // multiple audio tracks (if ever published) can mix. autoplay
+          // satisfies headless Chromium's autoplay gate (no user
+          // gesture needed in the headless context).
+          const a = document.createElement("audio");
+          a.autoplay = true;
+          a.playsInline = true;
+          track.attach(a);
+          audioSink.appendChild(a);
+          console.log("[circle-pip] audio attached");
+        } catch (err) {
+          console.error("[circle-pip] attachAudioTrack failed:", err);
+        }
+      };
+
+      const handleTrackSubscribed = (track, publication) => {
+        if (track.kind === "audio") {
+          attachAudioTrack(track);
+        } else if (track.kind === "video") {
+          attachVideoTrack(track, publication);
+        }
+      };
+
+      const handleTrackUnsubscribed = (track, publication) => {
+        try {
+          track.detach();
+        } catch (_) {}
+        if (publication && publication.source === Track.Source.Camera) {
+          pipEl.classList.add("hidden");
+        }
+        // We deliberately don't hide the screen — the last frame stays
+        // frozen which is less jarring in the recording than a sudden
+        // jump to black.
+      };
+
+      room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+      room.on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed);
+      room.on(RoomEvent.Connected, () => {
+        console.log("[circle-pip] room connected");
+        // Walk participants for any tracks already subscribed — covers
+        // the race where TrackSubscribed fired before our listener.
+        room.remoteParticipants.forEach((participant) => {
+          participant.trackPublications.forEach((pub) => {
+            if (pub.isSubscribed && pub.track) {
+              handleTrackSubscribed(pub.track, pub);
+            }
+          });
+        });
+      });
+      room.on(RoomEvent.Disconnected, (reason) => {
+        console.log("[circle-pip] room disconnected:", reason);
+      });
+      room.on(RoomEvent.MediaDevicesError, (err) => {
+        console.error("[circle-pip] media-devices error:", err);
+      });
+
+      // ─── 5. Connect ───────────────────────────────────────────────
+      try {
+        await room.connect(url, token, {
+          autoSubscribe: true,
+        });
+      } catch (err) {
+        fail("Connect failed: " + (err && err.message ? err.message : err));
+        return;
+      }
+
+      // ─── 6. Egress completion signal ──────────────────────────────
+      // LiveKit's Egress watches for `window.RecordingFinished` to
+      // gracefully stop. Not strictly needed (Egress will stop on
+      // disconnect / explicit stopEgress call) but cheap to provide
+      // and makes shutdown cleaner.
+      window.addEventListener("beforeunload", () => {
+        try {
+          room.disconnect();
+        } catch (_) {}
+      });
+    })();
+  </script>
+</body>
+</html>
