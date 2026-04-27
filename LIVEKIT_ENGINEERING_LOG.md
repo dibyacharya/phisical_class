@@ -681,3 +681,49 @@ Egress: ACTIVE, recording cleanly
 - **Risk consideration (I-103 revisited):** I-103 from v3.0 era said the legacy MediaProjection was "load-bearing for libwebrtc ICE on the 55TR3DK SoC". That observation was made when the legacy pipeline was the ONLY recorder and held the single projection token. It does NOT mean LiveKit's own MediaProjection (acquired via `setScreenShareEnabled`) can't host ICE. In fact, LiveKit SDK has been internally creating its own MediaProjection for `screen-share` since v2.x — the legacy keepalive has been redundant in v3.3.20+. v3.3.28 just removes the redundancy and the resulting conflict.
 - **Lesson:** When transitioning between architectures (legacy → LiveKit), it's not enough to remove the LEGACY PIPELINE — you also have to remove the legacy SUBSYSTEM lifecycle hooks that the legacy pipeline used to coordinate with. Half-removed legacy code is the source of every nasty regression we've hit today.
 
+
+---
+
+## 🎉 1-HOUR PILOT SUCCESS — 2026-04-27 (v3.3.28)
+
+**The migration is effectively done.** First clean 1-hour LiveKit-pipeline recording on the LG 55TR3DK pilot TV.
+
+### Final pilot stats:
+
+```
+Class:                 'mechnaichs ' (Room 001, Prof Rishitosh, mech)
+Duration:              3748.8s (62.5 min — slightly over 1 hour)
+Final MP4 size:        755.5 MB (1.6 Mbps overall)
+Video:                 H.264 1920×1080 @ 30fps, 1.48 Mbps
+Audio:                 AAC 44.1kHz stereo, 131.2 kbps
+Pipeline:              100% LiveKit (no legacy interference, single dialog, single grant)
+Faststart:             Applied (3.75 min re-mux for 757 MB)
+TV post-class:         Online, errCount=0, no crash (I-120 risk window cleared)
+User verification:     "perfectly recording mil gaya" + "download bhi ho gaya"
+```
+
+### What made today's pilot succeed (v3.3.20 → v3.3.28 chain):
+
+1. **v3.3.20** — explicit camera publish options (proper source labels)
+2. **v3.3.22** — QR overlay restored (load-bearing for MediaProjection on this signage TV)
+3. **Azure VM cleanup** — removed duplicate `livekit-*` docker stack stuck in restart loop on ports 7881/6379, restarted Egress
+4. **v3.3.24** — explicit USB camera deviceId via CameraManager.LENS_FACING_EXTERNAL
+5. **v3.3.25/v3.3.26** — removed legacy pipeline + fallback at every layer; hardcoded `pipeline=livekit` in session request
+6. **v3.3.27** — bulletproof AutoInstallService projection auto-tap (12-attempt retry + dispatchGesture fallback + heartbeat-surfaced result)
+7. **v3.3.28** ★ — skip ALL legacy MediaProjection lifecycle (createMediaProjection, tryRenewProjection, attemptProjectionAutoRecovery) when in LiveKit-only mode. **This eliminated the projection ping-pong that was the actual root cause** (each new MediaProjection grant on this LG TV's single-projection-per-app HAL evicted the previous one, causing screen+camera tracks to publish black frames).
+
+### Outstanding / post-pilot work:
+
+1. **v3.3.29 — change `useLiveKitPipeline` default to `true`** in PreferencesManager. Today's Room 015 fresh install proved that the default of `false` causes new TVs to start in legacy mode requiring a manual `toggle_livekit_pipeline` remote command. Default `true` makes future installs work out of the box.
+2. **Investigate webhook auto-faststart** — fired correctly for short recordings (e.g. `final camera` 5-min) but not for the 1-hour `mechnaichs` recording; required manual trigger via admin endpoint. Likely a webhook event delivery race or timeout for long recordings.
+3. **v3.3.21+ circle-PiP custom HTML template** — pause for now (legacy reverted to grid layout). Revisit with proper `recording_ready` handshake signal + offline test cycle.
+4. **Backend `SegmentedFileOutput`** — current architecture uploads MP4 only at end of recording. For better mid-class fault tolerance, switch to segmented output (5-min chunks uploaded as they complete). Worst-case data loss drops from "up to 60 min" to "up to 5 min".
+
+### Lessons (writing them down so we don't repeat):
+
+- **Half-removed legacy code is the worst kind of legacy code.** Every regression today traced back to v3.3.x having half-removed the legacy pipeline but leaving the legacy SUBSYSTEM lifecycle hooks (MediaProjection initialization, recovery flows, fallback paths) running in parallel. The fixes only landed when the legacy paths were removed AT EVERY LAYER (TV pipeline, backend session-request handling, projection lifecycle, fallback branches).
+- **Fail loud > silent fallback** on resource-constrained signage hardware. The legacy fallback was hiding the real failures all morning. Once we removed it (v3.3.25/26), the actual errors became visible in seconds.
+- **Heartbeat fields must reflect reality.** Multiple heartbeat fields (`projectionActive` was legacy-only, `micLabel` was a stale label even when USB mic was working) led to 4+ hours of false-positive debugging today. Audit + remove fields that don't reflect the active pipeline.
+- **Hardware HALs have constraints not in the API spec.** LG 55TR3DK's single-projection-per-app HAL constraint isn't documented in Android SDK docs but is the actual physical limit. Test long recordings (> 1 hour) early to catch HAL-level issues that don't show up in short tests.
+- **User pattern observation > log spelunking** — when the user could see the consent dialog flashing on the TV, that was the smoking gun for I-131 root cause. Listening to the user's descriptions saved hours.
+
