@@ -570,3 +570,33 @@ Egress: ACTIVE, recording cleanly
 - **Frontend Watch Live**: 2-up grid layout, deterministic via SID sort
 - **Azure VM**: Production stack only (`livekitkiitdevonline-*`), Egress freshly restarted, no port conflicts
 
+
+---
+
+### I-128 — Legacy fallback pipeline competing with LiveKit for MediaProjection (2026-04-27 v3.3.25)
+- **Symptom:** During the 1-hour pre-pilot battery of tests, recordings showed alternating screen/camera failure: sometimes the screen tile in admin Watch Live was black with camera visible, then refreshing showed camera black with screen visible. Heartbeat field `videoPipeline=legacy_direct` despite the LiveKit room having TV publishing 3 tracks.
+- **Root cause:** In `RecorderForegroundService.processClass()`, when LiveKit pipeline failed to start (`startLiveKitRecording` returned false), the code fell back to `startRealTimeRecording()` (the legacy MediaCodec + UVC path). On THIS hardware (LG 55TR3DK signage TV), the legacy pipeline aggressively grabs MediaProjection and the USB camera. Once both pipelines have been initialized in the same process:
+  1. Legacy takes MediaProjection → screen track on LiveKit goes black (no source)
+  2. LiveKit's screen capture re-acquires (via ProjectionRenewActivity flow) → projection bounces back
+  3. Legacy's local capture goes dead → its segment files have black frames
+  4. Loop continues for the rest of the recording
+  Admin Watch Live + the final MP4 reflect whichever pipeline owned the projection at any given second — alternating black tiles.
+- **Fix (v3.3.25):** Remove the legacy fallback entirely. If `startLiveKitRecording` returns false, fail the recording cleanly with a heartbeat error. Single pipeline = no resource contention. Per the user's explicit request: "agar legacy rehne se halucinate ho raha he ta remove karo, jo actual pe use hona chahiye usko rakhke baki sab clean hona chahiye."
+- **Trade-off:** If LiveKit fails to start (e.g., backend doesn't issue an envelope, or libwebrtc ICE fails on this hardware), the recording fails completely. There's no degraded-but-functional legacy path. This is a deliberate trade-off — better a clean failure that surfaces the real issue than a silently-broken pipeline cocktail that hides it.
+- **Lesson:** Fallback pipelines that share hardware resources (MediaProjection, Camera2, USB devices) with the primary pipeline are dangerous on resource-constrained signage hardware. They look like belt-and-braces but in practice cause concurrent-access bugs that are harder to debug than a clean primary-only failure.
+
+---
+
+## v3.3.25 — single-pipeline LiveKit-only stack (2026-04-27 ~13:30 IST)
+
+| Layer | Config |
+|---|---|
+| TV (vc=101) | LiveKit-only — no legacy fallback. If LiveKit fails to start, recording fails cleanly with diagnostic in heartbeat. |
+| Camera publish | Explicit USB deviceId via CameraManager.LENS_FACING_EXTERNAL (v3.3.24) |
+| Screen publish | setScreenShareEnabled with room defaults isScreencast=true (v3.3.20) |
+| Audio publish | setMicrophoneEnabled + reflection USB-mic bind (v3.3.3) |
+| QR overlay | Enabled — load-bearing for MediaProjection persistence (v3.3.22) |
+| Backend Egress | grid layout, faststart auto-applied post-egress_ended (v3.3.20) |
+| Frontend | 2-up grid Watch Live with deterministic SID sort (v3.3.20-frontend) |
+| Azure VM | Single production stack, Egress freshly restarted, no duplicate-stack port conflicts |
+
