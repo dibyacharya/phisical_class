@@ -136,7 +136,23 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 level so an admin can see "can this TV record right now?" at
                 a glance, instead of having to drill into the expanded view
                 or cross-reference telemetry. */}
-            {h.recording?.projectionActive === false && (
+            {/* v3.3.29 — only show "No screen capture permission" when the
+                device is NOT on LiveKit. The heartbeat field
+                `projectionActive` reflects the LEGACY MediaProjection state.
+                In LiveKit-only mode (default since v3.3.29), the legacy
+                MP is deliberately not maintained — `projectionActive` is
+                permanently false even though everything is healthy. The
+                actual LiveKit projection is acquired on-demand at recording
+                start via setScreenShareEnabled and isn't surfaced in this
+                field. So we gate the badge on `livekitEnabled === false`
+                (legacy-pipeline TV) — those are the only ones where this
+                badge is actionable. The earlier v3.3.28 attempt to gate
+                on `videoPipeline !== "livekit"` was incomplete because
+                an IDLE TV reports videoPipeline="legacy_direct" by default
+                (the field only flips to "livekit" while a recording is
+                actively running). */}
+            {h.recording?.projectionActive === false &&
+             h.recording?.livekitEnabled === false && (
               <span
                 className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-300"
                 title="MediaProjection consent has not been granted on this device. Until a human (or the AutoInstallService) taps 'Start now' on the consent dialog on the TV, every scheduled recording will fail at the projection gate. Top-level isRecording can still be true here because the backend session was created before the pipeline hit this gate."
