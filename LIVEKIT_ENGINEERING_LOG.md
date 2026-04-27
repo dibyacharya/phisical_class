@@ -393,3 +393,46 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
 - TV-side: v3.3.19 (1080p + 10 Mbps + isScreencast=true + audio reflection-bind + skipProjectionRecovery + bulletproof stop + Camera2 setCameraEnabled)
 - Backend Egress: H264_1080P_30 preset + grid layout + single-egress flow
 - Frontend: resolution-based Watch Live track discrimination + 90-min relaxed visibility
+
+---
+
+### I-123 — Final-recording layout broken: only camera tile in corner, rest of canvas black (2026-04-27 v3.3.19 → v3.3.20)
+- **Symptom:** v3.3.19 test class (5m6s, 74 MB) completed cleanly (status=completed, both video tracks published per `listParticipants` verification). But the final MP4 from Egress's grid layout showed only the camera track as a small tile in the top-left corner, with the rest of the canvas black. Watch Live (admin portal) ALSO showed inconsistent main-track selection — refreshing the page sometimes showed the slide deck, sometimes the teacher's face.
+- **Forensic:**
+  - `listParticipants`: 2 video tracks, BOTH labeled `src=SCREEN(3)`, BOTH at 1920×1080. 1 audio track at MIC.
+  - Recording rendered: only one tile visible (camera content based on the tile contents — TV mounted on wall, viewed from outside).
+  - Watch Live: resolution-sort fallback (largest area = "main") is non-deterministic when both tracks have equal area.
+- **Root cause:** Camera was being published via `setCameraEnabled(true)`, the high-level LiveKit helper. That helper inherits `videoTrackCaptureDefaults` from `RoomOptions` — which we set to `isScreencast=true` because the screen capture path needs it. Result: camera track also got `isScreencast=true` and the SFU stamped it as `source=SCREEN_SHARE`. Egress's grid template couldn't disambiguate which of the two SCREEN_SHARE tracks was "the screen" and rendered only one in a default position.
+- **Fix (v3.3.20):** Stop using `setCameraEnabled` for camera. Replace with the explicit publish path:
+  ```kotlin
+  val cameraOptions = LocalVideoTrackOptions(isScreencast = false, captureParams = ...)
+  val cameraPublishOptions = VideoTrackPublishOptions(
+      videoEncoding = VideoEncoding(maxBitrate = 2_500_000, maxFps = 15),
+      simulcast = false,
+      videoCodec = VideoCodec.H264.codecName,
+      source = Track.Source.CAMERA,
+  )
+  val cameraTrack = r.localParticipant.createVideoTrack(name = "camera", options = cameraOptions)
+  cameraTrack.startCapture()
+  r.localParticipant.publishVideoTrack(track = cameraTrack, options = cameraPublishOptions)
+  ```
+  This builds the camera track with its own per-track options (not the room defaults), so screen and camera now have:
+  - Screen: source=SCREEN_SHARE, isScreencast=true (uses room defaults via setScreenShareEnabled)
+  - Camera: source=CAMERA,       isScreencast=false (explicit)
+  Egress's grid template now disambiguates them correctly and tiles both into the recording.
+- **Frontend in same release:** Watch Live `LiveWatchModal.jsx` rewritten to render BOTH video tracks side-by-side in a 2-up grid (sorted by track SID for stable left/right placement). Eliminates the resolution-sort ambiguity and matches what the recording's grid layout produces. No "main vs PiP" decision means no flip on refresh.
+- **Lesson:** When room-level defaults are needed for one publish path (screen) but harmful for another (camera), don't try to flip the room default — use the per-track explicit publish API for the path that needs to differ. `setCameraEnabled` is a footgun in this configuration; `createVideoTrack` + `publishVideoTrack` is the correct primitive.
+- **Verification criteria for v3.3.20 pilot:**
+  1. `listParticipants` after publish: ONE track src=SCREEN(3) + ONE track src=CAMERA(1) (NOT 2× SCREEN)
+  2. Watch Live shows the same content on every refresh (deterministic SID sort)
+  3. Final MP4: 2-up grid layout with slide deck + teacher both visible (not single tile in corner)
+
+---
+
+## v3.3.20 — current shipped state (2026-04-27 morning)
+
+- **TV (vc=96, OTA active):** v3.3.20-explicit-camera-publish — camera via createVideoTrack/publishVideoTrack with source=CAMERA + isScreencast=false. Screen path unchanged (still via setScreenShareEnabled with room-default isScreencast=true). Camera ↔ 720p15, 2.5 Mbps. Screen ↔ 1080p15, 10 Mbps.
+- **Backend Egress:** unchanged from v3.3.19 — H264_1080P_30 preset + `layout: "grid"` (`livekitService.js`). With proper labels now in place, "speaker" layout would also work (screen big + camera PiP, Zoom-style); leaving as "grid" for the v3.3.20 pilot to keep one variable changed at a time.
+- **Frontend admin portal:** 2-up grid Watch Live (`LiveWatchModal.jsx`), deterministic via SID sort, deployed to https://lecturelens-admin.draisol.com .
+- **OTA delivery:** v3.3.20 active. TV running v3.3.19 will pick up update at next foreground-service start. User will physically restart TV to trigger the update + final pilot test.
+
