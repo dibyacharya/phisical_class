@@ -509,3 +509,25 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
   2. Or use Android 14's `FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION` formally (the v3.x manifest may not declare this type).
   3. Add a heartbeat alarm: if `rec.projectionActive=false` while `isRecording=true`, fire a TV-side log + remote-command-driven re-grant flow.
 
+
+---
+
+### I-127 — v3.3.20 explicit createVideoTrack camera path silently picks no camera for USB after reboot (2026-04-27 v3.3.22 → v3.3.23)
+- **Symptom:** After morning's batch of clean v3.3.20 LiveKit recordings (testt, final camera, final test) + the TV physical reboot ~07:43 UTC, every subsequent recording with v3.3.22 had the camera tile rendered BLACK in admin Watch Live + recordings, even though `listParticipants` showed `src=CAMERA 1280x720 muted=false` published in the room. Heartbeat showed `uvcSupportedSizes=` empty + `uvcFrameCount=0`. User confirmed at the OS level: webcam test app saw the Lumens VC-TR1 USB camera fine — issue was inside lecturelens.
+- **Root cause:** v3.3.20's explicit camera publish path used:
+  ```kotlin
+  r.localParticipant.createVideoTrack(name = "camera", options = LocalVideoTrackOptions(
+      isScreencast = false,
+      captureParams = VideoCaptureParameter(width=1280, height=720, maxFps=15)
+  ))
+  ```
+  with no `position` field set. LiveKit's default Camera2Capturer (used when no explicit `VideoCapturer` is passed and `position` is null) walks the Camera2 device list with a FRONT/BACK heuristic. External USB cameras like the Lumens VC-TR1 are tagged as neither FRONT nor BACK at the Camera2 layer (they're "EXTERNAL" or untagged), so the heuristic skips them and falls through to a no-op capturer that produces 0 frames. The track still publishes (track object exists, metadata sent) but the encoder receives nothing — black output.
+- **Why morning recordings worked but afternoon recordings didn't:** Camera2 enumeration order is deterministic-per-boot but not guaranteed across boots. Morning's enum order happened to put the USB cam in a slot the heuristic matched. After the afternoon's full TV reboot, enum order shifted and the heuristic missed.
+- **Fix (v3.3.23):** Revert to `r.localParticipant.setCameraEnabled(true)` — the high-level helper walks the full Camera2 device list and binds to a working camera regardless of position tags. This is what worked reliably in v3.3.8 → v3.3.19 (modulo the source-label issue).
+- **Trade-off:** setCameraEnabled inherits the room `videoTrackCaptureDefaults(isScreencast=true)`, so the SFU labels the published camera as `source=SCREEN_SHARE`. The "two SCREEN_SHARE tracks confuse Egress" issue (I-123) is back in theory, but with the Azure VM cleanup (duplicate stack removed, Egress chrome restarted), Egress's `grid` layout should still tile both video tracks regardless of label collision. The original I-123 broken-recording was triggered by the Azure VM stuck state, NOT solely by the label collision.
+- **Lesson:** `createVideoTrack` without an explicit `VideoCapturer` is fragile on devices with USB cameras. Either:
+  1. Use `setCameraEnabled(true)` for reliability (and accept the room-default-inherited isScreencast value)
+  2. Pass an explicit `Camera2Capturer` constructed with the deterministic deviceId of the USB camera (looked up via `CameraManager.getCameraIdList()` filtering for `INFO_SUPPORTED_HARDWARE_LEVEL` or `CHARACTERISTIC_LENS_FACING_EXTERNAL`)
+  3. Or write a custom `VideoCapturer` that wraps a UVC driver (jiangdongguo or similar) — the v3.3.6/v3.3.7 path that produced its own issues
+- **Future work (post-pilot):** Implement option 2 — explicit deviceId enumeration for the USB camera. That gives us BOTH reliable camera detection AND proper source label. Best of both worlds.
+
