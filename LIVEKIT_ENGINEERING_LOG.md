@@ -486,3 +486,26 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
   2. Re-enable QR via a different rendering path — e.g. attendance via separate channel, or QR rotation only when no LiveKit recording is active, or QR rendered at a frame rate Chromium handles.
   3. Or move QR display to a separate device entirely (whiteboard, printed handout) so it never enters the screen capture.
 
+
+---
+
+### I-126 — QR overlay was load-bearing for MediaProjection on this LG signage TV (2026-04-27 v3.3.21 → v3.3.22)
+- **Symptom:** v3.3.21 (QR overlay disabled) recording `hjgkhg` came back with the camera tile visible in top-left and the rest of canvas BLACK. Heartbeat showed `rec.projectionActive=False` mid-class even though `rec.livekitConnectionState=CONNECTED`. The screen track was publishing in LiveKit (1920×1080, muted=false) but with empty/black frames — encoder was running but receiving no actual content from MediaProjection.
+- **Earlier mistaken diagnosis (I-125):** User reported "QR aaya recording fail hua, QR nehi aaya recording chala". I built v3.3.21 to disable QR. The user pattern observation was actually conflated by a different concurrent issue: a duplicate `livekit-*` docker stack on the Azure VM stuck in restart-loop with port 7881/6379 conflicts (see Azure VM cleanup notes below). Recordings during that period failed regardless of QR. After Azure cleanup, recordings post-cleanup succeeded — so QR was never the real culprit.
+- **Root cause:** The QR `SYSTEM_ALERT_WINDOW` overlay was load-bearing for MediaProjection on this LG 55TR3DK SoC. With the overlay rotating every 30s:
+  - lecturelens app's window-manager binding stays alive
+  - TV display HAL doesn't enter power-save state
+  - MediaProjection consent + virtual display stay active
+  Without the overlay, when other apps (Chrome / Google Meet during a real class) take focus, the HAL revokes MediaProjection. The screen track keeps publishing (the LocalVideoTrack object is alive), but the encoder receives no new frames, producing all-black output that the SFU forwards to Egress.
+- **Fix (v3.3.22):** Revert v3.3.21's QR disable. The QR overlay is a required "anchor" for MediaProjection on this hardware. The "fix" for the original perceived QR-recording correlation was always Azure VM cleanup, not QR removal.
+- **Azure VM cleanup (separate, related diagnosis):** The Azure VM at 20.193.239.201 had two docker stacks running:
+  - `livekitkiitdevonline-*` — production (used by `wss://livekit.kiitdev.online`)
+  - `livekit-*` — old deployment, stuck in restart-loop because both stacks bind port 7881 (RTC) + 6379 (Redis)
+  The restart-looping stack was eating CPU + interfering with the production Egress's resource usage on the 2-CPU VM. Removing it (`docker stop + rm` of `livekit-livekit-1`, `livekit-redis-1`, `livekit-caddy-1`) plus restarting `livekitkiitdevonline-egress-1` resolved the persistent "Start signal not received" errors that were baking in across recordings.
+- **Lesson 1:** Forensic before "fix". The user-reported pattern was a coincidence of two failure modes overlapping in time. v3.3.21 disabled the wrong thing because I trusted the pattern observation without forensic reading of the actual Egress + heartbeat data. With proper data, the Azure VM stack collision would have been visible immediately (ports + duplicate names), and QR would never have been touched.
+- **Lesson 2:** I-103 reaffirmed. Cosmetic-looking pieces (QR overlay, legacy MediaProjection retain, system_alert_window pings) are often load-bearing on signage-class HW. Don't optimise them away without understanding the FULL system role. The TV's HAL aggressively reclaims MediaProjection when no UI element of the granting app is on screen.
+- **Future work:**
+  1. Replace QR's SYSTEM_ALERT_WINDOW role with a dedicated "keep-projection-alive" window that doesn't render anything visible (a 1×1 invisible overlay, just to maintain the window-manager link).
+  2. Or use Android 14's `FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION` formally (the v3.x manifest may not declare this type).
+  3. Add a heartbeat alarm: if `rec.projectionActive=false` while `isRecording=true`, fire a TV-side log + remote-command-driven re-grant flow.
+
