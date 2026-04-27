@@ -656,3 +656,28 @@ Egress: ACTIVE, recording cleanly
 - **Trade-offs:** Extra logging in tight retry loop is cheap (~12 INFO entries per consent flow). Gesture-tap requires API 24+ (we have minSdk=24 so safe). The retry budget of 6s is well under Android's MediaProjection consent dialog timeout (~30s on most TVs).
 - **Lesson:** Single-shot accessibility taps are fragile on OEM hardware. Production accessibility automation needs persistent retry + multi-strategy fallback + observability surface. The "ACTION_CLICK returned true so it must have worked" assumption is broken on signage TVs.
 
+
+---
+
+### I-131 — Two consent dialogs firing in sequence on single-projection-per-app HAL (2026-04-27 v3.3.28) ★ ROOT CAUSE
+- **Symptom (the actual user-visible failure):** "Just before recording, kuch automatic click ho jaata he, jisse screen capture permission disable ho jata he." Recording starts but screen + camera tracks publish black (or empty) frames in the LiveKit room.
+- **Forensic chain:**
+  1. v3.0/v3.1 era: legacy MediaCodec pipeline owned the only MediaProjection. ProjectionRenewActivity launched at boot (and on schedule check) acquired consent. Single dialog, no conflict.
+  2. v3.2.5: added LiveKit pipeline with its OWN dedicated `LiveKitProjectionRequestActivity` because each LiveKit `setScreenShareEnabled` requires a fresh Intent (the IBinder is one-shot). This ran in parallel with the legacy projection acquisition — fine on most Android, problematic on this LG signage TV.
+  3. v3.3.25/v3.3.26: legacy pipeline removed, but the legacy MediaProjection acquisition path (`createMediaProjection`, `tryRenewProjection`, `attemptProjectionAutoRecovery`, `ProjectionRenewActivity.launch`) was NOT removed. It still ran during `startRecording` to "keep libwebrtc ICE happy" (per I-103, a v3.0-era observation that has long since been overtaken by the LiveKit SDK's own ICE handling).
+  4. **THE BUG.** On this LG 55TR3DK signage TV, Android's `IMediaProjectionManager.createProjection()` is single-projection-per-app. Each new grant EVICTS the previous one + fires its `onStop` callback. So the timeline of every recording attempt was:
+     - T+0:    LiveKitProjectionRequestActivity dialog → AutoInstallService taps → LiveKit MP created → it kills the legacy MP
+     - T+50ms: legacy MP.onStop fires → recovery launches ProjectionRenewActivity → 2nd dialog appears
+     - T+100ms: AutoInstallService taps the 2nd dialog → legacy MP created → it kills the LiveKit MP
+     - T+150ms: LiveKit's screen track now publishes empty/black (the source is dead)
+     - T+...:   admin Watch Live shows black screen tile, recording's MP4 has no real screen content
+  5. The user's "kuch automatic click ho jaata he" was them watching the 2nd consent dialog flash on the TV in step 2/3.
+- **Why earlier today's recordings (testt, final camera, final test) worked:** Pure luck. The two dialogs raced and the LiveKit one happened to be granted last. After hours of cycling, the race shifted and the legacy one consistently wins. The "fix" that worked in v3.3.x morning was actually no fix — just lucky timing.
+- **Fix (v3.3.28):** When `prefs.useLiveKitPipeline=true` (always true since v3.3.26):
+  - SKIP `createMediaProjection()` in `onStartCommand` (line 480 area)
+  - SKIP the `tryRenewProjection()` / `ProjectionRenewActivity.launch()` block in `startRecording` (line 1528 area)
+  - SKIP `attemptProjectionAutoRecovery()` body — early return
+  Only LiveKit's own `LiveKitProjectionRequestActivity` runs. Single dialog. Single grant. No ping-pong.
+- **Risk consideration (I-103 revisited):** I-103 from v3.0 era said the legacy MediaProjection was "load-bearing for libwebrtc ICE on the 55TR3DK SoC". That observation was made when the legacy pipeline was the ONLY recorder and held the single projection token. It does NOT mean LiveKit's own MediaProjection (acquired via `setScreenShareEnabled`) can't host ICE. In fact, LiveKit SDK has been internally creating its own MediaProjection for `screen-share` since v2.x — the legacy keepalive has been redundant in v3.3.20+. v3.3.28 just removes the redundancy and the resulting conflict.
+- **Lesson:** When transitioning between architectures (legacy → LiveKit), it's not enough to remove the LEGACY PIPELINE — you also have to remove the legacy SUBSYSTEM lifecycle hooks that the legacy pipeline used to coordinate with. Half-removed legacy code is the source of every nasty regression we've hit today.
+
