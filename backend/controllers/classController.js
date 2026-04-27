@@ -65,22 +65,53 @@ exports.create = async (req, res) => {
     if (!courseDoc) return res.status(400).json({ error: `Course ${course} not found` });
     if (!teacherDoc) return res.status(400).json({ error: `Teacher ${teacher} not found` });
 
-    // Same-room overlap check — two classes with overlapping time windows
-    // in the same room on the same day confuse the device's schedule
-    // ranker (both would be candidates at the same moment).
+    // v3.3.29 — Conflict prevention: a class booking is rejected if EITHER
+    // the room OR the teacher is already booked for an overlapping time
+    // window on the same day.
+    //
+    // Multiple TVs can record in parallel (each has its own LiveKit room +
+    // Egress), so different rooms can run classes simultaneously. But you
+    // can NEVER:
+    //   1. Double-book the same room (the TV can only record one class at
+    //      a time — concurrent bookings would confuse the schedule ranker
+    //      AND only one would actually record).
+    //   2. Double-book the same teacher (a teacher can't be physically in
+    //      two rooms at once).
+    //
+    // Time overlap formula (standard interval intersection):
+    //   existing.startTime < new.endTime  AND  existing.endTime > new.startTime
+    // Status filter: only "scheduled" or "live" classes block new bookings.
+    // "completed" / "cancelled" classes are historical and ignored.
     const dayStart = new Date(parsedDate); dayStart.setHours(0, 0, 0, 0);
     const dayEnd   = new Date(parsedDate); dayEnd.setHours(23, 59, 59, 999);
-    const overlap = await ScheduledClass.findOne({
+
+    // Same-room overlap.
+    const roomOverlap = await ScheduledClass.findOne({
       roomNumber,
       date: { $gte: dayStart, $lte: dayEnd },
       status: { $in: ["scheduled", "live"] },
-      // Time overlap: existing.startTime < new.endTime AND existing.endTime > new.startTime
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
     });
-    if (overlap) {
+    if (roomOverlap) {
       return res.status(409).json({
-        error: `Room ${roomNumber} already booked ${overlap.startTime}-${overlap.endTime} on this date (${overlap.title})`,
+        error: `Room ${roomNumber} already booked ${roomOverlap.startTime}-${roomOverlap.endTime} on this date ('${roomOverlap.title}')`,
+        conflict: { type: "room", roomNumber, conflictingClass: { id: roomOverlap._id, title: roomOverlap.title, startTime: roomOverlap.startTime, endTime: roomOverlap.endTime } },
+      });
+    }
+
+    // Same-teacher overlap (teacher can't be in two places at once).
+    const teacherOverlap = await ScheduledClass.findOne({
+      teacher,
+      date: { $gte: dayStart, $lte: dayEnd },
+      status: { $in: ["scheduled", "live"] },
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+    if (teacherOverlap) {
+      return res.status(409).json({
+        error: `${teacherDoc?.name || "Teacher"} already has a class ${teacherOverlap.startTime}-${teacherOverlap.endTime} on this date in Room ${teacherOverlap.roomNumber} ('${teacherOverlap.title}')`,
+        conflict: { type: "teacher", teacherId: teacher, conflictingClass: { id: teacherOverlap._id, title: teacherOverlap.title, startTime: teacherOverlap.startTime, endTime: teacherOverlap.endTime, roomNumber: teacherOverlap.roomNumber } },
       });
     }
 
@@ -123,6 +154,63 @@ exports.update = async (req, res) => {
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
     }
+
+    // v3.3.29 — apply same room/teacher conflict prevention as create.
+    // If the update changes time/room/teacher/date in a way that would
+    // collide with another scheduled or live class, reject.
+    const existing = await ScheduledClass.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Class not found" });
+
+    const merged = {
+      roomNumber: updates.roomNumber || existing.roomNumber,
+      teacher:    updates.teacher    || existing.teacher,
+      startTime:  updates.startTime  || existing.startTime,
+      endTime:    updates.endTime    || existing.endTime,
+      date:       updates.date ? new Date(updates.date) : existing.date,
+    };
+
+    // Only run conflict check if a time-relevant field actually changed —
+    // avoids unnecessary DB hits on simple title-only edits.
+    const timeChanged = ["roomNumber", "teacher", "startTime", "endTime", "date"]
+      .some((k) => updates[k] !== undefined);
+
+    if (timeChanged) {
+      const timeRx = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (!timeRx.test(merged.startTime) || !timeRx.test(merged.endTime)) {
+        return res.status(400).json({ error: "startTime/endTime must be HH:MM (24-hour)" });
+      }
+      if (merged.endTime <= merged.startTime) {
+        return res.status(400).json({ error: "endTime must be after startTime" });
+      }
+
+      const dayStart = new Date(merged.date); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd   = new Date(merged.date); dayEnd.setHours(23, 59, 59, 999);
+      // Exclude this class from the overlap search.
+      const baseFilter = {
+        _id: { $ne: req.params.id },
+        date: { $gte: dayStart, $lte: dayEnd },
+        status: { $in: ["scheduled", "live"] },
+        startTime: { $lt: merged.endTime },
+        endTime:   { $gt: merged.startTime },
+      };
+
+      const roomOverlap = await ScheduledClass.findOne({ ...baseFilter, roomNumber: merged.roomNumber });
+      if (roomOverlap) {
+        return res.status(409).json({
+          error: `Room ${merged.roomNumber} already booked ${roomOverlap.startTime}-${roomOverlap.endTime} on this date ('${roomOverlap.title}')`,
+          conflict: { type: "room", roomNumber: merged.roomNumber },
+        });
+      }
+
+      const teacherOverlap = await ScheduledClass.findOne({ ...baseFilter, teacher: merged.teacher });
+      if (teacherOverlap) {
+        return res.status(409).json({
+          error: `Teacher already has a class ${teacherOverlap.startTime}-${teacherOverlap.endTime} on this date in Room ${teacherOverlap.roomNumber} ('${teacherOverlap.title}')`,
+          conflict: { type: "teacher" },
+        });
+      }
+    }
+
     const cls = await ScheduledClass.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!cls) return res.status(404).json({ error: "Class not found" });
     res.json(cls);
