@@ -631,3 +631,28 @@ Egress: ACTIVE, recording cleanly
 | TV pipeline | `LiveKitPipeline.start()` only — no legacy `startRealTimeRecording` path |
 | Failure mode | If LiveKit envelope missing OR LiveKit start fails → recording fails cleanly with diagnostic in heartbeat |
 
+
+---
+
+### I-130 — Bulletproof MediaProjection consent auto-tap (2026-04-27 v3.3.27)
+- **Symptom (recurring all afternoon):** Recordings fail at the projection gate. Dashboard shows badges:
+  - "Session open, capture stuck"  (top-level isRecording=true, inner rec.isRecording=false)
+  - "No screen capture permission" (rec.projectionActive=false)
+  Backend opens a session, TV starts the projection consent dialog, but the dialog never gets tapped. Recording aborts. The user has been observing the consent dialog flash on the TV physically — confirms AutoInstallService is failing to tap.
+- **Root cause:** AutoInstallService.onAccessibilityEvent was firing a single tap attempt per AccessibilityEvent. On the LG 55TR3DK pilot TV the dialog often delivers events in states where:
+  - The button isn't yet `isClickable=true` (mid-animation)
+  - The button bounds report (0,0,0,0)
+  - `performAction(ACTION_CLICK)` returns true but the OEM dialog only responds to raw touch events, not synthesised AccessibilityNodeInfo clicks
+  Single-shot tap on the first event therefore fails silently, dialog stays open, eventually times out. Morning recordings (testt, final camera, final test) succeeded by luck — Camera2 + dialog timing happened to align. Afternoon recordings consistently failed because state shifted.
+- **Fix (v3.3.27):** Comprehensive bulletproofing of the consent flow.
+  1. **Persistent retry loop** — when a projection dialog is detected, schedule retry attempts every 500ms for up to 6s (12 attempts). Each retry refreshes the root window and attempts the tap again. Stops as soon as a strategy reports success AND a subsequent root-window scan no longer finds the dialog (definitive success), OR the budget is exhausted.
+  2. **Three-strategy escalation per attempt:**
+     - Strategy 1: `performAction(ACTION_CLICK)` on view-id `android:id/button1` (standard AlertDialog positive button)
+     - Strategy 2: `performAction(ACTION_CLICK)` on text-label match (`PROJECTION_ACCEPT_LABELS` = "start now"/"start"/"立即开始"/"开始"/"अभी शुरू करें"/"शुरू करें")
+     - Strategy 3: `dispatchGesture()` synthesised touch tap at the button's bounding rect — bypasses ACTION_CLICK quirks on OEM TVs
+  3. **Heartbeat surface:** `rec.lastProjectionTap = { detectedAgoMs, via, pkg, result }`. The `result` field tells admin EXACTLY what happened: `button1-click (attempt=N)`, `label-click (attempt=N)`, `gesture-tap@(x,y) (attempt=N)`, `dialog-closed-after-tap`, `retry-attempt-N-failed`, `timeout-after-12-attempts`, `no-root-window`, `service-not-bound`. No more black-box "consent failed".
+  4. **15s safety timeout** in LiveKitProjectionRequestActivity — if neither user nor service taps within 15s, fail with `denial` so the recording aborts cleanly. Activity never hangs forever.
+  5. **AccessibilityServiceInfo flags:** added `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` so retry loop can refresh root window content after each attempt.
+- **Trade-offs:** Extra logging in tight retry loop is cheap (~12 INFO entries per consent flow). Gesture-tap requires API 24+ (we have minSdk=24 so safe). The retry budget of 6s is well under Android's MediaProjection consent dialog timeout (~30s on most TVs).
+- **Lesson:** Single-shot accessibility taps are fragile on OEM hardware. Production accessibility automation needs persistent retry + multi-strategy fallback + observability surface. The "ACTION_CLICK returned true so it must have worked" assumption is broken on signage TVs.
+
