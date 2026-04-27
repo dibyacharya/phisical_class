@@ -436,3 +436,38 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
 - **Frontend admin portal:** 2-up grid Watch Live (`LiveWatchModal.jsx`), deterministic via SID sort, deployed to https://lecturelens-admin.draisol.com .
 - **OTA delivery:** v3.3.20 active. TV running v3.3.19 will pick up update at next foreground-service start. User will physically restart TV to trigger the update + final pilot test.
 
+
+---
+
+### I-124 — Custom Egress template "Start signal not received" (2026-04-27 v3.3.20)
+- **Symptom:** Tried to ship a custom HTML template at `admin-portal/public/egress-templates/circle-pip.html` for "screen full + camera as circle PiP" recording layout. First test recording came back `status=failed` with `livekitEgressErrorReason="Start signal not received"`. File size 0, no frames captured.
+- **Root cause:** LiveKit Egress with `customBaseUrl` requires the template to call a "ready to record" handshake signal so Egress knows when to start capturing the page. Without the signal, Egress times out (~30s default) and aborts before capturing any frames. The exact API depends on the Egress version:
+  - Older: set `window.LIVEKIT_RECORDING_STARTED = true`
+  - Newer: `window.parent.postMessage({type: "recording_ready"}, "*")`
+  - Latest: `window.localContext.startRecording()`
+  My initial template missed all three — focused only on attaching tracks to DOM elements.
+- **Fix (immediate, v3.3.20-hotfix):** Disable customBaseUrl by default. Backend defaults to LiveKit's hosted "grid" layout (validated). Re-enable circle-pip via `LIVEKIT_USE_CIRCLE_PIP=true` env once the template is fixed.
+- **Fix (proper, v3.3.21+):** Read LiveKit's official `egress-templates` reference repo to identify the exact handshake API for the Egress version running on `livekit.kiitdev.online` (Azure VM). Add the call to the template. Validate offline with a 2-3 min recording before enabling for production.
+- **Lesson:** Custom Egress templates are NOT just "loadable HTML". They have an explicit handshake protocol with the Egress recorder. Adding `customBaseUrl` without implementing the protocol = guaranteed fail. Always test custom templates in isolation before enabling on a production pilot path.
+
+---
+
+## v3.3.20 — final shipped state for the 1-hour pilot (2026-04-27 morning)
+
+| Layer | Config | Validation |
+|---|---|---|
+| TV (vc=96, OTA active) | v3.3.20-explicit-camera-publish | 5-min test completed clean (`final camera`, 7.5 min, status=completed, 141 MB MP4) |
+| Camera publish path | Explicit `createVideoTrack(isScreencast=false)` + `publishVideoTrack(source=CAMERA)` | listParticipants confirmed: src=CAMERA 1280×720, src=SCREEN 1920×1080, src=MIC |
+| Backend Egress layout | `grid` via LiveKit's hosted built-in template | 3 consecutive grid-layout recordings completed clean |
+| Custom Circle PiP | Disabled (`LIVEKIT_USE_CIRCLE_PIP` env unset) | Deferred to v3.3.21 — see I-124 |
+| Faststart auto-fix | Wired into `egress_ended` webhook + admin endpoint at POST `/api/recordings/:id/optimize-faststart` | Verified on `final camera` (moov moved from byte 140,701,980 → byte 32) |
+| Frontend Watch Live | 2-up side-by-side grid, SID-sorted | Deployed on lecturelens-admin.draisol.com |
+
+**Outstanding work after pilot passes:**
+
+1. **v3.3.21 — fix circle-pip template handshake** (I-124). Read LiveKit's egress-templates reference, identify correct `recording_ready` signal for our Egress version, add to template, validate with 3-min test recording, then enable in production.
+2. **v3.3.21+ — Egress speaker layout** (alternative to circle-pip). With v3.3.20's correct labels, LiveKit's built-in "speaker" layout might give the desired Zoom-style screen-big-camera-PiP-rectangle look without a custom template at all. Test as a less-risky alternative to circle-pip.
+3. **UI cosmetic fixes** (heartbeat false-positive badges):
+   - "No screen capture permission" — based on legacy `mediaProjectionGranted` flag that's never populated in LiveKit pipeline. Update heartbeat field to also report when LiveKit's screen track is publishing.
+   - "High latency" — heartbeat HTTP RTT, not WebRTC. Misleading during recording. Either rename or hide during active recording.
+
