@@ -382,17 +382,27 @@ const startCompositeEgress = async (recording, { roomNumber } = {}) => {
   // already-running ones are unaffected (Egress params are locked at
   // start). For an in-progress recording, just stop + restart the
   // class — the next egress uses the new layout.
+  // SAFETY: circle-pip custom template DISABLED by default after the
+  // first pilot run came back with "Start signal not received" — the
+  // template wasn't calling LiveKit Egress's ready-to-record signal
+  // (window.localContext.startRecording or equivalent) so Egress timed
+  // out before recording any frames. Investigate + fix offline; until
+  // then we run with the built-in "grid" layout which is validated.
+  //
+  // To re-enable for testing: set `LIVEKIT_USE_CIRCLE_PIP=true` in
+  // Railway env. Default is OFF.
+  const enableCirclePip = process.env.LIVEKIT_USE_CIRCLE_PIP === "true";
   const layoutOverride = (process.env.LIVEKIT_LAYOUT_OVERRIDE || "")
     .trim()
     .toLowerCase();
-  const useCirclePip =
-    layoutOverride !== "grid" && layoutOverride !== "speaker";
-  const customBaseUrl = useCirclePip
+  const customBaseUrl = enableCirclePip
     ? process.env.LIVEKIT_CUSTOM_BASE_URL ||
       "https://lecturelens-admin.draisol.com/egress-templates/circle-pip.html"
     : undefined;
   const opts = {
-    layout: useCirclePip ? "circle-pip" : layoutOverride || "grid",
+    layout: enableCirclePip
+      ? "circle-pip"
+      : layoutOverride || "grid",
     customBaseUrl,
     encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     audioOnly: false,
