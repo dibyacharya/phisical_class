@@ -16,6 +16,12 @@ router.post("/:id/merge", auth, adminOnly, ctrl.retryMerge);
 // computes mergedVideoUrl from the recording's livekitRoomName + the
 // canonical Azure path, validates with HEAD, then saves.
 router.post("/:id/relink-livekit", auth, adminOnly, ctrl.relinkLiveKit);
+// v3.3.20 — re-mux an existing recording's MP4 with `+faststart` so seek
+// + audio playback work in browsers. Fixes the moov-at-end issue that
+// LiveKit Egress produces by default. Idempotent. Used to fix recordings
+// created before the webhook auto-optimization landed; new recordings get
+// optimized automatically post-egress_ended.
+router.post("/:id/optimize-faststart", auth, adminOnly, ctrl.optimizeFaststart);
 router.delete("/:id", auth, adminOnly, ctrl.remove);
 
 module.exports = router;

@@ -413,3 +413,71 @@ exports.relinkLiveKit = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// v3.3.20 — Re-mux an existing recording's MP4 with `+faststart`.
+//
+// LiveKit Egress writes its MP4 with the moov atom at the end of the
+// file, which breaks browser seeking + AAC playback for streaming
+// clients. This endpoint re-muxes the blob in place: download from
+// Azure → ffmpeg `-c copy -movflags +faststart` → upload back.
+//
+// Idempotent — running again on an already-faststart file just produces
+// the same file. Safe to invoke multiple times. Synchronous so the admin
+// gets a clear pass/fail result; for a 1-hour recording (~1 GB) this
+// takes 1-3 minutes. Use the background path (webhook auto-trigger) for
+// new recordings; this endpoint is for backfilling old ones.
+exports.optimizeFaststart = async (req, res) => {
+  if (!requireValidId(req, res)) return;
+  try {
+    const recording = await Recording.findById(req.params.id);
+    if (!recording) return res.status(404).json({ error: "Recording not found" });
+    if (recording.pipeline !== "livekit") {
+      return res
+        .status(400)
+        .json({ error: "Recording is not on the LiveKit pipeline" });
+    }
+
+    // Reconstruct the blob key (filepath) using the same convention as
+    // livekitService.blobKeyForRecording — same logic as relinkLiveKit
+    // above, kept inline for clarity.
+    let roomNumber = "unknown";
+    if (recording.scheduledClass) {
+      const ScheduledClass = require("../models/ScheduledClass");
+      const sc = await ScheduledClass.findById(recording.scheduledClass).select(
+        "roomNumber"
+      );
+      if (sc?.roomNumber) roomNumber = sc.roomNumber;
+    }
+    const startedAt =
+      recording.recordingStart ||
+      recording.livekitEgressStartedAt ||
+      recording.createdAt ||
+      new Date();
+    const date = new Date(startedAt).toISOString().slice(0, 10);
+    const filepath = `physical-class-recordings/${date}/${roomNumber}/${recording._id}/full.mp4`;
+
+    const { fastStartOptimizeBlob } = require("../services/fastStartOptimizer");
+    const result = await fastStartOptimizeBlob(
+      filepath,
+      `manual rec=${recording._id}`,
+    );
+
+    // Refresh fileSize on the recording in case re-mux changed it slightly
+    if (result.newSize > 0 && Math.abs(result.newSize - (recording.fileSize || 0)) > 1024) {
+      recording.fileSize = result.newSize;
+      recording.mergedFileSize = result.newSize;
+      await recording.save();
+    }
+
+    res.json({
+      message: "Faststart optimization complete",
+      filepath,
+      durationMs: result.durationMs,
+      oldSize: result.oldSize,
+      newSize: result.newSize,
+    });
+  } catch (err) {
+    console.error("[optimizeFaststart] failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+};

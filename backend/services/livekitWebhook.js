@@ -29,6 +29,7 @@
 const { WebhookReceiver } = require("livekit-server-sdk");
 const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
+const { fastStartOptimizeBlobInBackground } = require("./fastStartOptimizer");
 
 // Helper — Egress's webhook payload reports `fileResult.location` as a
 // URL but on this Azure deployment the URL is built without the container
@@ -253,6 +254,46 @@ const processEgressEvent = async (payload) => {
     }
 
     await recording.save();
+
+    // v3.3.20 — Faststart optimization.
+    //
+    // LiveKit Egress writes MP4 with the moov atom at the END of the file.
+    // Result: HTML5 video can't seek (forward/scrub doesn't work), and
+    // audio is silent in many players when streaming because the AAC
+    // decoder can't find its codec init data without loading the entire
+    // file first.
+    //
+    // Fire-and-forget a background re-mux that downloads the blob, runs
+    // `ffmpeg -c copy -movflags +faststart` (stream copy, no re-encode),
+    // and uploads back over the same blob. Idempotent. Does NOT block the
+    // webhook response — LiveKit gets its 200 immediately, and the file
+    // becomes seekable + audible within ~30s (5-min recording) to ~2 min
+    // (1-hour recording). The blob URL doesn't change, so the admin portal
+    // doesn't need to refresh — playback just starts working better.
+    //
+    // The original (broken) file stays accessible during the re-mux
+    // window, so a user who downloads in that brief gap sees the old
+    // behavior. Acceptable — the 1-2 min gap is much shorter than typical
+    // post-class admin behavior (review the recording the next morning).
+    // The success branch above declares `filepath` inside an else block,
+    // so we can't read that local. Re-pull it from the same source the
+    // success branch used (fileResult.filename), which is defined at the
+    // outer scope of the egress_ended handler.
+    const optimizeFilepath = fileResult.filename || "";
+    if (!isFailed && optimizeFilepath) {
+      try {
+        fastStartOptimizeBlobInBackground(
+          optimizeFilepath,
+          `rec=${recording._id} egress=${egressId}`,
+        );
+      } catch (e) {
+        // never let this failure block webhook response
+        console.error(
+          `[fastStart] kick-off failed rec=${recording._id}:`,
+          e.message,
+        );
+      }
+    }
 
     // Mark the linked ScheduledClass terminal — heartbeat reconcile would
     // eventually do this, but it's cleaner to flip it as soon as we know
