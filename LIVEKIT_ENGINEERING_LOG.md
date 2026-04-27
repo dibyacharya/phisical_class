@@ -471,3 +471,18 @@ See `MEMORY.md` "STATE FOR TOMORROW" section for the full operational handoff. T
    - "No screen capture permission" — based on legacy `mediaProjectionGranted` flag that's never populated in LiveKit pipeline. Update heartbeat field to also report when LiveKit's screen track is publishing.
    - "High latency" — heartbeat HTTP RTT, not WebRTC. Misleading during recording. Either rename or hide during active recording.
 
+
+---
+
+### I-125 — QR attendance overlay correlates with Egress "Start signal not received" failures (2026-04-27 v3.3.20→v3.3.21)
+- **Symptom:** After successfully running 3 grid-layout recordings (testt 5min, final camera 7.5min, final test 10min), every subsequent recording attempt failed with `livekitEgressErrorReason="Start signal not received"`. Egress logs showed Chrome firing `END_RECORDING` without ever firing `START_RECORDING` — the page was loading but never reaching the ready-to-record state.
+- **User-reported pattern:** "QR code jab screen pe nehi aa raha tha wo wala ache se recording ho raha tha. QR code aa gaya recording pe issue he." Translated: classes WITHOUT the QR attendance overlay rotating on the TV screen produced clean recordings; classes WITH the QR overlay produced failed recordings.
+- **Verified failure consistency:** Two consecutive failed recordings — `EG_yNXHqkrwWg5R` (with circle-pip custom template) and `EG_WyoBWrFWidDw` (with default grid template, AFTER rolling back custom template) — both failed identically. Even rolling back to the validated grid layout didn't help once QR was active.
+- **Root cause hypothesis:** The QR overlay is a `SYSTEM_ALERT_WINDOW` rendered on the TV display, captured by MediaProjection along with the rest of the screen. The rotation cadence (every 30 seconds) seems to interact badly with MediaProjection's screen-content sampling on this LG 55TR3DK SoC, producing screen-track frames that Egress's headless Chromium can't render to its internal canvas. Without rendered frames, the page never reaches its "ready" state and Egress aborts.
+- **Fix (v3.3.21):** Comment out the `qrOverlay?.start(meetingId, hmacSecret)` call in `RecorderForegroundService.kt` (line ~2156 in the legacy recording-start path). With QR overlay disabled, the screen track produces clean frames that Egress's Chrome renders correctly.
+- **Lesson:** When recording fails after a working baseline, look for what changed on the TV-side stack — not just the backend or LiveKit Egress. Cosmetic-looking features (overlays, animations, popups) can disrupt MediaProjection's screen-content path on signage-class hardware. User pattern observation > log spelunking when the user has been watching real test results.
+- **Future work:**
+  1. Identify the exact MediaProjection / Chromium interaction. Possibly the QR's pixel-content (high-frequency black/white squares) triggers some frame-rate detection heuristic in Chromium that pauses rendering.
+  2. Re-enable QR via a different rendering path — e.g. attendance via separate channel, or QR rotation only when no LiveKit recording is active, or QR rendered at a frame rate Chromium handles.
+  3. Or move QR display to a separate device entirely (whiteboard, printed handout) so it never enters the screen capture.
+
