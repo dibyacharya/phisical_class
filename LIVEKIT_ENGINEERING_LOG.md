@@ -600,3 +600,34 @@ Egress: ACTIVE, recording cleanly
 | Frontend | 2-up grid Watch Live with deterministic SID sort (v3.3.20-frontend) |
 | Azure VM | Single production stack, Egress freshly restarted, no duplicate-stack port conflicts |
 
+
+---
+
+### I-129 — Backend creating recording doc as `pipeline=legacy` despite v3.3.25's removed-fallback (2026-04-27 v3.3.26)
+- **Symptom:** After shipping v3.3.25 (TV no longer falls back to legacy), the next test recording (`Fluid mechanics`) STILL came back with `pipeline=legacy` in the recording doc, no `livekitRoomName`, and Watch Live's admin-watch-token endpoint refused to issue a token because of the legacy label. TV heartbeat showed the new v3.3.25 error message `"LiveKit failed (legacy fallback disabled): unknown"` confirming legacy fallback DID NOT fire on TV side, but the recording was still marked legacy on the backend.
+- **Root cause:** Backend's `attachLiveKitIfEnabled()` in `controllers/classroomRecordingController.js` line 792 has the gate:
+  ```javascript
+  if (pipelineRequested !== "livekit") return;
+  ```
+  `pipelineRequested` comes from the TV's session-request body field `pipeline`. The TV's RecorderForegroundService at line 1566 was sending:
+  ```kotlin
+  "pipeline" to if (prefs.useLiveKitPipeline) "livekit" else "legacy"
+  ```
+  After hours of state-cycling today, `prefs.useLiveKitPipeline` had become `false` somehow (perhaps from a `toggle_*` remote command, or default-init mismatch). So the TV was sending `pipeline=legacy` to the backend → backend skipped LiveKit setup → recording doc created as legacy → no LiveKit envelope returned → TV's v3.3.25 logic correctly bailed with "no envelope" but the doc was already legacy in the DB.
+- **Fix (v3.3.26):** **Hardcode `pipeline = "livekit"` unconditionally** in the session request. Remove the conditional on `prefs.useLiveKitPipeline`. Also remove the `else` branch in the pipeline-decision block in `processClass()` (the one that called `startRealTimeRecording()` when the envelope was absent) — replace with a clean fail. The TV's stack is now LiveKit-ONLY at every layer:
+  - Session request: `pipeline="livekit"` always
+  - Backend response: must include LiveKit envelope, or recording fails
+  - Local pipeline: only `LiveKitPipeline.start()`, no legacy `startRealTimeRecording()` path
+- **Lesson:** "Don't fall back to legacy" needs to be enforced at EVERY layer: TV → backend → recorded doc. A single conditional that still routes through legacy poisons the entire flow downstream.
+
+---
+
+## v3.3.26 — final LiveKit-only stack (2026-04-27)
+
+| Layer | Behaviour |
+|---|---|
+| TV session request | Always `pipeline="livekit"` (hardcoded) |
+| Backend recording doc | Always `pipeline="livekit"` (since attachLiveKitIfEnabled now always fires) |
+| TV pipeline | `LiveKitPipeline.start()` only — no legacy `startRealTimeRecording` path |
+| Failure mode | If LiveKit envelope missing OR LiveKit start fails → recording fails cleanly with diagnostic in heartbeat |
+
