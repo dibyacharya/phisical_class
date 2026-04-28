@@ -237,14 +237,30 @@ the cause in `lastError`.
 
 - `serviceScope` is a `SupervisorJob` — coroutine failures don't cancel
   sibling work.
-- `installCrashHandler()` (line 723) writes the stack trace to disk.
-  Next process boot reads + uploads it as `lastCrashReport` in heartbeat.
-- `runInitialHardwareCheck()` (line 770) verifies USB peripherals on
-  service start.
-- `startHangMonitor()` (line 638) — if the heartbeat thread hangs >120s,
-  the watchdog logs and would (TODO) restart the service.
+- `installCrashHandler()` writes the stack trace to disk. Next process
+  boot reads + uploads it as `lastCrashReport` in heartbeat.
+- `runInitialHardwareCheck()` verifies USB peripherals on service start.
+- `startHangMonitor()` — if the heartbeat thread hangs >120s, the
+  monitor logs.
 
-### Recording-level
+### Recording-level (v3.5.1+ long-duration watchdog)
+
+Long classes (1-hour, 2-hour) face fundamentally different failure
+modes than short tests. The new `armRecordingWatchdog()` runs every
+60s for the lifetime of EACH recording, polling pipeline state:
+
+| Watchdog observation | Action |
+|---|---|
+| `livekitConnectionState == "DISCONNECTED"` for ≥120s | **STOP recording cleanly** — LiveKit pipeline is dead, libwebrtc on the LG signage SoC doesn't always recover. Force-stop now so backend can mark the recording failed; admin sees actionable error rather than a silent bad MP4. |
+| `audioLevelDb ≤ -80 dB` while LK still CONNECTED | Log warning. Do NOT force-stop — silent audio is recoverable, screen + camera tracks may still be valid. The recording is degraded but not broken. |
+| Frame drops accumulating | Logged in heartbeat; admin can see degradation in real time. |
+
+The watchdog is intentionally CONSERVATIVE — it never restarts the
+pipeline mid-recording (that would lose all SFU + Egress state and
+break the final MP4). It surfaces issues for admins and only
+force-stops on hard pipeline death.
+
+### Resource cleanup between recordings
 
 Each recording is independent (transition 4 above). State leaks between
 recordings — once endemic in v3.3.x — are now fixed:
@@ -255,6 +271,61 @@ recordings — once endemic in v3.3.x — are now fixed:
 If the user observes a recording starting in a bad state (silent audio,
 frozen video, no camera), it indicates a regression in the state machine
 and should be reported with TV logs immediately.
+
+## Long-duration class lifecycle (v3.5.1+ verified)
+
+For continuous 60-120 minute classes:
+
+```
+[Idle] → [Recording start (transition 2)]
+       ↓
+       [Recording — armRecordingWatchdog ticking every 60s]
+       ↓
+   ──── Watchdog detects pipeline death? ──── YES ─→ stopCurrentRecording()
+   ↓                                                  ↓
+   NO                                                 [Idle, recording marked failed]
+   ↓
+   [Class scheduled end time hits]
+   ↓
+   [Recording end (transition 3)]
+   ↓
+   [Idle, ready for next class]
+```
+
+**Key reliability properties**:
+
+- **No timeout limit on recording duration.** LiveKit publisher tokens
+  are 4-hour TTL; recordings up to 4h work without re-auth. Beyond that
+  the SDK auto-refreshes silently.
+- **Heartbeat never breaks during recording.** `heartbeat()` runs on
+  its own coroutine on `serviceScope`; a stuck pipeline doesn't block
+  the heartbeat thread.
+- **Memory does not accumulate.** Each frame is published to libwebrtc
+  via direct pointer; no Kotlin/Java buffering layer. The audio
+  amplitude logger keeps a 5-second peak (constant memory).
+- **Disk does not fill up.** No segments written to disk in LiveKit
+  mode — every byte goes via WebRTC straight to LiveKit Egress.
+  TVs only retain a small log buffer + the OTA APK download cache.
+- **Resource cleanup on stop is deterministic.** v3.4.2 + v3.4.3 fixes
+  guarantee the camera, mic, and audio routing are all released within
+  ~50ms of `stopCurrentRecording()` returning. Browser regains
+  hardware access immediately after recording ends.
+
+## Watch Live (admin browser preview during recording)
+
+While a recording is in progress, an admin can subscribe to the same
+LiveKit room as a viewer — the page renders the TV's tracks live.
+
+```
+admin browser → LiveKit room (same room as Egress) → subscribes to TV's 3 tracks
+              → renders screen + camera tiles in 2-up grid
+              → plays audio
+```
+
+Watch Live is independent of Egress — it can succeed even if Egress
+fails (and vice-versa). If Watch Live shows nothing while Egress is
+producing a valid MP4, it's a frontend subscription bug, not a
+recording failure.
 
 ## Variable naming reference (canonical → frontend display)
 
