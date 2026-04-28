@@ -37,11 +37,11 @@ function UsageBar({ value, warn = 75, danger = 90, label }) {
   );
 }
 
-function HardwareIcon({ ok, Icon, label }) {
+function HardwareIcon({ ok, Icon, label, tooltip }) {
   const color = ok === true ? "text-green-600 bg-green-50" : ok === false ? "text-red-600 bg-red-50" : "text-gray-400 bg-gray-50";
   const Ring = ok === true ? CheckCircle : ok === false ? XCircle : null;
   return (
-    <div className="flex flex-col items-center gap-1" title={label}>
+    <div className="flex flex-col items-center gap-1" title={tooltip || label}>
       <div className={`relative p-2 rounded-lg ${color}`}>
         <Icon size={18} />
         {Ring && (
@@ -51,6 +51,132 @@ function HardwareIcon({ ok, Icon, label }) {
       <span className="text-[10px] text-gray-500">{label}</span>
     </div>
   );
+}
+
+/**
+ * v3.3.30 — derive REAL peripheral state from heartbeat fields, not the
+ * stale h.camera/mic/screen.ok flags the TV used to populate (which were
+ * wrong on multiple devices today: all-green icons even when USB mic was
+ * unplugged + uvcState=NO_DRIVER).
+ *
+ * Returns { cameraOk, micOk, screenOk } where each is:
+ *   true  → green (peripheral detected + functional, with evidence)
+ *   false → red (peripheral NOT detected — actionable)
+ *   null  → gray (state unknown, e.g. device offline)
+ *
+ * Tooltips explain WHY a peripheral is in its current state — so admin
+ * can see "USB mic not plugged in (micLabel='System default mic')" not
+ * just a red icon.
+ */
+function deriveHardwareState(device, h) {
+  // Offline override — don't trust any heartbeat field, mark all gray.
+  if (!device.isOnline) {
+    return {
+      cameraOk: null,
+      micOk: null,
+      screenOk: null,
+      cameraTooltip: "Device offline — last heartbeat too stale to know peripheral state",
+      micTooltip: "Device offline — last heartbeat too stale to know peripheral state",
+      screenTooltip: "Device offline — last heartbeat too stale to know peripheral state",
+    };
+  }
+
+  const rec = h.recording || {};
+
+  // ── CAMERA ──
+  // USB camera is OK when the libuvc driver has an OPEN state and at
+  // least one supported size. NO_DRIVER / empty sizes = camera not
+  // physically connected (common cause: cable unplugged).
+  const uvcState = rec.uvcState || "";
+  const uvcSizes = rec.uvcSupportedSizes || "";
+  let cameraOk = null;
+  let cameraTooltip = "";
+  if (uvcState === "NO_DRIVER" || uvcState === "FAILED") {
+    cameraOk = false;
+    cameraTooltip = `USB camera not detected (uvcState=${uvcState || "unknown"}). Check the USB cable on the TV.`;
+  } else if (uvcState === "OPEN" || (uvcSizes && uvcSizes.length > 0)) {
+    cameraOk = true;
+    const selected = rec.uvcSelectedSize || "?";
+    cameraTooltip = `USB camera detected. Resolution: ${selected}. Sizes available: ${(uvcSizes || "").split(",").length}`;
+  } else {
+    // Fall back to TV-reported flag if uvc fields aren't populated
+    cameraOk = h.camera?.ok ?? null;
+    cameraTooltip = "Camera state unknown (heartbeat doesn't carry uvc fields).";
+  }
+
+  // ── MIC ──
+  // USB mic is OK when (a) micLabel is NOT "System default mic" (which
+  // means a USB-named device is bound), AND (b) audioLevelDb shows
+  // recent non-silent activity OR we're not currently recording (idle
+  // mic legitimately reads -90 dB).
+  const micLabel = rec.micLabel || "";
+  const audioDb = typeof rec.audioLevelDb === "number" ? rec.audioLevelDb : -90;
+  const isRecording = device.isRecording === true;
+  let micOk = null;
+  let micTooltip = "";
+  if (!micLabel) {
+    micOk = h.mic?.ok ?? null;
+    micTooltip = "Mic state unknown (heartbeat doesn't carry mic fields).";
+  } else if (micLabel === "System default mic" || micLabel.toLowerCase().includes("default")) {
+    micOk = false;
+    micTooltip = `USB mic not connected — TV fell back to "${micLabel}" which has no input on signage TVs. Plug in the USB-Audio mic.`;
+  } else if (isRecording && audioDb <= -80) {
+    // USB mic IS bound by name, but we're recording and getting digital
+    // silence — could be muted or cable issue. Show as warning.
+    micOk = false;
+    micTooltip = `USB mic "${micLabel}" bound but capturing digital silence (${audioDb} dB). Mic muted? Cable issue?`;
+  } else {
+    micOk = true;
+    micTooltip = `USB mic: ${micLabel}${isRecording ? ` (level ${audioDb} dB)` : ""}`;
+  }
+
+  // ── SCREEN ──
+  // For LiveKit-pipeline TVs (v3.3.29+ default), screen is OK if
+  // accessibility is enabled (so projection consent will auto-grant when
+  // recording starts) AND the device is online. The legacy
+  // projectionActive flag is permanently false in LiveKit mode and
+  // shouldn't drive the icon. While actively recording, also require
+  // livekitConnectionState=CONNECTED.
+  const livekitEnabled = rec.livekitEnabled === true;
+  const livekitConn = rec.livekitConnectionState || "";
+  const accessibilityEnabled = rec.accessibilityEnabled === true;
+  let screenOk = null;
+  let screenTooltip = "";
+  if (livekitEnabled) {
+    if (isRecording) {
+      if (livekitConn === "CONNECTED" || livekitConn === "RECONNECTING") {
+        screenOk = true;
+        screenTooltip = `Screen capture active via LiveKit (connection: ${livekitConn})`;
+      } else {
+        screenOk = false;
+        screenTooltip = `Recording attempted but LiveKit connection: ${livekitConn || "unknown"}. Possible network firewall blocking WebRTC UDP.`;
+      }
+    } else {
+      // Idle on LiveKit — accessibility must be enabled for auto-tap to
+      // grant consent at recording start.
+      if (accessibilityEnabled) {
+        screenOk = true;
+        screenTooltip = "Screen capture ready (LiveKit mode, accessibility enabled — consent will auto-grant at recording start).";
+      } else {
+        screenOk = false;
+        screenTooltip = "AccessibilityService not enabled — projection consent dialog won't auto-tap. Recording will stall at the consent gate.";
+      }
+    }
+  } else {
+    // Legacy pipeline — projectionActive is the actual signal.
+    if (rec.projectionActive === true) {
+      screenOk = true;
+      screenTooltip = "Screen capture granted (legacy MediaProjection).";
+    } else if (rec.projectionActive === false) {
+      screenOk = false;
+      screenTooltip = "MediaProjection consent missing on legacy-pipeline TV. Tap 'Start now' on the TV consent dialog.";
+    } else {
+      screenOk = h.screen?.ok ?? null;
+      screenTooltip = "Screen state unknown (heartbeat doesn't carry projection fields).";
+    }
+  }
+
+  return { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip };
 }
 
 function AlertBadge({ alerts }) {
@@ -192,12 +318,19 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
             {device.deviceModel ? ` · ${device.deviceModel}` : ""}
           </p>
 
-          {/* Hardware quick status */}
-          {h.updatedAt && (
-            <div className="flex items-center gap-4 mt-2">
-              <HardwareIcon ok={h.camera?.ok} Icon={Camera} label="Camera" />
-              <HardwareIcon ok={h.mic?.ok} Icon={Mic} label="Mic" />
-              <HardwareIcon ok={h.screen?.ok} Icon={Monitor} label="Screen" />
+          {/* Hardware quick status — v3.3.30: derived from heartbeat reality
+              (uvcState, micLabel, audioLevelDb, livekitConnectionState,
+               accessibilityEnabled) instead of trusting stale h.camera.ok
+              flags that were wrong on multiple devices. Icons are GRAY when
+              device is offline (state unknown) — never green based on a
+              cached flag from minutes ago. */}
+          {(() => {
+            const { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip } = deriveHardwareState(device, h);
+            return (
+              <div className="flex items-center gap-4 mt-2">
+                <HardwareIcon ok={cameraOk} Icon={Camera} label="Camera" tooltip={cameraTooltip} />
+                <HardwareIcon ok={micOk} Icon={Mic} label="Mic" tooltip={micTooltip} />
+                <HardwareIcon ok={screenOk} Icon={Monitor} label="Screen" tooltip={screenTooltip} />
               <div className="flex-1 min-w-0">
                 {h.disk?.usedPercent != null && (
                   <div className="mb-1">
@@ -220,7 +353,8 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 )}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Alerts */}
           {hasAlerts && <div className="mt-2"><AlertBadge alerts={h.alerts} /></div>}
