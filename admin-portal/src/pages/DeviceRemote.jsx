@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../services/api";
+import { usePersistedState } from "../hooks/usePersistedState";
 import {
   ArrowLeft, RefreshCw, Terminal, Camera, Volume2, VolumeX,
   RotateCcw, Trash2, FileText, Power, Square, Image,
@@ -16,7 +17,8 @@ export default function DeviceRemote() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [activeTab, setActiveTab] = useState("live"); // live | commands | logs
+  // v3.5.7 — persist active tab across reload.
+  const [activeTab, setActiveTab] = usePersistedState("live", "lcs_deviceremote_tab"); // live | commands | logs
   const [expandedLog, setExpandedLog] = useState(null);
   const [selectedThumb, setSelectedThumb] = useState(null);
 

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import api from "../services/api";
 import LiveWatchModal from "../components/LiveWatchModal";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:5020";
 
@@ -174,11 +175,12 @@ export default function Recordings() {
   // has pipeline=livekit AND status=recording AND a livekitRoomName.
   const [liveWatchRec, setLiveWatchRec] = useState(null);
 
-  // Filters
+  // Filters — v3.5.7 persists across reload (search NOT persisted —
+  // typed text usually doesn't need to survive a refresh).
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterDate, setFilterDate] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [filterStatus, setFilterStatus] = usePersistedState("all", "lcs_recordings_filter_status");
+  const [filterDate, setFilterDate] = usePersistedState("", "lcs_recordings_filter_date");
+  const [showFilters, setShowFilters] = usePersistedState(false, "lcs_recordings_show_filters");
 
   // Expanded state
   // v3.5.5 — expansion state persists across page reloads via localStorage.

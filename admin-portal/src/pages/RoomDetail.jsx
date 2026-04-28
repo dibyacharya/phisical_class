@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { usePersistedState } from "../hooks/usePersistedState";
 import {
   Building2, ChevronRight, Settings, BarChart2, Heart, Video,
   Wifi, WifiOff, CircleDot, Camera, Mic, Monitor, HardDrive,
@@ -1130,7 +1131,8 @@ function TabRecordings({ roomId }) {
 
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ from: "", to: "", courseCode: "", status: "" });
+  // v3.5.7 — persist history filters across reload.
+  const [filters, setFilters] = usePersistedState({ from: "", to: "", courseCode: "", status: "" }, "lcs_roomdetail_history_filters");
   const [applied, setApplied] = useState({});
   const [modal,   setModal]   = useState(null);
 
@@ -1352,7 +1354,10 @@ const TABS = [
 export default function RoomDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
-  const [tab, setTab]       = useState("config");
+  // v3.5.7 — persist active tab across reload. Per-page (not per-room)
+  // because admins typically want to stay in the same workflow tab as
+  // they hop between rooms (e.g. always look at "history" first).
+  const [tab, setTab] = usePersistedState("config", "lcs_roomdetail_tab");
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
 

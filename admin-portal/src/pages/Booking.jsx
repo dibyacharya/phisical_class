@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { usePersistedState } from "../hooks/usePersistedState";
 import {
   CalendarPlus, Building2, MapPin, Clock, BookOpen, CheckCircle2,
   ChevronLeft, Upload, Download, FileText, AlertTriangle, Wifi,
@@ -138,28 +139,9 @@ function GanttBar({ gantt, selStart, selEnd, onClickTime }) {
 export default function Booking() {
   const navigate = useNavigate();
 
-  // v3.5.6 — booking page tab state persists across reloads.
-  // User-reported: "booking page pe bhi refresh karne pe hamesa new
-  // booking page pe aa ja raha he" — refresh always landed on the
-  // "new" booking form tab regardless of where the admin actually was.
-  // Now read from localStorage on mount and write back on every change.
-  // Validation: only persist values from the known set; if storage is
-  // corrupted or holds an unknown value, fall back to "new".
-  const KNOWN_TABS = ["new", "all", "upload"];
-  const [activeTab, _setActiveTab] = useState(() => {
-    try {
-      const saved = localStorage.getItem("lcs_booking_active_tab");
-      return KNOWN_TABS.includes(saved) ? saved : "new";
-    } catch (_) { return "new"; }
-  });
-  const setActiveTab = (next) => {
-    _setActiveTab(next);
-    try {
-      if (KNOWN_TABS.includes(next)) {
-        localStorage.setItem("lcs_booking_active_tab", next);
-      }
-    } catch (_) {}
-  };
+  // v3.5.7 — booking page tab persists across reload via the shared
+  // usePersistedState hook (replaces v3.5.6's inline localStorage logic).
+  const [activeTab, setActiveTab] = usePersistedState("new", "lcs_booking_tab"); // new | all | upload
 
   // ── NEW BOOKING ───────────────────────────────────────────────────────────
   const [step, setStep]         = useState(1);
@@ -184,7 +166,22 @@ export default function Booking() {
   // ── ALL BOOKINGS ──────────────────────────────────────────────────────────
   const [classes, setClasses]     = useState([]);
   const [classLoad, setClassLoad] = useState(false);
-  const [filters, setFilters]     = useState({ room:"", search:"", status:"" });
+  // v3.5.7 — persist room + status filters (search is transient, not persisted).
+  const [filters, _setFilters] = useState({ room:"", search:"", status:"" });
+  const [persistedFilters, setPersistedFilters] = usePersistedState({ room:"", status:"" }, "lcs_booking_filters");
+  // Apply persisted values once on mount.
+  useEffect(() => {
+    _setFilters(prev => ({ ...prev, room: persistedFilters.room || "", status: persistedFilters.status || "" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const setFilters = (updater) => {
+    _setFilters(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save just room + status to localStorage (not search).
+      setPersistedFilters({ room: next.room || "", status: next.status || "" });
+      return next;
+    });
+  };
   const [qrModal, setQrModal]     = useState(null);
 
   // ── UPLOAD ────────────────────────────────────────────────────────────────

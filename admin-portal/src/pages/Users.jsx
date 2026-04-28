@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { UserPlus, Trash2, Search, GraduationCap, BookOpen, Shield, X } from "lucide-react";
 import api from "../services/api";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 const roleBadge = {
   admin: "bg-purple-100 text-purple-700",
@@ -18,7 +19,8 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [filter, setFilter] = useState("all");
+  // v3.5.7 — persist role filter across reload.
+  const [filter, setFilter] = usePersistedState("all", "lcs_users_filter");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({
     name: "",

@@ -19,6 +19,7 @@ import {
   Key, Copy, CheckCircle2, XCircle, Clock, Monitor,
   Search, Filter, Download, RefreshCw, ShieldAlert,
 } from "lucide-react";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5020/api";
 
@@ -100,7 +101,8 @@ export default function Licenses() {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // v3.5.7 — persist status filter across reload.
+  const [statusFilter, setStatusFilter] = usePersistedState("all", "lcs_licenses_status_filter");
 
   const fetchLicenses = useCallback(async () => {
     setLoading(true);

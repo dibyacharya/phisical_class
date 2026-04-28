@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
+import { usePersistedState } from "../hooks/usePersistedState";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -21,9 +22,12 @@ const COLORS = {
 const AUTO_REFRESH_MS = 60000; // 1 min
 
 export default function Analytics() {
-  const [view, setView] = useState("fleet"); // fleet | device
+  // v3.5.7 — persist view + days across reload. selectedDevice intentionally
+  // NOT persisted (device list might change between sessions; safer to
+  // start at fleet view if no device).
+  const [view, setView] = usePersistedState("fleet", "lcs_analytics_view"); // fleet | device
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = usePersistedState(7, "lcs_analytics_days");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
