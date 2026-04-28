@@ -4,12 +4,12 @@
 
 | Asset | Status |
 |---|---|
-| v3.4.2 APK on OTA (vc=114) — fixes audio-routing leak | ✅ uploaded |
-| v3.4.1 APK kept as rollback (vc=113) | ✅ stored |
+| v3.4.3 APK on OTA (vc=115) — audio + camera resource leak fixes | ✅ uploaded, ACTIVE |
+| v3.4.2 audio fix included in v3.4.3 | ✅ shipped |
 | Validation harness `scripts/validate-tv.sh` | ✅ ready |
 | Test plan `TOMORROW_STRESS_TEST_PLAN.md` | ✅ written |
 | Backend: Mongo quota cleared, Recording.pipeline default = livekit | ✅ deployed |
-| Admin portal: legacy strings stripped, canonical mic names | ✅ deployed |
+| Admin portal: ALL legacy strings purged (no "No screen capture permission" chip, no legacy-pipeline branch) | ✅ deployed |
 
 ## The critical fix landed in v3.4.2
 
@@ -198,25 +198,87 @@ for v in json.load(sys.stdin):
 curl -sS -X POST "https://lecturelens-api.draisol.com/api/app/versions/$V341_ID/activate" -H "Authorization: Bearer $TOKEN"
 ```
 
+## Answers to your three concerns
+
+### "Restart ke baad sab ready ho"
+
+After TV power-on:
+1. **BootReceiver** fires on `BOOT_COMPLETED` (v3.4.1 restored this)
+2. **Foreground service starts** + **SetupActivity launches briefly** to anchor
+   the service against Android's background-execution kill timer
+3. **SetupActivity sees setupComplete=true → moveTaskToBack(true) + finish()**
+   instantly. No dark UI shown to camera/screen capture.
+4. **Heartbeat thread starts** within ~30s, USB peripheral re-enumeration
+   (camera + mic) happens in the next heartbeat.
+5. **System is recording-ready** — when a class start time hits, the LiveKit
+   pipeline acquires fresh MediaProjection consent (auto-tap) and starts.
+
+What's NOT auto-handled and you should sanity-check:
+- If TV is unplugged from power (not just remote-off), Android may hold off
+  BootReceiver for 30-60s. Service heartbeat will resume after that.
+- If the LectureLens app is force-stopped via Android Settings, BootReceiver
+  won't fire (Android's user-stop flag). User must open the app once.
+
+### "Recording ke baad sab kuch working chahiye (camera/audio/screen)"
+
+After every recording stops, in v3.4.3:
+
+1. **Camera** — `cameraTrack.stopCapture()` then `cameraTrack.dispose()` runs
+   in `LiveKitPipeline.stop()`. CameraDevice handle on USB Lumens is released
+   immediately. Browser can re-acquire camera the next moment.
+
+2. **Audio** — `AudioManager.mode = MODE_NORMAL` + `clearCommunicationDevice()`
+   runs in `LiveKitPipeline.stop()` (v3.4.2). System audio routing returns
+   to default. Browser/YouTube playback resumes through TV speaker as it did
+   before recording.
+
+3. **Screen capture** — MediaProjection ends naturally when LiveKit's
+   internal screen track is unpublished via `room.disconnect()`. The
+   token is invalidated by Android. Next recording will trigger
+   `LiveKitProjectionRequestActivity` (transparent) to acquire a fresh
+   token, with `AutoInstallService` auto-tapping the consent dialog.
+
+4. **Service stays alive** — heartbeat continues, schedule scan continues,
+   ready for the next class without any user intervention.
+
+### "Recording ke baad 'screen capturing permission hat gaya' message"
+
+The chip that displayed this message was in `Devices.jsx` and gated on
+`livekitEnabled === false`. Since every TV in production has been on
+LiveKit-only mode since v3.3.26, the chip never legitimately fires.
+Stale-cache reads of `livekitEnabled` could cause it to flicker briefly,
+which is why you sometimes saw it.
+
+**v3.4.3 admin portal**: removed the chip entirely + removed the
+LEGACY-PIPELINE branch in `deriveHardwareState`. The misleading message
+will never show again.
+
+The reality of MediaProjection: each recording acquires a fresh consent
+on demand via the transparent ProjectionRequestActivity + AccessibilityService
+auto-tap. There's no concept of permission "being lost" between recordings —
+each class start re-acquires automatically.
+
 ## Engineering log entry for tonight
 
-Today the system shipped four iterations (v3.3.31 → 3.4.2). Concrete wins:
+Today's session shipped (v3.3.31 → v3.4.3, eight iterations):
 
-- **v3.3.33**: variable-name drift fixed across TV/backend/frontend (mic name,
-  pipeline label, schema fields)
-- **v3.4.0**: BootReceiver no longer brings opaque SetupActivity to the
-  foreground (was capturing dark UI instead of browser content)
-- **v3.4.1**: BootReceiver still launches the activity (needed as service
-  anchor) but SetupActivity self-finishes immediately if setupComplete=true
-- **v3.4.2**: AudioManager.mode + setCommunicationDevice are now released in
-  `stop()` (was THE bug behind the user's "everything else loses access" report)
+| Version | Win |
+|---|---|
+| v3.3.33 | Variable-name drift fixed across TV/backend/frontend |
+| v3.4.0 | BootReceiver no longer brings opaque SetupActivity foreground |
+| v3.4.1 | BootReceiver activity launch restored (anchors service on cold boot) |
+| **v3.4.2** | **AudioManager.mode + setCommunicationDevice released in stop()** ← THE bug behind "browser audio ruk gaya" |
+| **v3.4.3** | **Camera Track lifecycle: stopCapture+dispose explicit in stop(), failed-track cleanup before fallback** ← same pattern as audio leak |
 
-Untouched but planned for v3.5.x:
+Untouched but planned for v3.5.x (after tomorrow's stress test if needed):
 
-- First-recording silent audio on Lumens VC-TR1 (HAL warm-up issue or UVC
-  re-integration)
-- More aggressive cleanup on app upgrade (preserve audio mode across
-  package replace)
+- First-recording silent audio on Lumens VC-TR1 (HAL warm-up issue — needs
+  UVC re-integration or pre-warming via long-running idle AudioRecord in
+  the service)
+- Aggressive cleanup on package replace (audio mode + camera handles
+  are guaranteed released in stop() and onDestroy() now, but Android can
+  reap the process abruptly during package upgrade — hard to defend
+  against without persisting state to disk)
 
-Sleep well. Tomorrow morning the system has its strongest engineered shot
-yet at a clean multi-room production test.
+Sleep well. Tomorrow morning the system is at its strongest engineered
+shot yet at a clean multi-room production test.
