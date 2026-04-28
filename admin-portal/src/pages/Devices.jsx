@@ -54,22 +54,38 @@ function HardwareIcon({ ok, Icon, label, tooltip }) {
 }
 
 /**
- * v3.3.30 — derive REAL peripheral state from heartbeat fields, not the
- * stale h.camera/mic/screen.ok flags the TV used to populate (which were
- * wrong on multiple devices today: all-green icons even when USB mic was
- * unplugged + uvcState=NO_DRIVER).
+ * v3.3.30 — derive peripheral state from heartbeat fields with the
+ * RIGHT semantics for LiveKit-pipeline TVs.
  *
- * Returns { cameraOk, micOk, screenOk } where each is:
- *   true  → green (peripheral detected + functional, with evidence)
- *   false → red (peripheral NOT detected — actionable)
- *   null  → gray (state unknown, e.g. device offline)
+ * IMPORTANT LESSON FROM TODAY'S BUG.
+ * The earlier version of this function trusted heartbeat fields like
+ * `uvcState` and `micLabel` to mean "is the camera/mic actually
+ * working". But those fields are LEGACY-pipeline indicators:
+ *   - `uvcState` is from the libuvc driver. v3.3.24+ uses Camera2 with
+ *     an explicit USB deviceId → libuvc isn't loaded → uvcState=NO_DRIVER
+ *     is the EXPECTED steady state, NOT a failure.
+ *   - `micLabel` reads the system DEFAULT input device, not what
+ *     LiveKit's WebRTC AudioRecord is actually capturing from. The
+ *     reflection-based USB-mic bind (v3.3.3) doesn't update this field.
  *
- * Tooltips explain WHY a peripheral is in its current state — so admin
- * can see "USB mic not plugged in (micLabel='System default mic')" not
- * just a red icon.
+ * Result: Room 006 was actually publishing camera + mic frames via
+ * LiveKit (Watch Live confirmed), but the dashboard showed red icons
+ * because uvcState=NO_DRIVER and micLabel="System default mic". UI
+ * said broken when reality was working.
+ *
+ * NEW SEMANTICS:
+ *   - When LiveKit is actively connected (recording in progress and
+ *     livekitConnectionState=CONNECTED): trust LiveKit's tracks. All
+ *     green — LiveKit only stays connected if it's actually publishing.
+ *   - When idle on LiveKit-pipeline TV: GRAY (state unknown — we
+ *     can't know peripheral state without a recording).
+ *   - When recording but LiveKit DISCONNECTED: actually broken. Red.
+ *   - When device offline: ALL gray.
+ *
+ * This way, Watch Live and Devices page can no longer disagree.
  */
 function deriveHardwareState(device, h) {
-  // Offline override — don't trust any heartbeat field, mark all gray.
+  // Offline override — don't trust any heartbeat field.
   if (!device.isOnline) {
     return {
       cameraOk: null,
@@ -82,98 +98,93 @@ function deriveHardwareState(device, h) {
   }
 
   const rec = h.recording || {};
+  const livekitEnabled = rec.livekitEnabled === true;
+  const livekitConn = rec.livekitConnectionState || "";
+  const accessibilityEnabled = rec.accessibilityEnabled === true;
+  const isRecording = device.isRecording === true;
+  const livekitActive = livekitConn === "CONNECTED" || livekitConn === "RECONNECTING";
 
-  // ── CAMERA ──
-  // USB camera is OK when the libuvc driver has an OPEN state and at
-  // least one supported size. NO_DRIVER / empty sizes = camera not
-  // physically connected (common cause: cable unplugged).
+  // ── LIVEKIT-PIPELINE TV BRANCH (v3.3.29+ default) ─────────────────
+  if (livekitEnabled) {
+    // Currently recording AND LiveKit connected = all 3 tracks are
+    // publishing (this is what Watch Live sees). Trust this signal.
+    if (isRecording && livekitActive) {
+      return {
+        cameraOk: true,
+        micOk: true,
+        screenOk: true,
+        cameraTooltip: "Camera publishing via LiveKit (visible in Watch Live).",
+        micTooltip: "Mic publishing via LiveKit (audible in Watch Live).",
+        screenTooltip: "Screen publishing via LiveKit (visible in Watch Live).",
+      };
+    }
+
+    // Recording attempted but LiveKit didn't connect — actually broken.
+    if (isRecording && !livekitActive) {
+      return {
+        cameraOk: false,
+        micOk: false,
+        screenOk: false,
+        cameraTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
+        micTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
+        screenTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
+      };
+    }
+
+    // IDLE — peripheral state is genuinely unknown without an active
+    // recording. Don't claim green or red — show gray "ready / unknown".
+    // The Screen icon CAN show green when accessibility is enabled (the
+    // only TV-side prerequisite that matters when idle).
+    return {
+      cameraOk: null,
+      micOk: null,
+      screenOk: accessibilityEnabled ? true : false,
+      cameraTooltip: "Camera state will be verifiable on next recording. Watch Live during a recording shows actual state.",
+      micTooltip: "Mic state will be verifiable on next recording. Watch Live during a recording shows actual state.",
+      screenTooltip: accessibilityEnabled
+        ? "Screen capture ready (LiveKit mode, accessibility enabled — consent will auto-grant at recording start)."
+        : "AccessibilityService not enabled — projection consent dialog won't auto-tap. Recording will stall at the consent gate.",
+    };
+  }
+
+  // ── LEGACY-PIPELINE TV BRANCH (rare in v3.3.29+) ─────────────────
+  // Use the legacy uvc/mic fields which DO reflect that pipeline.
   const uvcState = rec.uvcState || "";
   const uvcSizes = rec.uvcSupportedSizes || "";
+  const micLabel = rec.micLabel || "";
+  const audioDb = typeof rec.audioLevelDb === "number" ? rec.audioLevelDb : -90;
+
   let cameraOk = null;
   let cameraTooltip = "";
   if (uvcState === "NO_DRIVER" || uvcState === "FAILED") {
     cameraOk = false;
-    cameraTooltip = `USB camera not detected (uvcState=${uvcState || "unknown"}). Check the USB cable on the TV.`;
+    cameraTooltip = `USB camera not detected (uvcState=${uvcState}). Check the USB cable on the TV.`;
   } else if (uvcState === "OPEN" || (uvcSizes && uvcSizes.length > 0)) {
     cameraOk = true;
-    const selected = rec.uvcSelectedSize || "?";
-    cameraTooltip = `USB camera detected. Resolution: ${selected}. Sizes available: ${(uvcSizes || "").split(",").length}`;
-  } else {
-    // Fall back to TV-reported flag if uvc fields aren't populated
-    cameraOk = h.camera?.ok ?? null;
-    cameraTooltip = "Camera state unknown (heartbeat doesn't carry uvc fields).";
+    cameraTooltip = `USB camera detected via libuvc. Resolution: ${rec.uvcSelectedSize || "?"}.`;
   }
 
-  // ── MIC ──
-  // USB mic is OK when (a) micLabel is NOT "System default mic" (which
-  // means a USB-named device is bound), AND (b) audioLevelDb shows
-  // recent non-silent activity OR we're not currently recording (idle
-  // mic legitimately reads -90 dB).
-  const micLabel = rec.micLabel || "";
-  const audioDb = typeof rec.audioLevelDb === "number" ? rec.audioLevelDb : -90;
-  const isRecording = device.isRecording === true;
   let micOk = null;
   let micTooltip = "";
-  if (!micLabel) {
-    micOk = h.mic?.ok ?? null;
-    micTooltip = "Mic state unknown (heartbeat doesn't carry mic fields).";
-  } else if (micLabel === "System default mic" || micLabel.toLowerCase().includes("default")) {
+  if (!micLabel || micLabel === "System default mic" || micLabel.toLowerCase().includes("default")) {
     micOk = false;
-    micTooltip = `USB mic not connected — TV fell back to "${micLabel}" which has no input on signage TVs. Plug in the USB-Audio mic.`;
+    micTooltip = "USB mic not connected.";
   } else if (isRecording && audioDb <= -80) {
-    // USB mic IS bound by name, but we're recording and getting digital
-    // silence — could be muted or cable issue. Show as warning.
     micOk = false;
-    micTooltip = `USB mic "${micLabel}" bound but capturing digital silence (${audioDb} dB). Mic muted? Cable issue?`;
+    micTooltip = `USB mic "${micLabel}" bound but silent (${audioDb} dB).`;
   } else {
     micOk = true;
-    micTooltip = `USB mic: ${micLabel}${isRecording ? ` (level ${audioDb} dB)` : ""}`;
+    micTooltip = `USB mic: ${micLabel}.`;
   }
 
-  // ── SCREEN ──
-  // For LiveKit-pipeline TVs (v3.3.29+ default), screen is OK if
-  // accessibility is enabled (so projection consent will auto-grant when
-  // recording starts) AND the device is online. The legacy
-  // projectionActive flag is permanently false in LiveKit mode and
-  // shouldn't drive the icon. While actively recording, also require
-  // livekitConnectionState=CONNECTED.
-  const livekitEnabled = rec.livekitEnabled === true;
-  const livekitConn = rec.livekitConnectionState || "";
-  const accessibilityEnabled = rec.accessibilityEnabled === true;
   let screenOk = null;
   let screenTooltip = "";
-  if (livekitEnabled) {
-    if (isRecording) {
-      if (livekitConn === "CONNECTED" || livekitConn === "RECONNECTING") {
-        screenOk = true;
-        screenTooltip = `Screen capture active via LiveKit (connection: ${livekitConn})`;
-      } else {
-        screenOk = false;
-        screenTooltip = `Recording attempted but LiveKit connection: ${livekitConn || "unknown"}. Possible network firewall blocking WebRTC UDP.`;
-      }
-    } else {
-      // Idle on LiveKit — accessibility must be enabled for auto-tap to
-      // grant consent at recording start.
-      if (accessibilityEnabled) {
-        screenOk = true;
-        screenTooltip = "Screen capture ready (LiveKit mode, accessibility enabled — consent will auto-grant at recording start).";
-      } else {
-        screenOk = false;
-        screenTooltip = "AccessibilityService not enabled — projection consent dialog won't auto-tap. Recording will stall at the consent gate.";
-      }
-    }
-  } else {
-    // Legacy pipeline — projectionActive is the actual signal.
-    if (rec.projectionActive === true) {
-      screenOk = true;
-      screenTooltip = "Screen capture granted (legacy MediaProjection).";
-    } else if (rec.projectionActive === false) {
-      screenOk = false;
-      screenTooltip = "MediaProjection consent missing on legacy-pipeline TV. Tap 'Start now' on the TV consent dialog.";
-    } else {
-      screenOk = h.screen?.ok ?? null;
-      screenTooltip = "Screen state unknown (heartbeat doesn't carry projection fields).";
-    }
+  if (rec.projectionActive === true) {
+    screenOk = true;
+    screenTooltip = "Screen capture granted (legacy MediaProjection).";
+  } else if (rec.projectionActive === false) {
+    screenOk = false;
+    screenTooltip = "MediaProjection consent missing.";
   }
 
   return { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip };
