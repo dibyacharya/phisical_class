@@ -137,7 +137,29 @@ function GanttBar({ gantt, selStart, selEnd, onClickTime }) {
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function Booking() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("new");
+
+  // v3.5.6 — booking page tab state persists across reloads.
+  // User-reported: "booking page pe bhi refresh karne pe hamesa new
+  // booking page pe aa ja raha he" — refresh always landed on the
+  // "new" booking form tab regardless of where the admin actually was.
+  // Now read from localStorage on mount and write back on every change.
+  // Validation: only persist values from the known set; if storage is
+  // corrupted or holds an unknown value, fall back to "new".
+  const KNOWN_TABS = ["new", "all", "upload"];
+  const [activeTab, _setActiveTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem("lcs_booking_active_tab");
+      return KNOWN_TABS.includes(saved) ? saved : "new";
+    } catch (_) { return "new"; }
+  });
+  const setActiveTab = (next) => {
+    _setActiveTab(next);
+    try {
+      if (KNOWN_TABS.includes(next)) {
+        localStorage.setItem("lcs_booking_active_tab", next);
+      }
+    } catch (_) {}
+  };
 
   // ── NEW BOOKING ───────────────────────────────────────────────────────────
   const [step, setStep]         = useState(1);
