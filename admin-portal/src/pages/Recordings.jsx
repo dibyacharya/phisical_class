@@ -286,14 +286,35 @@ export default function Recordings() {
     return url.startsWith("http") ? url : `${BACKEND_URL}${url}`;
   };
 
-  // v2.6.0: prefer the server-merged single file over per-segment URLs.
-  // After a recording completes, the backend runs `ffmpeg -c copy` on all
-  // segments and stores the result at rec.mergedVideoUrl. If that's ready
-  // we treat it as a single-segment playback — no client-side switching
-  // between segment files, and the "Download" button gives one MP4.
+  // v3.5.2 — playback URL goes through backend stream proxy.
+  //
+  // The Azure Storage account that hosts our recordings (stgkiitlmsdev)
+  // uses an old x-ms-version which doesn't include `Accept-Ranges: bytes`
+  // in responses. Without that header, browser HTML5 <video> elements
+  // can't seek beyond the already-buffered region — clicking forward
+  // appears broken. The /api/recordings/:id/video-stream endpoint adds
+  // the header (and CORS) and forwards Range requests to Azure
+  // transparently, fixing seek for the player.
+  //
+  // VLC works directly against Azure because it always uses Range
+  // requests regardless of the Accept-Ranges hint.
+  //
+  // The Download button (further down) STAYS on the direct Azure URL
+  // (mergedVideoUrl) so bulk downloads don't pay the Railway bandwidth
+  // tax.
+  // v3.5.2 — token via query param (<video src=...> can't send headers).
+  // Backend /video-stream accepts JWT either via Authorization header
+  // OR ?token= query, so we attach the same admin token the rest of
+  // the API uses.
+  const streamUrl = (recId) => {
+    const token = localStorage.getItem("lcs_admin_token") || "";
+    return `${BACKEND_URL}/api/recordings/${recId}/video-stream?token=${encodeURIComponent(token)}`;
+  };
+
   const getVideoUrl = (rec) => {
+    if (!rec?._id) return null;
     if (rec.mergeStatus === "ready" && rec.mergedVideoUrl) {
-      return toAbsoluteUrl(rec.mergedVideoUrl);
+      return streamUrl(rec._id);
     }
     if (!rec.videoUrl) return null;
     return toAbsoluteUrl(rec.videoUrl);
@@ -304,7 +325,8 @@ export default function Recordings() {
   // or when merge failed).
   const getSegmentUrls = (rec) => {
     if (rec.mergeStatus === "ready" && rec.mergedVideoUrl) {
-      return [toAbsoluteUrl(rec.mergedVideoUrl)];
+      // Use stream proxy for playback (see getVideoUrl above).
+      return [streamUrl(rec._id)];
     }
     const segs = (rec.segments || [])
       .filter((s) => s && s.videoUrl)
@@ -691,7 +713,21 @@ export default function Recordings() {
                                                                   <X size={11} /> Force Stop
                                                                 </button>
                                                               )}
-                                                              {rec.pipeline === "livekit" && rec.status === "recording" && (
+                                                              {/* Watch Live button — relaxed condition to handle recordings
+                                                                  whose backend doc tracking got out of sync (e.g. when an
+                                                                  AutoTrackEgress race causes status="failed" but the LiveKit
+                                                                  room is actually still publishing). Show Watch Live if
+                                                                  pipeline is livekit AND the recording is "recent enough"
+                                                                  (created within last 90 min) AND the recording has a
+                                                                  livekitRoomName set, regardless of status field. The modal
+                                                                  itself will fail gracefully if the room is empty. */}
+                                                              {rec.pipeline === "livekit" &&
+                                                                rec.livekitRoomName &&
+                                                                (() => {
+                                                                  const created = rec.createdAt ? new Date(rec.createdAt).getTime() : 0;
+                                                                  const ageMin = (Date.now() - created) / 60000;
+                                                                  return ageMin < 90;
+                                                                })() && (
                                                                 <button onClick={() => setLiveWatchRec(rec)}
                                                                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-red-50 text-red-600 hover:bg-red-100 transition">
                                                                   <Radio size={11} className="animate-pulse" /> Watch Live

@@ -481,3 +481,103 @@ exports.optimizeFaststart = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// v3.5.2 — stream a recording's MP4 with proper headers for browser seeking.
+//
+// Browser HTML5 <video> element checks `Accept-Ranges: bytes` to decide
+// whether to use Range requests for seeking. Azure Storage with the old
+// x-ms-version (2009-09-19, the default for legacy storage accounts)
+// does NOT include this header even though Range requests work at the
+// byte level. Without the header, Chrome/Safari fall into progressive-
+// download mode and can't seek beyond the already-buffered region.
+// VLC works because it always uses Range requests regardless.
+//
+// This proxy:
+//   1. Resolves the recording's mergedVideoUrl from the DB
+//   2. Forwards the client's Range header to Azure as-is
+//   3. Streams Azure's response body back to the client, with Azure's
+//      Content-Length / Content-Range / Content-Type / status code
+//      preserved, but explicitly ADDING `Accept-Ranges: bytes` so the
+//      browser knows seeking works.
+//
+// Bandwidth note: video streams through Railway. For typical admin
+// playback (1-2 admins watching at a time) this is fine. The Download
+// button continues to point directly at Azure (see frontend) so bulk
+// downloads don't go through Railway.
+exports.streamVideo = async (req, res) => {
+  try {
+    // v3.5.2 — JWT check accepting Authorization header OR ?token= query.
+    // <video src=...> elements can't send custom headers; query-param
+    // is the standard fallback for media URLs.
+    const jwt = require("jsonwebtoken");
+    const tokenFromHeader = req.headers.authorization?.replace("Bearer ", "");
+    const tokenFromQuery = req.query.token;
+    const token = tokenFromHeader || tokenFromQuery;
+    if (!token) {
+      return res.status(401).json({ error: "Auth token required (header or ?token=)" });
+    }
+    try {
+      jwt.verify(token, process.env.JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: "Invalid auth token" });
+    }
+
+    const Recording = require("../models/Recording");
+    const r = await Recording.findById(req.params.id).select("mergedVideoUrl videoUrl");
+    if (!r) return res.status(404).json({ error: "Recording not found" });
+
+    const sourceUrl = r.mergedVideoUrl || r.videoUrl;
+    if (!sourceUrl) return res.status(404).json({ error: "Recording has no video URL" });
+
+    // Forward the client's Range header (if any) to Azure.
+    const upstreamHeaders = {};
+    if (req.headers.range) upstreamHeaders.Range = req.headers.range;
+    if (req.headers["if-none-match"]) upstreamHeaders["If-None-Match"] = req.headers["if-none-match"];
+
+    const upstream = await fetch(sourceUrl, {
+      method: req.method === "HEAD" ? "HEAD" : "GET",
+      headers: upstreamHeaders,
+    });
+
+    // Mirror Azure's status code (200 for full file, 206 for partial).
+    res.status(upstream.status);
+
+    // CRITICAL: tell the browser this stream supports byte-range seeking.
+    // This is the whole point of the proxy.
+    res.setHeader("Accept-Ranges", "bytes");
+
+    // Mirror caching headers from Azure.
+    const passthrough = ["content-type", "content-length", "content-range", "etag", "last-modified", "cache-control"];
+    for (const h of passthrough) {
+      const v = upstream.headers.get(h);
+      if (v) res.setHeader(h.replace(/(^|-)([a-z])/g, (_, p, c) => p + c.toUpperCase()), v);
+    }
+    if (!res.getHeader("Content-Type")) res.setHeader("Content-Type", "video/mp4");
+
+    // CORS — admin portal is on a different origin. Open these for video
+    // playback from the portal domain. Safe because the resource is
+    // already auth-gated by the route middleware.
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range, If-None-Match");
+    res.setHeader("Access-Control-Expose-Headers", "Accept-Ranges, Content-Range, Content-Length");
+
+    // Stream the body straight through. node-fetch / undici Response
+    // body is a ReadableStream — pipe it to res. For HEAD, no body.
+    if (req.method === "HEAD" || !upstream.body) {
+      return res.end();
+    }
+
+    // Use Node's stream interop. ReadableStream → Node stream.
+    const { Readable } = require("stream");
+    const nodeStream = Readable.fromWeb(upstream.body);
+    nodeStream.on("error", (e) => {
+      console.warn(`[streamVideo] upstream stream error rec=${req.params.id}: ${e.message}`);
+      try { res.end(); } catch (_) {}
+    });
+    nodeStream.pipe(res);
+  } catch (err) {
+    console.error("[streamVideo] failed:", err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+};
