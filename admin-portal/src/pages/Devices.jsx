@@ -242,6 +242,26 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
               const topRec = device.isRecording;
               const healthRec = h.recording?.isRecording;
               const segIdx = h.recording?.segmentIndex || 0;
+
+              // v3.3.30 — OFFLINE OVERRIDE.
+              //
+              // If the device went offline while a recording was in
+              // flight, the backend's `device.isRecording=true` is STALE
+              // (the TV never got a chance to send a "recording stopped"
+              // heartbeat — it just stopped heartbeating). Showing
+              // "Recording · seg N" is wrong because the TV physically
+              // can't be recording when it's not online. Instead surface
+              // a clear "stuck (offline)" state so admin knows to either
+              // restart the TV or force-stop the recording session in
+              // the backend.
+              if (!device.isOnline && topRec) {
+                return (
+                  <span className="flex items-center gap-1 text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-300" title="Backend still has a recording session marked active for this device, but the TV stopped sending heartbeats. The device went offline mid-recording or never gracefully ended the session. Use the Stop button to clean up the stale session.">
+                    <AlertTriangle size={10} /> Recording stuck (TV offline)
+                  </span>
+                );
+              }
+
               if (topRec && healthRec) {
                 return (
                   <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse">
@@ -356,8 +376,14 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
             );
           })()}
 
-          {/* Alerts */}
-          {hasAlerts && <div className="mt-2"><AlertBadge alerts={h.alerts} /></div>}
+          {/* Alerts — v3.3.30: only show when device is online. Latency
+              alerts in particular are live measurements (heartbeat HTTP RTT)
+              that are meaningless on an offline TV — they're frozen at
+              whatever value was reported when the device last
+              heartbeated, often minutes/hours ago. Hide to prevent
+              admin from chasing a stale "High latency: 2515ms" warning
+              on a TV that's been off for an hour. */}
+          {hasAlerts && device.isOnline && <div className="mt-2"><AlertBadge alerts={h.alerts} /></div>}
         </div>
 
         {/* Actions */}
