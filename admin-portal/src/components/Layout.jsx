@@ -1,5 +1,7 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut, KeyRound, Monitor, Download, Activity } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut, KeyRound, Monitor, Download, Activity, User as UserIcon } from "lucide-react";
+import AdminProfileModal from "./AdminProfileModal";
 
 // v3.5.8 — "Fleet" nav entry removed. Devices page now serves both
 // roles: per-device detail AND fleet-wide bulk operations. Old /fleet
@@ -18,8 +20,14 @@ const navItems = [
 ];
 
 export default function Layout({ user, onLogout, children }) {
+  // v3.6.0 — admin profile modal (clickable from sidebar bottom).
+  const [profileOpen, setProfileOpen] = useState(false);
+
   return (
     <div className="h-screen flex overflow-hidden">
+      {profileOpen && (
+        <AdminProfileModal user={user} onClose={() => setProfileOpen(false)} />
+      )}
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0">
         <div className="p-6 border-b border-slate-700">
@@ -45,11 +53,20 @@ export default function Layout({ user, onLogout, children }) {
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-slate-700">
-          <div className="text-sm text-slate-300 mb-2">{user.name}</div>
+        <div className="p-4 border-t border-slate-700 space-y-2">
+          {/* v3.6.0 — clickable user row opens profile modal where the
+              admin can view their LMS login id (email) + change their
+              own password. */}
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="w-full flex items-center gap-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg px-2 py-1.5 transition-colors"
+          >
+            <UserIcon size={16} />
+            <span className="truncate">{user.name}</span>
+          </button>
           <button
             onClick={onLogout}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-red-400 transition-colors"
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-red-400 transition-colors px-2"
           >
             <LogOut size={16} />
             Logout

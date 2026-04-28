@@ -42,6 +42,37 @@ exports.me = async (req, res) => {
   res.json({ user: req.user });
 };
 
+// v3.6.0 — change own password (any authenticated user).
+//
+// Requires the user's CURRENT password to confirm identity (defends
+// against session hijack scenarios where someone with a stolen token
+// could otherwise lock the real owner out by changing the password).
+//
+// Admin-resetting another user's password uses a separate endpoint
+// in the user controller (no current-password check).
+exports.changeMyPassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "currentPassword and newPassword required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+    const user = await User.findById(req.user.id || req.user._id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const valid = await user.comparePassword(currentPassword);
+    if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+
+    user.password = newPassword; // pre-save hook re-hashes
+    await user.save();
+    res.json({ ok: true, message: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.seed = async (_req, res) => {
   try {
     const existing = await User.countDocuments();

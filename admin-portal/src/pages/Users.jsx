@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { UserPlus, Trash2, Search, GraduationCap, BookOpen, Shield, X } from "lucide-react";
+import { UserPlus, Trash2, Search, GraduationCap, BookOpen, Shield, X, Eye } from "lucide-react";
 import api from "../services/api";
 import { usePersistedState } from "../hooks/usePersistedState";
+import UserDetailModal from "../components/UserDetailModal";
 
 const roleBadge = {
   admin: "bg-purple-100 text-purple-700",
@@ -22,6 +23,8 @@ export default function Users() {
   // v3.5.7 — persist role filter across reload.
   const [filter, setFilter] = usePersistedState("all", "lcs_users_filter");
   const [search, setSearch] = useState("");
+  // v3.6.0 — UserDetailModal for clicking any user row.
+  const [detailUserId, setDetailUserId] = useState(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -90,6 +93,15 @@ export default function Users() {
 
   return (
     <div>
+      {/* v3.6.0 — UserDetailModal mounts at page root so it overlays
+          everything when a user row is clicked. Re-fetches the list on
+          close so any password reset's audit log timestamp gets shown. */}
+      {detailUserId && (
+        <UserDetailModal
+          userId={detailUserId}
+          onClose={() => { setDetailUserId(null); fetchUsers(); }}
+        />
+      )}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">User Management</h2>
         <button
@@ -267,7 +279,10 @@ export default function Users() {
                 {filtered.map((u) => {
                   const Icon = roleIcon[u.role] || Shield;
                   return (
-                    <tr key={u._id} className="hover:bg-gray-50">
+                    // v3.6.0 — entire row clickable to open profile modal.
+                    // Action-cell buttons stop propagation so clicking
+                    // Delete doesn't also open the modal.
+                    <tr key={u._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailUserId(u._id)}>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${roleBadge[u.role]}`}>
@@ -293,14 +308,23 @@ export default function Users() {
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {new Date(u.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                       </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => handleDelete(u._id, u.name)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                          title="Delete User"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setDetailUserId(u._id)}
+                            className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition"
+                            title="View profile + reset password"
+                          >
+                            <Eye size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(u._id, u.name)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                            title="Delete User"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -101,3 +101,54 @@ exports.listTeachers = async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// v3.6.0 — GET /api/users/:id
+//
+// Returns a single user's full profile (excluding the password hash).
+// Used by the admin portal's UserDetailModal to show LMS login id and
+// role-specific fields. Admin-only (because student/teacher data is
+// PII-adjacent).
+exports.getUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select("-password")
+      .populate("batch", "name")
+      .populate("courses", "courseName courseCode");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// v3.6.0 — PATCH /api/users/:id/password
+//
+// Admin-only. Resets ANY user's password without requiring the user's
+// current password (admin-override use case: user forgot password,
+// admin sets a new one out of band). Different from the self-service
+// /api/auth/me/password which DOES require currentPassword.
+//
+// The new password is set; the User model's pre-save hook re-hashes
+// it with bcrypt before persisting.
+exports.resetUserPassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: "newPassword must be at least 6 characters" });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Defence: prevent admin (non-superadmin) from changing a superadmin's
+    // password via this endpoint. Superadmins must use self-service.
+    if (user.role === "superadmin" && req.user.role !== "superadmin") {
+      return res.status(403).json({ error: "Only a superadmin can reset another superadmin's password" });
+    }
+
+    user.password = newPassword;
+    await user.save();
+    res.json({ ok: true, message: `Password reset for ${user.email}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
