@@ -751,14 +751,67 @@ exports.forceStop = async (req, res) => {
     const device = await ClassroomDevice.findOne({ deviceId: req.params.deviceId });
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    // Queue a force_stop command for the device
+    // Queue a force_stop command for the device (will run when device
+    // is online; harmless if it never connects again).
     const cmd = await DeviceCommand.create({
       deviceId: device.deviceId,
       command: "force_stop",
       issuedBy: req.user?.name || req.user?.email || "admin",
     });
 
-    res.json({ message: "Force stop command queued", commandId: cmd._id });
+    // v3.3.30 — IMMEDIATELY clear stale recording flags on the device
+    // document so the dashboard reflects reality even if the TV is
+    // offline + can't process the command.
+    //
+    // Why: a TV that crashes / loses power mid-recording leaves
+    // device.isRecording=true forever (it never sends the "stopped"
+    // heartbeat). Before this fix, force-stop only QUEUED a command —
+    // useless for offline TVs. Result: dashboard kept showing
+    // "Recording · seg N" / "Recording stuck (TV offline)" indefinitely
+    // until the TV came back online and processed the queued command.
+    //
+    // Now: force-stop ALSO immediately resets the device doc:
+    //   isRecording      → false
+    //   currentMeetingId → null
+    // The dashboard updates instantly. If the TV does come back online
+    // and the queued command fires, it's idempotent (already stopped).
+    let cleared = false;
+    if (device.isRecording || device.currentMeetingId) {
+      // Also reconcile any orphaned Recording doc that was tied to this
+      // session (mark it failed if still in "recording" state — TV
+      // didn't finish properly, so the recording is incomplete).
+      if (device.currentMeetingId) {
+        try {
+          await Recording.updateMany(
+            {
+              scheduledClass: device.currentMeetingId,
+              status: "recording",
+            },
+            {
+              $set: {
+                status: "failed",
+                mergeStatus: "failed",
+                mergeError: `Force-stopped via admin: device ${device.deviceId} session was abandoned (TV offline / crashed before completion).`,
+              },
+            },
+          );
+        } catch (e) {
+          // non-fatal; reconcile is best-effort
+        }
+      }
+      device.isRecording = false;
+      device.currentMeetingId = null;
+      await device.save();
+      cleared = true;
+    }
+
+    res.json({
+      message: cleared
+        ? "Force stop applied (device flags cleared + command queued)"
+        : "Force stop command queued (device wasn't marked recording)",
+      commandId: cmd._id,
+      cleared,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
