@@ -234,8 +234,16 @@ function DeviceCard({ device, selected, onToggle }) {
     ? Math.floor((Date.now() - new Date(device.lastHeartbeat).getTime()) / 1000)
     : null;
 
-  const isUsbMic = (device.micLabel || "").toLowerCase().includes("usb");
-  const usingGl = device.videoPipeline === "gl_compositor";
+  // v3.3.33 — micLabel comes from analyticsController flattening
+  // health.mic.name (canonical USB-mic name). isUsbMic checks via the
+  // hardware.hasUsbMic schema field (when available) and the label
+  // string as a backstop.
+  const isUsbMic = device.health?.hardware?.hasUsbMic === true ||
+                   (device.micLabel || "").toLowerCase().includes("usb");
+  // v3.3.32 — pipeline values are now ONLY "livekit" or "none". Legacy
+  // and gl_compositor labels were leftover from v2.x and removed in
+  // v3.3.32 (TV side ships livekit/none only).
+  const isLiveKit = device.videoPipeline === "livekit";
 
   return (
     <div className={`rounded-xl border p-4 relative ${statusBg || "border-slate-200 bg-white"}`}>
@@ -285,15 +293,12 @@ function DeviceCard({ device, selected, onToggle }) {
                 color={isUsbMic ? "emerald" : "slate"}
               />
             )}
-            {device.videoPipeline && (
+            {device.videoPipeline && device.isRecording && (
               <Chip
                 icon={Layers}
-                label={usingGl ? "GL compositor" : "Legacy"}
-                color={usingGl ? "indigo" : "slate"}
+                label={isLiveKit ? "LiveKit" : "Failed"}
+                color={isLiveKit ? "emerald" : "red"}
               />
-            )}
-            {device.glCameraPiP === true && (
-              <Chip label="PiP active" color="indigo" />
             )}
           </div>
 

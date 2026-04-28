@@ -54,24 +54,22 @@ function HardwareIcon({ ok, Icon, label, tooltip }) {
 }
 
 /**
- * v3.3.30 — derive peripheral state from heartbeat fields with the
- * RIGHT semantics for LiveKit-pipeline TVs.
+ * v3.4.3 — derive peripheral state from heartbeat fields with the
+ * RIGHT semantics for LiveKit-only TVs.
  *
- * IMPORTANT LESSON FROM TODAY'S BUG.
- * The earlier version of this function trusted heartbeat fields like
- * `uvcState` and `micLabel` to mean "is the camera/mic actually
- * working". But those fields are LEGACY-pipeline indicators:
- *   - `uvcState` is from the libuvc driver. v3.3.24+ uses Camera2 with
- *     an explicit USB deviceId → libuvc isn't loaded → uvcState=NO_DRIVER
- *     is the EXPECTED steady state, NOT a failure.
- *   - `micLabel` reads the system DEFAULT input device, not what
- *     LiveKit's WebRTC AudioRecord is actually capturing from. The
- *     reflection-based USB-mic bind (v3.3.3) doesn't update this field.
+ * The earlier version of this function had a fallback branch that used
+ * v2.x-era fields like `uvcState` and `micLabel`-reading-system-default.
+ * Those gave misleading "broken" indicators for LiveKit-active TVs:
+ * uvcState=NO_DRIVER is the expected steady state when Camera2-with-deviceId
+ * is the publish path (v3.3.24+), not a failure. micLabel reads the
+ * system default input device, not what LiveKit's WebRTC AudioRecord
+ * is actually capturing.
  *
- * Result: Room 006 was actually publishing camera + mic frames via
- * LiveKit (Watch Live confirmed), but the dashboard showed red icons
- * because uvcState=NO_DRIVER and micLabel="System default mic". UI
- * said broken when reality was working.
+ * v3.4.3 cleanup: the fallback is removed entirely. Every TV in the
+ * fleet is on LiveKit since v3.3.26; the LiveKit-active branch covers
+ * them. If a TV reports unexpected pre-LiveKit telemetry, the function
+ * now returns null state with an "unknown" tooltip — never legacy
+ * indicators.
  *
  * NEW SEMANTICS:
  *   - When LiveKit is actively connected (recording in progress and
@@ -164,47 +162,26 @@ function deriveHardwareState(device, h) {
     return { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip };
   }
 
-  // ── LEGACY-PIPELINE TV BRANCH (rare in v3.3.29+) ─────────────────
-  // Use the legacy uvc/mic fields which DO reflect that pipeline.
-  const uvcState = rec.uvcState || "";
-  const uvcSizes = rec.uvcSupportedSizes || "";
-  const micLabel = rec.micLabel || "";
-  const audioDb = typeof rec.audioLevelDb === "number" ? rec.audioLevelDb : -90;
-
-  let cameraOk = null;
-  let cameraTooltip = "";
-  if (uvcState === "NO_DRIVER" || uvcState === "FAILED") {
-    cameraOk = false;
-    cameraTooltip = `USB camera not detected (uvcState=${uvcState}). Check the USB cable on the TV.`;
-  } else if (uvcState === "OPEN" || (uvcSizes && uvcSizes.length > 0)) {
-    cameraOk = true;
-    cameraTooltip = `USB camera detected via libuvc. Resolution: ${rec.uvcSelectedSize || "?"}.`;
-  }
-
-  let micOk = null;
-  let micTooltip = "";
-  if (!micLabel || micLabel === "System default mic" || micLabel.toLowerCase().includes("default")) {
-    micOk = false;
-    micTooltip = "USB mic not connected.";
-  } else if (isRecording && audioDb <= -80) {
-    micOk = false;
-    micTooltip = `USB mic "${micLabel}" bound but silent (${audioDb} dB).`;
-  } else {
-    micOk = true;
-    micTooltip = `USB mic: ${micLabel}.`;
-  }
-
-  let screenOk = null;
-  let screenTooltip = "";
-  if (rec.projectionActive === true) {
-    screenOk = true;
-    screenTooltip = "Screen capture granted (legacy MediaProjection).";
-  } else if (rec.projectionActive === false) {
-    screenOk = false;
-    screenTooltip = "MediaProjection consent missing.";
-  }
-
-  return { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip };
+  // v3.4.3 — Legacy-pipeline branch removed. Every TV in production has
+  // been on LiveKit-only mode since v3.3.26; the early-return above
+  // (livekitEnabled === true) covers them all. The old fallback used
+  // legacy uvc* fields and "Screen capture granted (legacy MediaProjection)"
+  // tooltips which were misleading and never legitimately fired. Removing
+  // the dead branch ensures stale-cache reads of livekitEnabled never
+  // surface legacy-only diagnostic strings to users.
+  //
+  // If a TV ever needs to be put back on a pre-LiveKit pipeline (which
+  // shouldn't happen — there is no such build path active), the LiveKit
+  // branch's null-tolerant returns will simply show "unknown" state
+  // instead of misleading legacy chips.
+  return {
+    cameraOk: null,
+    micOk: null,
+    screenOk: null,
+    cameraTooltip: "Hardware state unknown (TV not reporting LiveKit telemetry).",
+    micTooltip: "Hardware state unknown (TV not reporting LiveKit telemetry).",
+    screenTooltip: "Hardware state unknown (TV not reporting LiveKit telemetry).",
+  };
 }
 
 function AlertBadge({ alerts }) {
@@ -310,34 +287,29 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
                 level so an admin can see "can this TV record right now?" at
                 a glance, instead of having to drill into the expanded view
                 or cross-reference telemetry. */}
-            {/* v3.3.29 — only show "No screen capture permission" when the
-                device is NOT on LiveKit. The heartbeat field
-                `projectionActive` reflects the LEGACY MediaProjection state.
-                In LiveKit-only mode (default since v3.3.29), the legacy
-                MP is deliberately not maintained — `projectionActive` is
-                permanently false even though everything is healthy. The
-                actual LiveKit projection is acquired on-demand at recording
-                start via setScreenShareEnabled and isn't surfaced in this
-                field. So we gate the badge on `livekitEnabled === false`
-                (legacy-pipeline TV) — those are the only ones where this
-                badge is actionable. The earlier v3.3.28 attempt to gate
-                on `videoPipeline !== "livekit"` was incomplete because
-                an IDLE TV reports videoPipeline="legacy_direct" by default
-                (the field only flips to "livekit" while a recording is
-                actively running). */}
-            {h.recording?.projectionActive === false &&
-             h.recording?.livekitEnabled === false && (
-              <span
-                className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-300"
-                title="MediaProjection consent has not been granted on this device. Until a human (or the AutoInstallService) taps 'Start now' on the consent dialog on the TV, every scheduled recording will fail at the projection gate. Top-level isRecording can still be true here because the backend session was created before the pipeline hit this gate."
-              >
-                <XCircle size={10} /> No screen capture permission
-              </span>
-            )}
-            {h.recording?.projectionActive === true && h.recording?.accessibilityEnabled === false && (
+            {/* v3.4.3 — REMOVED legacy "No screen capture permission" chip.
+                The previous implementation gated on
+                `projectionActive === false && livekitEnabled === false`.
+                Every TV in production has been on LiveKit-only mode since
+                v3.3.26, so livekitEnabled is always true and the chip
+                never legitimately fires. But there were intermittent
+                race-condition reports where the chip flickered onto
+                screen briefly during OTA-install windows when
+                livekitEnabled briefly read false from a stale cache,
+                confusing users into thinking the TV had lost screen
+                permission when it hadn't. LiveKit-only mode acquires
+                MediaProjection per-recording via the (transparent +
+                auto-tapped) LiveKitProjectionRequestActivity, so a
+                "permission lost" badge between recordings is misleading
+                regardless. Removed entirely.
+
+                AccessibilityService warning kept since the
+                AutoInstallService's accessibility binding is still
+                load-bearing for the per-recording auto-tap. */}
+            {h.recording?.accessibilityEnabled === false && (
               <span
                 className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200"
-                title="Screen capture is granted right now, but the AutoInstall accessibility service is NOT enabled. The device will not self-heal after the next shutdown / OTA install — a human will need to tap 'Start now' again. Enable it in Settings → Accessibility on the TV."
+                title="The AutoInstall accessibility service is NOT enabled. Without it, the per-recording MediaProjection consent dialog won't auto-tap and recordings will stall at the projection gate. Enable it in Settings → Accessibility on the TV."
               >
                 <AlertTriangle size={10} /> Accessibility off (not self-healing)
               </span>

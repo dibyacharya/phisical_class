@@ -60,14 +60,29 @@ export default function DeviceRemote() {
     }
   };
 
-  // Pipeline indicator derived from health telemetry
+  // Pipeline indicator derived from health telemetry.
+  //
+  // v3.3.32 — pipeline is now ONLY one of two values:
+  //   "livekit" — recording active via LiveKit WebRTC publisher
+  //   "none"    — idle, OR LiveKit start failed (recHealth.lastError
+  //               carries the cause)
+  //
+  // Removed "legacy_direct" / "gl_compositor" — those were leftover
+  // from v2.x's MediaCodec + GL paths that v3.3.26 removed from the
+  // recording flow but kept as misleading display labels.
   const health = device?.health || {};
   const recHealth = health.recording || {};
-  const micLabel = recHealth.micLabel || "System default mic";
-  const isUsbMic = micLabel.toLowerCase().includes("usb");
-  const videoPipeline = recHealth.videoPipeline || "legacy_direct";
-  const glCompositorEnabled = recHealth.glCompositorEnabled === true;
-  const lastGlInitError = recHealth.lastGlInitError;
+  // v3.3.33 — mic label sourced from health.mic.name (the canonical
+  // USB-mic identifier produced by checkMic on the TV). recHealth.micLabel
+  // is a fallback for back-compat with older TVs that didn't populate
+  // health.mic. On v3.3.33+ TVs the two values are guaranteed to match
+  // (TV-side fix in RecorderForegroundService.buildHealthSnapshot).
+  const micName = health.mic?.name || recHealth.micLabel || "System default mic";
+  const isUsbMic = (health.mic?.type === "USB") ||
+                   micName.toLowerCase().includes("usb");
+  const videoPipeline = recHealth.videoPipeline || "none";
+  const isLiveKit = videoPipeline === "livekit";
+  const recordingError = recHealth.lastError || "";
 
   const confirmAndSend = (command, label) => {
     if (window.confirm(`Are you sure you want to ${label}?`)) {
@@ -237,26 +252,19 @@ export default function DeviceRemote() {
               : "bg-slate-50 text-slate-600 border-slate-200"
           }`}>
             {isUsbMic ? <Usb size={12} /> : <Mic size={12} />}
-            <span>Mic: {micLabel}</span>
+            <span>Mic: {micName}</span>
           </div>
 
           {/* Video pipeline */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
-            videoPipeline === "gl_compositor"
-              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-              : "bg-slate-50 text-slate-600 border-slate-200"
+            isLiveKit
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : recordingError
+                ? "bg-red-50 text-red-700 border-red-200"
+                : "bg-slate-50 text-slate-600 border-slate-200"
           }`}>
             <Layers size={12} />
-            <span>Pipeline: {videoPipeline === "gl_compositor" ? "GL Compositor (clean)" : "Legacy (PiP visible on TV)"}</span>
-          </div>
-
-          {/* GL feature flag */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
-            glCompositorEnabled
-              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-              : "bg-amber-50 text-amber-700 border-amber-200"
-          }`}>
-            <span>GL flag: {glCompositorEnabled ? "ON" : "OFF"}</span>
+            <span>Pipeline: {isLiveKit ? "LiveKit (recording)" : recordingError ? "Failed" : "Idle"}</span>
           </div>
 
           {/* Chime / TTS */}
@@ -273,9 +281,9 @@ export default function DeviceRemote() {
           </div>
         </div>
 
-        {lastGlInitError && (
+        {recordingError && (
           <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
-            <strong>GL init error:</strong> {lastGlInitError}
+            <strong>Last recording error:</strong> {recordingError}
           </div>
         )}
 
@@ -300,13 +308,6 @@ export default function DeviceRemote() {
             label="Test Mic (3s sample)"
             color="blue"
             onClick={() => sendCommand("test_mic", { durationMs: 3000 })}
-            disabled={sending || !isOnline}
-          />
-          <CmdButton
-            icon={Layers}
-            label={glCompositorEnabled ? "Disable GL Compositor" : "Enable GL Compositor"}
-            color={glCompositorEnabled ? "orange" : "blue"}
-            onClick={() => sendCommand("toggle_gl_compositor", { enabled: !glCompositorEnabled })}
             disabled={sending || !isOnline}
           />
         </div>
