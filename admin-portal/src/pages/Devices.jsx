@@ -4,9 +4,31 @@ import {
   Tv, Wifi, WifiOff, CircleDot, Trash2, Play, Square, RefreshCw,
   Camera, Mic, Monitor, HardDrive, Cpu, Battery, AlertTriangle,
   CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Signal,
-  Terminal, Download,
+  Terminal, Download, Power, RotateCcw, Loader2,
 } from "lucide-react";
 import api from "../services/api";
+
+// v3.5.8 — bulk-action helper merged from Fleet.jsx (Fleet page deleted,
+// Devices is now the single fleet-control surface). Multi-select +
+// broadcast remote command across selected TVs.
+function BulkButton({ icon: Icon, label, color, onClick, disabled }) {
+  const palette = {
+    purple: "bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200",
+    yellow: "bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border-yellow-200",
+    orange: "bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200",
+    red: "bg-red-50 text-red-700 hover:bg-red-100 border-red-200",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition
+        ${disabled ? "opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200" : palette[color] || palette.purple}`}
+    >
+      <Icon size={12} /> {label}
+    </button>
+  );
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -199,7 +221,7 @@ function AlertBadge({ alerts }) {
   );
 }
 
-function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
+function DeviceCard({ device, onForceStart, onForceStop, onDelete, isSelected, onToggleSelect }) {
   const [expanded, setExpanded] = useState(false);
   const online = isOnline(device);
   const h = device.health || {};
@@ -210,6 +232,17 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete }) {
     <div className={`border rounded-xl bg-white shadow-sm overflow-hidden transition-all ${hasCritical ? "border-red-200" : "border-gray-100"}`}>
       {/* Main row */}
       <div className="p-4 flex items-start gap-4">
+        {/* v3.5.8 — multi-select checkbox (merged from Fleet). Lets the
+            admin pick a subset of TVs for a bulk command (Pull Logs,
+            Restart App, Reboot, Clear Storage). */}
+        <label className="pt-3 cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            checked={!!isSelected}
+            onChange={() => onToggleSelect && onToggleSelect(device.deviceId)}
+            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+        </label>
         {/* Icon */}
         <div className={`p-3 rounded-lg shrink-0 ${online ? "bg-green-100" : "bg-gray-100"}`}>
           <Tv size={24} className={online ? "text-green-600" : "text-gray-400"} />
@@ -536,6 +569,11 @@ export default function Devices() {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // v3.5.8 — multi-select + broadcast (merged from Fleet page).
+  const [selected, setSelected] = useState(new Set());
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [lastBroadcast, setLastBroadcast] = useState(null);
+
   const fetchDevices = () => {
     api.get("/classroom-recording/devices")
       .then((r) => { setDevices(r.data); setLoading(false); })
@@ -547,6 +585,39 @@ export default function Devices() {
     const iv = setInterval(fetchDevices, 10000);
     return () => clearInterval(iv);
   }, []);
+
+  const toggleSelection = (deviceId) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+  };
+  const selectAllVisible = () => setSelected(new Set(devices.map((d) => d.deviceId)));
+  const clearSelection = () => setSelected(new Set());
+  const selectedCount = selected.size;
+  const selectedArray = [...selected];
+
+  // Broadcast a remote command to every selected device. Uses the same
+  // /api/remote/broadcast endpoint that Fleet used.
+  const broadcast = async (command, label, { confirm, params } = {}) => {
+    if (selectedCount === 0) return alert("Select at least one device first");
+    if (confirm && !window.confirm(`${label} — applies to ${selectedCount} device(s). Continue?`)) return;
+    setBroadcasting(true);
+    try {
+      const res = await api.post("/remote/broadcast", {
+        deviceIds: selectedArray,
+        command,
+        params: params || {},
+      });
+      setLastBroadcast({ command, label, ...res.data });
+    } catch (err) {
+      alert("Broadcast failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setBroadcasting(false);
+    }
+  };
 
   const handleForceStart = async (deviceId) => {
     try {
@@ -605,6 +676,47 @@ export default function Devices() {
           <RefreshCw size={16} /> Refresh
         </button>
       </div>
+
+      {/* v3.5.8 — Bulk action bar (merged from Fleet). Lets admin
+          select multiple TVs and fire one remote command across all of
+          them in parallel. Each command is queued per-device and the TV
+          picks it up on its next heartbeat. */}
+      <div className="bg-white rounded-xl border p-4 mb-6 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-medium text-slate-700">{selectedCount} selected</span>
+          <button className="text-xs text-indigo-600 hover:underline"
+            onClick={selectAllVisible}
+            disabled={!devices.length}
+          >
+            Select all
+          </button>
+          {selectedCount > 0 && (
+            <button className="text-xs text-slate-500 hover:underline" onClick={clearSelection}>
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="flex-1" />
+        <BulkButton icon={Terminal} label="Pull Logs" color="purple"
+          disabled={selectedCount === 0 || broadcasting}
+          onClick={() => broadcast("pull_logs", "Pull logs")} />
+        <BulkButton icon={Trash2} label="Clear Storage" color="yellow"
+          disabled={selectedCount === 0 || broadcasting}
+          onClick={() => broadcast("clear_storage", "Clear storage", { confirm: true })} />
+        <BulkButton icon={RotateCcw} label="Restart App" color="orange"
+          disabled={selectedCount === 0 || broadcasting}
+          onClick={() => broadcast("restart_app", "Restart app", { confirm: true })} />
+        <BulkButton icon={Power} label="Reboot" color="red"
+          disabled={selectedCount === 0 || broadcasting}
+          onClick={() => broadcast("reboot", "Reboot devices", { confirm: true })} />
+        {broadcasting && <Loader2 size={16} className="animate-spin text-blue-500" />}
+      </div>
+      {lastBroadcast && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border rounded-lg p-2">
+          Last broadcast: <strong>{lastBroadcast.label}</strong> →{" "}
+          {lastBroadcast.queued || lastBroadcast.deviceCount || "?"} device(s) queued.
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
@@ -679,6 +791,8 @@ export default function Devices() {
               onForceStart={handleForceStart}
               onForceStop={handleForceStop}
               onDelete={handleDelete}
+              isSelected={selected.has(device.deviceId)}
+              onToggleSelect={toggleSelection}
             />
           ))}
         </div>

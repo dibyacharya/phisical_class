@@ -1,13 +1,15 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut, KeyRound, Monitor, Download, Activity, Radar } from "lucide-react";
+import { LayoutDashboard, CalendarPlus, Video, Building2, Users, Layers, LogOut, KeyRound, Monitor, Download, Activity } from "lucide-react";
 
+// v3.5.8 — "Fleet" nav entry removed. Devices page now serves both
+// roles: per-device detail AND fleet-wide bulk operations. Old /fleet
+// URLs redirect to /devices in App.jsx routing.
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/facility", label: "Facility", icon: Building2 },
   { to: "/booking", label: "Booking", icon: CalendarPlus },
   { to: "/batches", label: "Batches", icon: Layers },
   { to: "/recordings", label: "Recordings", icon: Video },
-  { to: "/fleet", label: "Fleet", icon: Radar },
   { to: "/devices", label: "Devices", icon: Monitor },
   { to: "/users", label: "Users", icon: Users },
   { to: "/licenses", label: "Licenses", icon: KeyRound },
