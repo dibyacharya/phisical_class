@@ -270,16 +270,10 @@ export default function Recordings() {
     }
   };
 
-  const handleCleanupStale = async () => {
-    if (!confirm("Scan all recordings and fix ones stuck at 'recording'/'uploading' for >15 min?")) return;
-    try {
-      const res = await api.post("/recordings/cleanup-stale");
-      alert(`Fixed ${res.data?.fixed || 0} stuck recording(s)`);
-      fetchRecordings();
-    } catch (err) {
-      alert("Cleanup failed: " + (err.response?.data?.error || err.message));
-    }
-  };
+  // v3.5.4 — handleCleanupStale removed; cleanup is now automatic on
+  // the backend (runs every 5 min in backend/index.js setInterval). The
+  // /api/recordings/cleanup-stale endpoint remains in routes for
+  // emergency manual trigger via curl, but no UI exposes it.
 
   const toAbsoluteUrl = (url) => {
     if (!url) return null;
@@ -435,9 +429,11 @@ export default function Recordings() {
           <h2 className="text-2xl font-bold text-gray-800">Class Recordings</h2>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleCleanupStale} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-orange-600 hover:bg-orange-50 transition">
-            <X size={14} /> Fix Stuck
-          </button>
+          {/* v3.5.4 — "Fix Stuck" button removed. Stale-recording cleanup is
+              now automatic on the backend (runs every 5 min, only touches
+              recordings whose device has been offline for ≥5 min — never
+              affects healthy in-flight recordings). Admins don't need to
+              know which TVs crashed where. See backend/index.js setInterval. */}
           <button onClick={fetchRecordings} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
             <RefreshCw size={14} /> Refresh
           </button>

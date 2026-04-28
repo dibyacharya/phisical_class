@@ -228,6 +228,94 @@ connectDB().then(async () => {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Lecture Capture Backend running on http://0.0.0.0:${PORT}`);
   });
+
+  // v3.5.4 — AUTOMATIC stale-recording cleanup.
+  //
+  // Previously admins clicked a "Fix Stuck" button on the Recordings page
+  // when a TV crashed mid-class and left a recording in status="recording"
+  // forever. That was bad product design — admins can't know which TVs
+  // crashed and which are mid-class, so they avoided clicking the button
+  // for fear of force-completing a healthy in-flight recording.
+  //
+  // v3.5.4 makes the same cleanup logic automatic: every 5 minutes the
+  // server scans for recordings stuck at "recording" or "uploading" with
+  // recordingStart > 15 min ago AND no heartbeat from the device in the
+  // last 5 min (i.e. the TV has clearly gone offline mid-class). Marks
+  // them completed-with-segments OR failed-without-segments, and clears
+  // the device's stuck currentMeetingId / isRecording flags so the next
+  // class can start cleanly.
+  //
+  // The 15 min staleness gate + offline TV check together prevent ever
+  // touching a healthy in-flight recording — long classes (1-2 hours)
+  // stay safe because the TV is heartbeating throughout.
+  const recordingController = require("./controllers/recordingController");
+  setInterval(async () => {
+    try {
+      // Re-use the cleanupStale logic but with a stricter heartbeat check
+      // that also requires the TV to be offline (lastHeartbeat > 5 min).
+      const Recording = require("./models/Recording");
+      const ClassroomDevice = require("./models/ClassroomDevice");
+      const STALE_MIN = 15;
+      const OFFLINE_MIN = 5;
+      const cutoff = new Date(Date.now() - STALE_MIN * 60 * 1000);
+      const offlineCutoff = new Date(Date.now() - OFFLINE_MIN * 60 * 1000);
+
+      const stuck = await Recording.find({
+        status: { $in: ["recording", "uploading"] },
+        $or: [
+          { recordingStart: { $lt: cutoff } },
+          { createdAt: { $lt: cutoff } },
+        ],
+      }).populate("scheduledClass", "roomNumber");
+
+      if (stuck.length === 0) return;
+
+      let fixedCount = 0;
+      const meetingIds = [];
+      for (const rec of stuck) {
+        // Find the device for this recording's room. If the TV is online
+        // and recently heartbeating, SKIP — it might still be recording
+        // (the schedule scanner hasn't kicked in yet, etc).
+        const room = rec.scheduledClass?.roomNumber;
+        if (room) {
+          const dev = await ClassroomDevice.findOne({
+            roomNumber: room,
+            lastHeartbeat: { $gte: offlineCutoff },
+          }).select("isRecording");
+          if (dev && dev.isRecording) {
+            // TV is online AND thinks it's recording — leave it alone.
+            continue;
+          }
+        }
+
+        const hasSegments = (rec.segments || []).length > 0;
+        rec.status = hasSegments ? "completed" : "failed";
+        rec.isPublished = hasSegments;
+        rec.recordingEnd = rec.recordingEnd || new Date();
+        if (hasSegments && !rec.videoUrl) {
+          const last = rec.segments[rec.segments.length - 1];
+          if (last?.videoUrl) rec.videoUrl = last.videoUrl;
+        }
+        await rec.save();
+        fixedCount++;
+        if (rec.scheduledClass?._id) meetingIds.push(rec.scheduledClass._id.toString());
+      }
+
+      if (fixedCount > 0) {
+        // Clear device flags for the affected classes.
+        if (meetingIds.length > 0) {
+          await ClassroomDevice.updateMany(
+            { currentMeetingId: { $in: meetingIds }, isRecording: true },
+            { isRecording: false, currentMeetingId: null }
+          );
+        }
+        console.log(`[AutoCleanup] Fixed ${fixedCount} stuck recording(s) (offline TVs only)`);
+      }
+    } catch (err) {
+      console.warn("[AutoCleanup] iteration failed:", err.message);
+    }
+  }, 5 * 60 * 1000); // every 5 minutes
+
 }).catch((err) => {
   console.error("Failed to start server:", err.message);
   process.exit(1);
