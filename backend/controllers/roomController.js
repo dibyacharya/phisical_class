@@ -324,9 +324,22 @@ exports.getRoomRecordings = async (req, res) => {
     const rows = recordings.map((rec) => {
       const cls = classMap[rec.scheduledClass?.toString()];
       return {
-        recordingId:    rec._id,
+        // v3.6.2 — return canonical _id + mergedVideoUrl + mergeStatus +
+        // pipeline. The previous response only had `videoUrl` (legacy
+        // segment-based field, empty for every LiveKit recording) which
+        // made the Facility page filter `r => r.videoUrl` silently drop
+        // every LiveKit recording — explaining "kahi recording dikhta
+        // kahi nahi" on the Facility page. Frontend now accepts either
+        // videoUrl or mergedVideoUrl, and uses _id for the /video-stream
+        // proxy URL (Accept-Ranges header for seek + Content-Disposition
+        // for download).
+        _id:            rec._id,
+        recordingId:    rec._id, // back-compat (deprecated; use _id)
         title:          rec.title,
         videoUrl:       rec.videoUrl,
+        mergedVideoUrl: rec.mergedVideoUrl,
+        mergeStatus:    rec.mergeStatus,
+        pipeline:       rec.pipeline,
         duration:       rec.duration,
         fileSize:       rec.fileSize,
         status:         rec.status,

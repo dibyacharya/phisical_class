@@ -8,6 +8,7 @@ import {
   Pause, FastForward, ExternalLink, Volume2, Plus, Layers,
 } from "lucide-react";
 import api from "../services/api";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 const MEDIA_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5020/api").replace("/api", "");
 
@@ -243,10 +244,18 @@ function VideoModal({ space, onClose, onViewDetail }) {
 
   useEffect(() => {
     if (!space._id) return;
-    // fetch latest recordings for this room (sorted newest first)
-    api.get(`/rooms/${space._id}/recordings`)
-      .then(({ data }) => setVideos((data.rows || []).filter(r => r.videoUrl)))
-      .catch(() => {})
+    setLoading(true);
+    // v3.6.2 — cache-bust + accept either rec.videoUrl OR rec.mergedVideoUrl
+    // (LiveKit pipeline writes mergedVideoUrl directly, never videoUrl, so
+    // the previous filter `r => r.videoUrl` silently dropped every LiveKit
+    // recording — explaining "kahi recording dikhta kahi nahi"). Now we
+    // accept whichever URL exists; hasUrl is the single source of truth.
+    api.get(`/rooms/${space._id}/recordings?_=${Date.now()}`)
+      .then(({ data }) => {
+        const rows = (data.rows || []).filter((r) => r.videoUrl || r.mergedVideoUrl);
+        setVideos(rows);
+      })
+      .catch(() => setVideos([]))
       .finally(() => setLoading(false));
   }, [space._id]);
 
@@ -256,8 +265,21 @@ function VideoModal({ space, onClose, onViewDetail }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const vid      = videos[current];
-  const videoSrc = vid ? `${MEDIA_BASE}${vid.videoUrl}` : null;
+  const vid = videos[current];
+  // v3.6.2 — playback uses the same Accept-Ranges-aware backend proxy
+  // that the Recordings page uses, so seek + Audio + CORS all work.
+  // Token via query because <video src=...> can't send custom headers.
+  // Falls back to direct URL only if recording has no _id (legacy data).
+  const videoSrc = (() => {
+    if (!vid) return null;
+    if (vid._id) {
+      const token = localStorage.getItem("lcs_admin_token") || "";
+      return `${MEDIA_BASE}/api/recordings/${vid._id}/video-stream?token=${encodeURIComponent(token)}`;
+    }
+    const raw = vid.mergedVideoUrl || vid.videoUrl;
+    if (!raw) return null;
+    return raw.startsWith("http") ? raw : `${MEDIA_BASE}${raw}`;
+  })();
 
   const fmtDate  = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" }) : "–";
   const fmtDur   = (s) => { if (!s) return "–"; const h = Math.floor(s/3600), m = Math.floor((s%3600)/60); return h ? `${h}h ${m}m` : `${m}m`; };
@@ -618,8 +640,10 @@ function floorLabel(key) {
 }
 
 // ── Floor Row (inside a block) ────────────────────────────────────────────────
-function FloorRow({ floorKey, rooms, onPlay, onNavigate, compact, showFloorHeader }) {
-  const [open, setOpen] = useState(true);
+function FloorRow({ floorKey, rooms, onPlay, onNavigate, compact, showFloorHeader, persistKey }) {
+  // v3.6.2 — collapse state persists across page reload via localStorage.
+  // Key includes campus+block+floor so two different floors don't collide.
+  const [open, setOpen] = usePersistedState(true, `lcs_facility_floor_${persistKey}`);
   const onlineCount    = rooms.filter(r => r.device?.isOnline).length;
   const recCount       = rooms.filter(r => r.device?.isRecording).length;
 
@@ -688,8 +712,9 @@ function FloorRow({ floorKey, rooms, onPlay, onNavigate, compact, showFloorHeade
 }
 
 // ── Block Section ─────────────────────────────────────────────────────────────
-function BlockSection({ blockData, onPlay, onNavigate, compact }) {
-  const [open, setOpen] = useState(true);
+function BlockSection({ blockData, onPlay, onNavigate, compact, persistKey }) {
+  // v3.6.2 — collapse persists. Key includes campus + block.
+  const [open, setOpen] = usePersistedState(true, `lcs_facility_block_${persistKey}`);
   const alertCount = blockData.rooms.filter(r =>
     r.device?.health && (
       r.device.health.camera?.ok === false ||
@@ -764,6 +789,7 @@ function BlockSection({ blockData, onPlay, onNavigate, compact }) {
               onNavigate={onNavigate}
               compact={compact}
               showFloorHeader={showFloorHeaders}
+              persistKey={`${persistKey}__${floorKey}`}
             />
           ))}
         </div>
@@ -781,7 +807,9 @@ const CAMPUS_GRADIENTS = [
 ];
 
 function CampusSection({ campusData, idx, onPlay, onNavigate, compact }) {
-  const [open, setOpen] = useState(true);
+  // v3.6.2 — collapse persists. Key from campus name (sanitised).
+  const persistKey = (campusData.campus || "_").replace(/[^a-zA-Z0-9]/g, "_");
+  const [open, setOpen] = usePersistedState(true, `lcs_facility_campus_${persistKey}`);
   const grad       = CAMPUS_GRADIENTS[idx % CAMPUS_GRADIENTS.length];
   const onlineTotal = campusData.blocks.reduce((s, b) => s + b.onlineDevices, 0);
   const recTotal    = campusData.blocks.reduce((s, b) => s + b.recordingNow,  0);
@@ -848,6 +876,7 @@ function CampusSection({ campusData, idx, onPlay, onNavigate, compact }) {
               onPlay={onPlay}
               onNavigate={onNavigate}
               compact={compact}
+              persistKey={`${persistKey}__${(block.block || "_").replace(/[^a-zA-Z0-9]/g, "_")}`}
             />
           ))}
         </div>
@@ -884,10 +913,17 @@ export default function Facility() {
   const [autoScroll,  setAutoScroll]  = useState(false);
   const autoScrollRef = useRef(null);
 
+  // v3.6.2 — cache-bust the hierarchy fetch.
+  //
+  // User-reported: "kuch device nehi he pehele tha wo bhi dikhr aha he"
+  // (some devices that don't exist anymore are still showing). Browsers
+  // and Railway's edge cache can return stale /rooms/hierarchy responses
+  // for ~30 s. Adding a timestamp query param forces a fresh server hit
+  // every time, so deletions / device-state changes propagate immediately.
   const fetchHierarchy = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const { data } = await api.get("/rooms/hierarchy");
+      const { data } = await api.get(`/rooms/hierarchy?_=${Date.now()}`);
       setHierarchy(data);
       setLastSync(new Date());
     } catch { /* ignore */ }
