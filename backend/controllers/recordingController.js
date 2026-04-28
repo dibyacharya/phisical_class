@@ -554,13 +554,25 @@ exports.streamVideo = async (req, res) => {
     }
     if (!res.getHeader("Content-Type")) res.setHeader("Content-Type", "video/mp4");
 
+    // v3.5.3 — `?download=1` triggers a direct download instead of
+    // browser-tab playback. Without this header, browsers see
+    // Content-Type: video/mp4 and open the file in a new tab to play it,
+    // ignoring the <a download> attribute on cross-origin links.
+    if (req.query.download === "1" || req.query.download === "true") {
+      // Sanitise the filename — strip path separators and CRLF.
+      const safeName = (req.query.name || `recording-${req.params.id}.mp4`)
+        .replace(/[\r\n/\\]/g, "_")
+        .slice(0, 200);
+      res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+    }
+
     // CORS — admin portal is on a different origin. Open these for video
     // playback from the portal domain. Safe because the resource is
     // already auth-gated by the route middleware.
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Range, If-None-Match");
-    res.setHeader("Access-Control-Expose-Headers", "Accept-Ranges, Content-Range, Content-Length");
+    res.setHeader("Access-Control-Expose-Headers", "Accept-Ranges, Content-Range, Content-Length, Content-Disposition");
 
     // Stream the body straight through. node-fetch / undici Response
     // body is a ReadableStream — pipe it to res. For HEAD, no body.

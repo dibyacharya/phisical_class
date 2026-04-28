@@ -302,13 +302,25 @@ export default function Recordings() {
   // The Download button (further down) STAYS on the direct Azure URL
   // (mergedVideoUrl) so bulk downloads don't pay the Railway bandwidth
   // tax.
-  // v3.5.2 — token via query param (<video src=...> can't send headers).
-  // Backend /video-stream accepts JWT either via Authorization header
-  // OR ?token= query, so we attach the same admin token the rest of
-  // the API uses.
+  // v3.5.2 — playback URL goes through backend stream proxy.
+  //
+  // Proxy verified 200-OK with Accept-Ranges: bytes. This is what
+  // enables seeking in browser HTML5 <video>. Token via query param
+  // because <video src=...> can't send custom headers.
   const streamUrl = (recId) => {
     const token = localStorage.getItem("lcs_admin_token") || "";
     return `${BACKEND_URL}/api/recordings/${recId}/video-stream?token=${encodeURIComponent(token)}`;
+  };
+
+  // v3.5.3 — same proxy + ?download=1 forces Content-Disposition: attachment
+  // so the browser triggers a download instead of opening the MP4 in a new
+  // tab. The <a download="filename.mp4"> attribute alone is ignored by
+  // Chrome for cross-origin URLs, hence the server-side header.
+  const downloadUrl = (rec) => {
+    if (!rec?._id) return null;
+    const token = localStorage.getItem("lcs_admin_token") || "";
+    const filename = `${(rec.title || `recording-${rec._id}`).replace(/[\\/:*?"<>|]/g, "_")}.mp4`;
+    return `${BACKEND_URL}/api/recordings/${rec._id}/video-stream?download=1&name=${encodeURIComponent(filename)}&token=${encodeURIComponent(token)}`;
   };
 
   const getVideoUrl = (rec) => {
@@ -320,12 +332,8 @@ export default function Recordings() {
     return toAbsoluteUrl(rec.videoUrl);
   };
 
-  // Get ordered list of segment URLs — returns a single-element list when
-  // a merged file is available, otherwise the per-segment list (pre-merge
-  // or when merge failed).
   const getSegmentUrls = (rec) => {
     if (rec.mergeStatus === "ready" && rec.mergedVideoUrl) {
-      // Use stream proxy for playback (see getVideoUrl above).
       return [streamUrl(rec._id)];
     }
     const segs = (rec.segments || [])
@@ -701,7 +709,7 @@ export default function Recordings() {
                                                                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">
                                                                     <Play size={11} /> Play
                                                                   </button>
-                                                                  <a href={videoUrl} download={`${rec.title || "recording"}.mp4`}
+                                                                  <a href={downloadUrl(rec)}
                                                                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-green-50 text-green-600 hover:bg-green-100 transition">
                                                                     <Download size={11} /> Download
                                                                   </a>
@@ -850,8 +858,7 @@ export default function Recordings() {
                 {(playingRec.mergeStatus === "ready" && playingRec.mergedVideoUrl) ||
                  (playingRec.segments || []).length <= 1 ? (
                   <a
-                    href={getVideoUrl(playingRec)}
-                    download={`${playingRec.title || "recording"}.mp4`}
+                    href={downloadUrl(playingRec)}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition"
                   >
                     <Download size={16} /> Download
