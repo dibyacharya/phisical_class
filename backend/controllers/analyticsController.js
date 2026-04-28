@@ -41,7 +41,13 @@ exports.fleetOverview = async (_req, res) => {
       // regardless of what telemetry it's actually reported. This is what
       // the admin UI expects and what QA test AN02 enforces.
       const rec = (d.health && d.health.recording) || {};
+      const micInfo = (d.health && d.health.mic) || {};
       const nn = (v) => (v === undefined ? null : v);
+      // v3.3.33 — micLabel sourced from health.mic.name (canonical USB-mic
+      // identifier from checkMic on TV). Falls back to rec.micLabel for
+      // back-compat with pre-v3.3.33 TVs that didn't populate health.mic.
+      // On v3.3.33+ TVs the two values are guaranteed to match.
+      const micLabel = nn(micInfo.name) || nn(rec.micLabel);
       deviceSummaries.push({
         deviceId: d.deviceId,
         name: d.name,
@@ -52,16 +58,18 @@ exports.fleetOverview = async (_req, res) => {
         healthScore: score,
         status: score >= 80 ? "healthy" : score >= 50 ? "warning" : "critical",
         lastHeartbeat: d.lastHeartbeat || null,
-        // Device capability / pipeline info (new in Phase 3 fleet view)
+        // Device capability / pipeline info (Phase 3 fleet view).
+        // v3.3.33: removed glCompositorEnabled + glCameraPiP — those were
+        // legacy GL-compositor flags from v2.x, no longer populated by
+        // any TV ≥ v3.3.32.
         appVersionName: nn(d.appVersionName),
         appVersionCode: nn(d.appVersionCode),
         deviceModel: nn(d.deviceModel),
-        micLabel: nn(rec.micLabel),
+        micLabel,
         videoPipeline: nn(rec.videoPipeline),
-        glCompositorEnabled: nn(rec.glCompositorEnabled),
-        glCameraPiP: nn(rec.glCameraPiP),
         lastRecordingError: nn(rec.lastError),
         recordingErrorCount: nn(rec.errorCount),
+        usbMicBoundOk: nn(rec.usbMicBoundOk),
         health: d.health || {},
       });
     }

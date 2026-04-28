@@ -96,14 +96,26 @@ const recordingSchema = new mongoose.Schema(
     livekitEgressStartedAt: { type: Date },
     livekitEgressEndedAt: { type: Date },
     livekitEgressErrorReason: { type: String, default: "" },
-    // Pipeline marker — "legacy" (MediaCodec + segments) or "livekit"
-    // (RoomCompositeEgress). Lets queries differentiate without inspecting
-    // the populated fields. Defaults to "legacy" for back-compat with all
+    // Pipeline marker.
+    //
+    // v3.3.33: default flipped to "livekit" — every TV in the field
+    // since v3.3.26 ships LiveKit-only and the device hardcodes
+    // `pipeline: "livekit"` in its session-start request, so any new
+    // Recording document that omits this field is implicitly LiveKit.
+    // The earlier default of "legacy" caused two real bugs:
+    //   1. If a TV's session-start raced the field into the document
+    //      before pipeline was set, the doc landed as legacy → backend
+    //      skipped LiveKit setup → recording silently failed.
+    //   2. Old code paths that constructed Recording docs without
+    //      explicitly passing pipeline (e.g. error-recovery flows)
+    //      created legacy docs that confused the merge worker.
+    //
+    // "legacy" stays in the enum for back-compat queries against
     // pre-v3.2 recordings already in the collection.
     pipeline: {
       type: String,
       enum: ["legacy", "livekit"],
-      default: "legacy",
+      default: "livekit",
       index: true,
     },
   },

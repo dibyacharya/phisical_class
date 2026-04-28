@@ -52,7 +52,16 @@ const healthSchema = new mongoose.Schema({
     micLabel: { type: String },
     chimeEngineOk: { type: Boolean },
     ttsEngineOk: { type: Boolean },
-    videoPipeline: { type: String },           // "gl_compositor" | "legacy_direct"
+    // v3.3.32 — videoPipeline is now ONE of: "livekit" (recording
+    // active via WebRTC) or "none" (idle, or LiveKit start failed —
+    // see lastError for cause). "gl_compositor" / "legacy_direct"
+    // labels were leftover from v2.x's MediaCodec + GL paths, removed
+    // from the recording flow in v3.3.26 and stripped from the
+    // heartbeat in v3.3.32.
+    videoPipeline: { type: String },           // "livekit" | "none"
+    // Legacy GL compositor fields kept for back-compat with pre-v3.3.32
+    // heartbeats already persisted in this collection. New heartbeats
+    // do not populate them. Will be removed in a future migration.
     glCompositorEnabled: { type: Boolean },
     glCameraPiP: { type: Boolean },
     lastGlInitError: { type: String },
@@ -115,6 +124,15 @@ const healthSchema = new mongoose.Schema({
     // portal show "TV connected to room" without a separate channel.
     livekitEnabled: { type: Boolean },
     livekitConnectionState: { type: String },
+    // v3.3.31 — verified outcome of the USB-mic → WebRTC AudioRecord
+    // binding loop in LiveKitPipeline.bindUsbMicToLiveKit. true =
+    // AudioRecord.routedDevice matches the USB mic after the verify
+    // loop. false (with hardware.hasUsbMic=true) = HAL ignored every
+    // bind path and the recording will be silent. Lets the admin
+    // portal warn BEFORE recording finishes that audio won't be
+    // captured. Without this declaration, Mongoose strict mode
+    // strips the field on save and the heartbeat field is invisible.
+    usbMicBoundOk: { type: Boolean },
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
