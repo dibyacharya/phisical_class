@@ -8,7 +8,7 @@
 //   PATCH /api/users/:id/password     — admin reset (no currentPassword)
 
 import { useState, useEffect } from "react";
-import { X, Mail, Shield, KeyRound, CheckCircle2, GraduationCap, BookOpen, BadgeCheck, Hash, Layers } from "lucide-react";
+import { X, Mail, Shield, KeyRound, CheckCircle2, GraduationCap, BookOpen, BadgeCheck, Hash, Layers, Eye, EyeOff, Copy, Check } from "lucide-react";
 import api from "../services/api";
 
 const roleColor = {
@@ -27,15 +27,31 @@ export default function UserDetailModal({ userId, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  // v3.6.1 — password show/hide toggle + copy.
+  const [showPassword, setShowPassword] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!userId) return;
+  const refetchProfile = () => {
     setLoading(true);
     api.get(`/users/${userId}`)
       .then((r) => setProfile(r.data))
       .catch((err) => setError(err.response?.data?.error || err.message))
       .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    if (!userId) return;
+    refetchProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  const copyPassword = async () => {
+    if (!profile?.passwordPlaintext) return;
+    try {
+      await navigator.clipboard.writeText(profile.passwordPlaintext);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (_) {}
+  };
 
   const handleReset = async (e) => {
     e.preventDefault();
@@ -53,6 +69,7 @@ export default function UserDetailModal({ userId, onClose }) {
       await api.patch(`/users/${userId}/password`, { newPassword });
       setSuccess(`Password reset for ${profile.email}`);
       setNewPassword(""); setConfirmPassword("");
+      refetchProfile(); // v3.6.1 — pull the new visible password
       setTimeout(() => setShowReset(false), 2000);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -147,11 +164,38 @@ export default function UserDetailModal({ userId, onClose }) {
                       <p className="text-sm font-mono text-slate-800">{profile.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <KeyRound size={14} className="text-slate-500 shrink-0" />
-                    <div>
+                  <div className="flex items-start gap-2">
+                    <KeyRound size={14} className="text-slate-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
                       <p className="text-[10px] text-slate-500 uppercase">Password</p>
-                      <p className="text-sm font-mono text-slate-400">•••••••• <span className="text-xs text-slate-400">(hashed)</span></p>
+                      {profile.passwordPlaintext ? (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-sm font-mono text-slate-800">
+                            {showPassword ? profile.passwordPlaintext : "•".repeat(Math.min(profile.passwordPlaintext.length, 12))}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(v => !v)}
+                            className="p-1 text-slate-500 hover:text-slate-700"
+                            title={showPassword ? "Hide" : "Show"}
+                          >
+                            {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={copyPassword}
+                            className="p-1 text-slate-500 hover:text-slate-700"
+                            title="Copy to clipboard"
+                          >
+                            {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-0.5">
+                          <p className="text-sm font-mono text-slate-400">•••••••• <span className="text-xs text-slate-400">(hashed only)</span></p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Use "Reset Password" below to set a new visible password.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

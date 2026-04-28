@@ -8,8 +8,8 @@
 //
 // Backend endpoint: PATCH /api/auth/me/password { currentPassword, newPassword }
 
-import { useState } from "react";
-import { X, Mail, Shield, KeyRound, CheckCircle2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Mail, Shield, KeyRound, CheckCircle2, Eye, EyeOff, Copy, Check } from "lucide-react";
 import api from "../services/api";
 
 const roleColor = {
@@ -27,6 +27,29 @@ export default function AdminProfileModal({ user, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  // v3.6.1 — fetch own profile (incl. passwordPlaintext) since the
+  // `user` prop from App.jsx came from /auth/login which doesn't include
+  // it. After change-password we refetch so the displayed value is live.
+  const [me, setMe] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const refetchMe = () => {
+    api.get("/auth/me")
+      .then((r) => setMe(r.data?.user))
+      .catch(() => setMe(null));
+  };
+  useEffect(() => { refetchMe(); }, []);
+
+  const currentPlain = me?.passwordPlaintext;
+  const copyPassword = async () => {
+    if (!currentPlain) return;
+    try {
+      await navigator.clipboard.writeText(currentPlain);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (_) {}
+  };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -44,6 +67,7 @@ export default function AdminProfileModal({ user, onClose }) {
       await api.patch("/auth/me/password", { currentPassword, newPassword });
       setSuccess("Password changed successfully");
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      refetchMe(); // v3.6.1 — pull the freshly-stored plaintext
       // Auto-close the change form after 2 s.
       setTimeout(() => setShowChange(false), 2000);
     } catch (err) {
@@ -95,11 +119,38 @@ export default function AdminProfileModal({ user, onClose }) {
                     <p className="text-sm font-mono text-slate-800">{user?.email || "–"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <KeyRound size={14} className="text-slate-500 shrink-0" />
-                  <div>
+                <div className="flex items-start gap-2">
+                  <KeyRound size={14} className="text-slate-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
                     <p className="text-[10px] text-slate-500 uppercase">Password</p>
-                    <p className="text-sm font-mono text-slate-400">•••••••• <span className="text-xs text-slate-400">(hashed, not stored in plain text)</span></p>
+                    {currentPlain ? (
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-sm font-mono text-slate-800">
+                          {showPassword ? currentPlain : "•".repeat(Math.min(currentPlain.length, 12))}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(v => !v)}
+                          className="p-1 text-slate-500 hover:text-slate-700"
+                          title={showPassword ? "Hide" : "Show"}
+                        >
+                          {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={copyPassword}
+                          className="p-1 text-slate-500 hover:text-slate-700"
+                          title="Copy to clipboard"
+                        >
+                          {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-0.5">
+                        <p className="text-sm font-mono text-slate-400">•••••••• <span className="text-xs text-slate-400">(not yet set/changed via this portal)</span></p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Change your password once to make it visible here.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

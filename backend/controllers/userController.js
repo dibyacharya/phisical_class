@@ -51,6 +51,10 @@ exports.createUser = async (req, res) => {
       name,
       email,
       password,
+      // v3.6.1 — store the plain-text alongside the hash so admin can
+      // view the password later (system-owner-requested feature). The
+      // pre-save hook hashes `password`; `passwordPlaintext` stays raw.
+      passwordPlaintext: password,
       role,
       rollNumber: role === "student" ? rollNumber : undefined,
       employeeId: role === "teacher" ? employeeId : undefined,
@@ -108,10 +112,14 @@ exports.listTeachers = async (_req, res) => {
 // Used by the admin portal's UserDetailModal to show LMS login id and
 // role-specific fields. Admin-only (because student/teacher data is
 // PII-adjacent).
+//
+// v3.6.1 — also returns passwordPlaintext (admin-side visibility, see
+// User model comment for the security tradeoff). Field is `select: false`
+// by default so we explicitly opt in via .select("+passwordPlaintext").
 exports.getUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
-      .select("-password")
+      .select("-password +passwordPlaintext")
       .populate("batch", "name")
       .populate("courses", "courseName courseCode");
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -146,6 +154,7 @@ exports.resetUserPassword = async (req, res) => {
     }
 
     user.password = newPassword;
+    user.passwordPlaintext = newPassword; // v3.6.1 — admin-set, visible
     await user.save();
     res.json({ ok: true, message: `Password reset for ${user.email}` });
   } catch (err) {

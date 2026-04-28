@@ -39,7 +39,17 @@ exports.login = async (req, res) => {
 };
 
 exports.me = async (req, res) => {
-  res.json({ user: req.user });
+  // v3.6.1 — also include passwordPlaintext for self-view in admin portal.
+  // The `auth` middleware loads req.user without the plaintext field
+  // (it's `select: false`); refetch with the field explicitly opted in.
+  try {
+    const fresh = await User.findById(req.user.id || req.user._id)
+      .select("-password +passwordPlaintext")
+      .populate("batch", "name");
+    res.json({ user: fresh || req.user });
+  } catch (err) {
+    res.json({ user: req.user });
+  }
 };
 
 // v3.6.0 — change own password (any authenticated user).
@@ -66,6 +76,7 @@ exports.changeMyPassword = async (req, res) => {
     if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
 
     user.password = newPassword; // pre-save hook re-hashes
+    user.passwordPlaintext = newPassword; // v3.6.1 — keep visible copy in sync
     await user.save();
     res.json({ ok: true, message: "Password changed successfully" });
   } catch (err) {
