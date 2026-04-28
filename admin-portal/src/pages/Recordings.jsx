@@ -181,10 +181,37 @@ export default function Recordings() {
   const [showFilters, setShowFilters] = useState(false);
 
   // Expanded state
-  const [expandedCampuses, setExpandedCampuses] = useState({});
-  const [expandedBlocks, setExpandedBlocks] = useState({});
-  const [expandedFloors, setExpandedFloors] = useState({});
-  const [expandedRooms, setExpandedRooms] = useState({});
+  // v3.5.5 — expansion state persists across page reloads via localStorage.
+  // Admins want: refresh karne pe jo expanded tha wahi expanded rahe,
+  // jo collapsed tha wahi collapsed rahe. Default-collapsed everything;
+  // only sections the admin explicitly clicked open should remain open.
+  //
+  // Storage key suffix is the level — separate buckets per tree level
+  // so a "Block A" expanded in one campus doesn't leak to another.
+  const loadExpanded = (key) => {
+    try {
+      const raw = localStorage.getItem(`lcs_recordings_${key}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) { return {}; }
+  };
+  const [expandedCampuses, setExpandedCampuses] = useState(() => loadExpanded("expCampuses"));
+  const [expandedBlocks, setExpandedBlocks] = useState(() => loadExpanded("expBlocks"));
+  const [expandedFloors, setExpandedFloors] = useState(() => loadExpanded("expFloors"));
+  const [expandedRooms, setExpandedRooms] = useState(() => loadExpanded("expRooms"));
+
+  // Persist expansion state on every change.
+  useEffect(() => {
+    try { localStorage.setItem("lcs_recordings_expCampuses", JSON.stringify(expandedCampuses)); } catch (_) {}
+  }, [expandedCampuses]);
+  useEffect(() => {
+    try { localStorage.setItem("lcs_recordings_expBlocks", JSON.stringify(expandedBlocks)); } catch (_) {}
+  }, [expandedBlocks]);
+  useEffect(() => {
+    try { localStorage.setItem("lcs_recordings_expFloors", JSON.stringify(expandedFloors)); } catch (_) {}
+  }, [expandedFloors]);
+  useEffect(() => {
+    try { localStorage.setItem("lcs_recordings_expRooms", JSON.stringify(expandedRooms)); } catch (_) {}
+  }, [expandedRooms]);
 
   const fetchRecordings = () => {
     setLoading(true);
@@ -227,26 +254,13 @@ export default function Recordings() {
     return () => { cancelled = true; clearInterval(iv); };
   }, [playingRec?._id, playingRec?.mergeStatus]);
 
-  // Auto-expand all on first load
-  useEffect(() => {
-    if (recordings.length > 0) {
-      const ec = {}, eb = {}, ef = {}, er = {};
-      recordings.forEach((rec) => {
-        const campus = rec.room?.campus || "Unknown Campus";
-        const block = rec.room?.block || "Unknown Block";
-        const floor = rec.room?.floor || "Unknown Floor";
-        const roomNum = rec.scheduledClass?.roomNumber || "Unknown";
-        ec[campus] = true;
-        eb[`${campus}|${block}`] = true;
-        ef[`${campus}|${block}|${floor}`] = true;
-        er[`${campus}|${block}|${floor}|${roomNum}`] = true;
-      });
-      setExpandedCampuses(ec);
-      setExpandedBlocks(eb);
-      setExpandedFloors(ef);
-      setExpandedRooms(er);
-    }
-  }, [recordings]);
+  // v3.5.5 — REMOVED auto-expand-all-on-load.
+  //
+  // Previously this useEffect force-expanded every campus/block/floor/room
+  // whenever recordings refreshed, defeating any user collapse action.
+  // Admins want default-collapsed + persistent state — see localStorage
+  // load/save above. Tree levels stay closed unless the admin clicked
+  // them open in this or a previous session.
 
   const togglePublish = async (id) => {
     try { await api.put(`/recordings/${id}/toggle-publish`); fetchRecordings(); }
@@ -520,7 +534,10 @@ export default function Recordings() {
         <div className="space-y-4">
           {Object.entries(tree).sort(([a], [b]) => a.localeCompare(b)).map(([campus, blocks]) => {
             const campusKey = campus;
-            const isOpen = expandedCampuses[campusKey] !== false;
+            // v3.5.5 — default COLLAPSED. Section is open only when admin
+            // explicitly clicked it open (state value === true). Any other
+            // state (undefined, false) means closed.
+            const isOpen = expandedCampuses[campusKey] === true;
             const totalRec = countRecInBlock(blocks);
             const totalRooms = countRoomsInCampus(blocks);
             const totalBlocks = Object.keys(blocks).length;
@@ -552,7 +569,7 @@ export default function Recordings() {
                   <div className="bg-slate-50">
                     {Object.entries(blocks).sort(([a], [b]) => a.localeCompare(b)).map(([block, floors]) => {
                       const blockKey = `${campus}|${block}`;
-                      const isBlockOpen = expandedBlocks[blockKey] !== false;
+                      const isBlockOpen = expandedBlocks[blockKey] === true;
                       const blockRecCount = countRecInFloors(floors);
                       const blockFloorCount = Object.keys(floors).length;
 
@@ -578,7 +595,7 @@ export default function Recordings() {
                             <div className="bg-white">
                               {Object.entries(floors).sort(([a], [b]) => a.localeCompare(b)).map(([floor, rooms]) => {
                                 const floorKey = `${campus}|${block}|${floor}`;
-                                const isFloorOpen = expandedFloors[floorKey] !== false;
+                                const isFloorOpen = expandedFloors[floorKey] === true;
                                 const floorRecCount = countRecInRooms(rooms);
                                 const floorRoomCount = Object.keys(rooms).length;
 
@@ -602,7 +619,7 @@ export default function Recordings() {
                                       <div>
                                         {Object.entries(rooms).sort(([a], [b]) => a.localeCompare(b)).map(([roomNum, roomData]) => {
                                           const roomKey = `${campus}|${block}|${floor}|${roomNum}`;
-                                          const isRoomOpen = expandedRooms[roomKey] !== false;
+                                          const isRoomOpen = expandedRooms[roomKey] === true;
                                           const recs = roomData.recordings;
 
                                           return (
