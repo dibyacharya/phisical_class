@@ -573,4 +573,56 @@ router.post("/versions/:id/activate", auth, adminOnly, async (req, res) => {
   }
 });
 
+// POST /api/app/free-mongo-quota — emergency one-shot trim of high-volume
+// collections when MongoDB Atlas reports the cluster is full and rejects
+// writes (including DELETEs of GridFS chunks). Trims:
+//   1. HealthSnapshot — keeps last N days (default 3)
+//   2. DeviceLog      — keeps last N days (default 3)
+//   3. DeviceCommand  — keeps non-completed + last N days completed
+//
+// Why an explicit endpoint: at-quota Atlas rejects ALL writes via the
+// app's Mongoose connection, but compact deleteMany ops with proper
+// query filters still succeed because the WiredTiger reservation pool
+// has cleanup credit. Admin triggers this manually when /api/app/upload
+// or DELETE returns "over your space quota".
+router.post("/free-mongo-quota", auth, adminOnly, async (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(parseInt(req.body?.days) || 3, 30));
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const HealthSnapshot = require("../models/HealthSnapshot");
+    const DeviceLog = require("../models/DeviceLog");
+    const DeviceCommand = require("../models/DeviceCommand");
+
+    const results = {};
+
+    try {
+      const r1 = await HealthSnapshot.deleteMany({ timestamp: { $lt: cutoff } });
+      results.healthSnapshot = r1.deletedCount || 0;
+    } catch (e) { results.healthSnapshot = `error: ${e.message}`; }
+
+    try {
+      const r2 = await DeviceLog.deleteMany({ timestamp: { $lt: cutoff } });
+      results.deviceLog = r2.deletedCount || 0;
+    } catch (e) { results.deviceLog = `error: ${e.message}`; }
+
+    try {
+      const r3 = await DeviceCommand.deleteMany({
+        status: { $in: ["completed", "failed"] },
+        completedAt: { $lt: cutoff },
+      });
+      results.deviceCommand = r3.deletedCount || 0;
+    } catch (e) { results.deviceCommand = `error: ${e.message}`; }
+
+    console.log(`[AppUpdate] Mongo quota free (kept ${days}d):`, results);
+    res.json({
+      message: `Trimmed collections older than ${days} days`,
+      cutoff: cutoff.toISOString(),
+      deleted: results,
+    });
+  } catch (err) {
+    console.error("[AppUpdate] free-mongo-quota failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
