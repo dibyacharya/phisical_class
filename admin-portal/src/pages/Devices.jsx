@@ -106,45 +106,62 @@ function deriveHardwareState(device, h) {
 
   // ── LIVEKIT-PIPELINE TV BRANCH (v3.3.29+ default) ─────────────────
   if (livekitEnabled) {
-    // Currently recording AND LiveKit connected = all 3 tracks are
-    // publishing (this is what Watch Live sees). Trust this signal.
+    // v3.3.30 — INDEPENDENT peripheral detection.
+    //
+    // Camera + mic state come from the TV's heartbeat fields h.camera
+    // and h.mic, which v3.3.30 populates by enumerating actual USB
+    // devices (UsbManager / Camera2 LENS_FACING_EXTERNAL / AudioManager
+    // GET_DEVICES_INPUTS for TYPE_USB_*). This works regardless of
+    // whether a recording is active — peripheral hardware presence is
+    // reported at all times.
+    //
+    // Earlier versions of this function relied on LiveKit recording
+    // state to know if camera/mic were "ok". That was wrong: hardware
+    // presence is independent of recording activity. Now the dashboard
+    // can show accurate ✓/❌ for every TV at every moment.
+    const cameraInfo = h.camera || {};
+    const micInfo = h.mic || {};
+
+    let cameraOk = null;
+    let cameraTooltip = "";
+    if (cameraInfo.ok === true) {
+      cameraOk = true;
+      cameraTooltip = `Camera detected: ${cameraInfo.name || "USB camera"}${cameraInfo.type ? ` (${cameraInfo.type})` : ""}`;
+    } else if (cameraInfo.ok === false) {
+      cameraOk = false;
+      cameraTooltip = cameraInfo.error || "USB camera not detected. Plug in the camera cable on the TV.";
+    }
+
+    let micOk = null;
+    let micTooltip = "";
+    if (micInfo.ok === true) {
+      micOk = true;
+      micTooltip = `Mic detected: ${micInfo.name || "USB mic"}${micInfo.type ? ` (${micInfo.type})` : ""}`;
+    } else if (micInfo.ok === false) {
+      micOk = false;
+      micTooltip = micInfo.error || "USB mic not detected. Plug in the mic cable on the TV.";
+    }
+
+    // Screen icon: derived from LiveKit + accessibility state (these
+    // ARE LiveKit-coupled because the screen capture path depends on
+    // MediaProjection consent which is LiveKit's flow).
+    let screenOk = null;
+    let screenTooltip = "";
     if (isRecording && livekitActive) {
-      return {
-        cameraOk: true,
-        micOk: true,
-        screenOk: true,
-        cameraTooltip: "Camera publishing via LiveKit (visible in Watch Live).",
-        micTooltip: "Mic publishing via LiveKit (audible in Watch Live).",
-        screenTooltip: "Screen publishing via LiveKit (visible in Watch Live).",
-      };
+      screenOk = true;
+      screenTooltip = "Screen publishing via LiveKit (visible in Watch Live).";
+    } else if (isRecording && !livekitActive) {
+      screenOk = false;
+      screenTooltip = `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`;
+    } else if (accessibilityEnabled) {
+      screenOk = true;
+      screenTooltip = "Screen capture ready (LiveKit mode, accessibility enabled — consent will auto-grant at recording start).";
+    } else {
+      screenOk = false;
+      screenTooltip = "AccessibilityService not enabled — projection consent dialog won't auto-tap. Recording will stall at the consent gate.";
     }
 
-    // Recording attempted but LiveKit didn't connect — actually broken.
-    if (isRecording && !livekitActive) {
-      return {
-        cameraOk: false,
-        micOk: false,
-        screenOk: false,
-        cameraTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
-        micTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
-        screenTooltip: `Recording active but LiveKit disconnected (state: ${livekitConn || "unknown"}). Network blocking WebRTC?`,
-      };
-    }
-
-    // IDLE — peripheral state is genuinely unknown without an active
-    // recording. Don't claim green or red — show gray "ready / unknown".
-    // The Screen icon CAN show green when accessibility is enabled (the
-    // only TV-side prerequisite that matters when idle).
-    return {
-      cameraOk: null,
-      micOk: null,
-      screenOk: accessibilityEnabled ? true : false,
-      cameraTooltip: "Camera state will be verifiable on next recording. Watch Live during a recording shows actual state.",
-      micTooltip: "Mic state will be verifiable on next recording. Watch Live during a recording shows actual state.",
-      screenTooltip: accessibilityEnabled
-        ? "Screen capture ready (LiveKit mode, accessibility enabled — consent will auto-grant at recording start)."
-        : "AccessibilityService not enabled — projection consent dialog won't auto-tap. Recording will stall at the consent gate.",
-    };
+    return { cameraOk, micOk, screenOk, cameraTooltip, micTooltip, screenTooltip };
   }
 
   // ── LEGACY-PIPELINE TV BRANCH (rare in v3.3.29+) ─────────────────
