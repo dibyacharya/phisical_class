@@ -36,6 +36,86 @@ function getApkBucket() {
   return new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "lcs_apks" });
 }
 
+// v3.7.0 — pure-filesystem pilot deploy path. Bypasses MongoDB ENTIRELY
+// because Atlas free tier (512 MB) was rejecting both GridFS writes AND
+// regular AppVersion create/update writes when over quota.
+//
+// Storage:
+//   /tmp/lecturelens-pilot.apk   — binary
+//   /tmp/lecturelens-pilot.json  — metadata { versionCode, versionName,
+//                                              releaseNotes, apkSize, uploadedAt }
+//
+// Wiring:
+//   /api/app/latest    — checks pilot.json first; if present, returns
+//                        synthetic "available: true" pointing to it.
+//   /api/app/download  — serves /tmp/lecturelens-pilot.apk if pilot is
+//                        present (regardless of any AppVersion record).
+//
+// Caveat: Railway container redeploys wipe ephemeral filesystem.
+// /api/app/pilot-clear deletes both files (used after rollout completes
+// or to revert).
+const PILOT_APK_PATH = "/tmp/lecturelens-pilot.apk";
+const PILOT_META_PATH = "/tmp/lecturelens-pilot.json";
+
+router.post("/pilot-upload", auth, adminOnly, async (req, res) => {
+  const fs = require("fs");
+  try {
+    if (!req.files || !req.files.apk) {
+      return res.status(400).json({ error: "APK file is required" });
+    }
+    const { versionCode, versionName, releaseNotes } = req.body;
+    if (!versionCode || !versionName) {
+      return res.status(400).json({ error: "versionCode and versionName are required" });
+    }
+    const code = parseInt(versionCode, 10);
+    if (isNaN(code) || code < 1) {
+      return res.status(400).json({ error: "versionCode must be a positive integer" });
+    }
+    const apkFile = req.files.apk;
+    const apkBytes = await apkBytesFrom(apkFile);
+    fs.writeFileSync(PILOT_APK_PATH, apkBytes);
+    const meta = {
+      versionCode: code,
+      versionName,
+      releaseNotes: releaseNotes || "",
+      apkSize: apkBytes.length,
+      uploadedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(PILOT_META_PATH, JSON.stringify(meta, null, 2));
+    console.log(`[AppUpdate] pilot APK saved: v${versionName} (vc=${code}) ${apkBytes.length}B`);
+    res.json({ ok: true, ...meta, apkSizeMB: (apkBytes.length / 1024 / 1024).toFixed(2) });
+  } catch (err) {
+    console.error("[AppUpdate] /pilot-upload failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/pilot-clear", auth, adminOnly, async (_req, res) => {
+  const fs = require("fs");
+  try {
+    let cleared = [];
+    if (fs.existsSync(PILOT_APK_PATH)) { fs.unlinkSync(PILOT_APK_PATH); cleared.push("apk"); }
+    if (fs.existsSync(PILOT_META_PATH)) { fs.unlinkSync(PILOT_META_PATH); cleared.push("meta"); }
+    res.json({ ok: true, cleared });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper: read pilot meta if present + on disk. Used by /latest and /download.
+function getPilotMeta() {
+  const fs = require("fs");
+  try {
+    if (!fs.existsSync(PILOT_APK_PATH)) return null;
+    if (!fs.existsSync(PILOT_META_PATH)) return null;
+    const raw = fs.readFileSync(PILOT_META_PATH, "utf8");
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[AppUpdate] getPilotMeta error: ${err.message}`);
+    return null;
+  }
+}
+
 // v3.7.0 — POST /api/app/upload-fs — Emergency upload path that bypasses
 // GridFS and writes the APK to Railway container's ephemeral filesystem.
 // Used when MongoDB Atlas free tier (512 MB) is full and rejects GridFS
@@ -268,6 +348,21 @@ router.post("/upload", auth, adminOnly, async (req, res) => {
 // GET /api/app/latest — Check latest version (no APK binary)
 router.get("/latest", async (_req, res) => {
   try {
+    // v3.7.0 — pilot-fs path takes priority. When the Atlas quota
+    // forced us off Mongo entirely, we serve from /tmp.
+    const pilot = getPilotMeta();
+    if (pilot) {
+      return res.json({
+        available: true,
+        versionCode: pilot.versionCode,
+        versionName: pilot.versionName,
+        apkSize: pilot.apkSize,
+        releaseNotes: pilot.releaseNotes,
+        updatedAt: pilot.uploadedAt,
+        _source: "pilot-fs",
+      });
+    }
+
     const latest = await AppVersion.findOne({ isActive: true })
       .select("-apkData")
       .sort({ versionCode: -1 });
@@ -348,6 +443,28 @@ async function streamGridFsApk(res, apkGridFsId, versionName, label) {
 // GET /api/app/download — Download APK binary (device auth). Supports both inline and GridFS storage.
 router.get("/download", deviceAuth, async (req, res) => {
   try {
+    // v3.7.0 — pilot-fs override: if /tmp/lecturelens-pilot.apk is
+    // present, serve it directly. This is the path used when Atlas
+    // free-tier quota blocks Mongo writes entirely.
+    const pilot = getPilotMeta();
+    if (pilot) {
+      const fs = require("fs");
+      const stat = fs.statSync(PILOT_APK_PATH);
+      console.log(`[AppUpdate] download (pilot-fs): serving ${stat.size} bytes from ${PILOT_APK_PATH}`);
+      res.set({
+        "Content-Type": "application/vnd.android.package-archive",
+        "Content-Disposition": `attachment; filename="LectureLens-v${pilot.versionName}.apk"`,
+        "Content-Length": stat.size,
+      });
+      const stream = fs.createReadStream(PILOT_APK_PATH);
+      stream.on("error", (err) => {
+        console.error(`[AppUpdate] pilot-fs stream err: ${err.message}`);
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+      });
+      stream.pipe(res);
+      return;
+    }
+
     // See /download-admin comment — lean() + toNodeBuffer gives us a
     // deterministic path that works regardless of the Mongoose schema
     // Buffer hydration quirks we hit with larger inline APKs.
