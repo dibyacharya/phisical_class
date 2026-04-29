@@ -879,4 +879,104 @@ router.post("/free-mongo-quota", auth, adminOnly, async (req, res) => {
   }
 });
 
+// v3.7.0 — DB stats endpoint for emergency Atlas free-tier diagnosis.
+// Lists all databases on the cluster + each one's collections + per-
+// collection document counts and estimated storage. Used to find what's
+// eating quota when /upload fails with "over your space quota" yet our
+// known LCS data is small.
+router.get("/db-stats", auth, adminOnly, async (_req, res) => {
+  const mongoose = require("mongoose");
+  try {
+    const adminDb = mongoose.connection.db.admin();
+    const dbs = await adminDb.listDatabases();
+    const out = { databases: [], totalSizeMB: 0 };
+    for (const d of dbs.databases) {
+      if (d.name === "admin" || d.name === "local" || d.name === "config") {
+        out.databases.push({ name: d.name, sizeMB: (d.sizeOnDisk / 1024 / 1024).toFixed(2), system: true });
+        continue;
+      }
+      const dbConn = mongoose.connection.client.db(d.name);
+      const colls = await dbConn.listCollections().toArray();
+      const collInfo = [];
+      for (const c of colls) {
+        try {
+          const stats = await dbConn.command({ collStats: c.name });
+          collInfo.push({
+            name: c.name,
+            count: stats.count,
+            sizeMB: (stats.size / 1024 / 1024).toFixed(2),
+            storageMB: (stats.storageSize / 1024 / 1024).toFixed(2),
+            indexCount: stats.nindexes,
+            indexSizeMB: (stats.totalIndexSize / 1024 / 1024).toFixed(2),
+          });
+        } catch (e) {
+          collInfo.push({ name: c.name, error: e.message });
+        }
+      }
+      out.databases.push({
+        name: d.name,
+        sizeMB: (d.sizeOnDisk / 1024 / 1024).toFixed(2),
+        collections: collInfo.sort((a, b) => parseFloat(b.sizeMB || 0) - parseFloat(a.sizeMB || 0)),
+      });
+      out.totalSizeMB += parseFloat((d.sizeOnDisk / 1024 / 1024));
+    }
+    out.totalSizeMB = out.totalSizeMB.toFixed(2);
+    res.json(out);
+  } catch (err) {
+    console.error("[/db-stats] failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// v3.7.0 — Drop an entire database from the cluster. EMERGENCY admin
+// surgery for freeing space when LCS isn't using it. Refuses to drop
+// the LCS DB itself (the one we're connected to) as a safety guard.
+router.post("/db-drop", auth, adminOnly, async (req, res) => {
+  const mongoose = require("mongoose");
+  try {
+    const { dbName, confirm } = req.body || {};
+    if (!dbName) return res.status(400).json({ error: "dbName required" });
+    if (confirm !== `YES_DROP_${dbName}`) {
+      return res.status(400).json({
+        error: "confirmation required",
+        hint: `pass confirm: 'YES_DROP_${dbName}' to proceed`,
+      });
+    }
+    const currentDb = mongoose.connection.db.databaseName;
+    if (dbName === currentDb) {
+      return res.status(400).json({ error: `refusing to drop the active LCS database (${currentDb})` });
+    }
+    if (["admin", "local", "config"].includes(dbName)) {
+      return res.status(400).json({ error: "refusing to drop system database" });
+    }
+    const target = mongoose.connection.client.db(dbName);
+    await target.dropDatabase();
+    res.json({ ok: true, dropped: dbName });
+  } catch (err) {
+    console.error("[/db-drop] failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// v3.7.0 — Drop a single collection inside the LCS database. Faster
+// than full DB drop when only specific collections are bloated.
+router.post("/coll-drop", auth, adminOnly, async (req, res) => {
+  const mongoose = require("mongoose");
+  try {
+    const { collection, confirm } = req.body || {};
+    if (!collection) return res.status(400).json({ error: "collection required" });
+    if (confirm !== `YES_DROP_${collection}`) {
+      return res.status(400).json({
+        error: "confirmation required",
+        hint: `pass confirm: 'YES_DROP_${collection}' to proceed`,
+      });
+    }
+    const result = await mongoose.connection.db.collection(collection).drop();
+    res.json({ ok: true, dropped: collection, result });
+  } catch (err) {
+    console.error("[/coll-drop] failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
