@@ -609,26 +609,50 @@ exports.heartbeat = async (req, res) => {
     let appUpdate = null;
     try {
       const deviceVersionCode = parseInt(req.body.appVersionCode) || 0;
-      const latestApp = await AppVersion.findOne({ isActive: true })
-        .select("versionCode versionName apkSize releaseNotes")
-        .sort({ versionCode: -1 });
+      const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+      const scheme = proto === "http" ? "https" : proto;
 
-      if (latestApp && latestApp.versionCode > deviceVersionCode) {
-        // Use X-Forwarded-Proto if set by reverse proxy (Railway/Vercel),
-        // else fall back to req.protocol. IMPORTANT: force HTTPS — Android's
-        // HttpURLConnection refuses to follow HTTP→HTTPS redirects across
-        // protocols for security, so handing the device an HTTP URL here
-        // causes OTA downloads to fail silently when behind a TLS-terminating
-        // proxy that redirects to HTTPS.
-        const proto = req.get("x-forwarded-proto") || req.protocol || "https";
-        const scheme = proto === "http" ? "https" : proto;
+      // v3.7.0 — pilot-fs override: when Atlas free tier is full and
+      // we couldn't write an AppVersion record, the new APK is on /tmp.
+      // Read its metadata file directly so heartbeat still announces
+      // the available update to the TV.
+      const fs = require("fs");
+      let pilotMeta = null;
+      try {
+        if (fs.existsSync("/tmp/lecturelens-pilot.apk") &&
+            fs.existsSync("/tmp/lecturelens-pilot.json")) {
+          pilotMeta = JSON.parse(fs.readFileSync("/tmp/lecturelens-pilot.json", "utf8"));
+        }
+      } catch (_) { /* ignore — fall through to AppVersion path */ }
+
+      if (pilotMeta && pilotMeta.versionCode > deviceVersionCode) {
         appUpdate = {
-          versionCode: latestApp.versionCode,
-          versionName: latestApp.versionName,
-          apkSize: latestApp.apkSize,
-          releaseNotes: latestApp.releaseNotes || "",
+          versionCode: pilotMeta.versionCode,
+          versionName: pilotMeta.versionName,
+          apkSize: pilotMeta.apkSize,
+          releaseNotes: pilotMeta.releaseNotes || "",
           downloadUrl: `${scheme}://${req.get("host")}/api/app/download`,
         };
+      } else if (!pilotMeta) {
+        const latestApp = await AppVersion.findOne({ isActive: true })
+          .select("versionCode versionName apkSize releaseNotes")
+          .sort({ versionCode: -1 });
+
+        if (latestApp && latestApp.versionCode > deviceVersionCode) {
+          // Use X-Forwarded-Proto if set by reverse proxy (Railway/Vercel),
+          // else fall back to req.protocol. IMPORTANT: force HTTPS — Android's
+          // HttpURLConnection refuses to follow HTTP→HTTPS redirects across
+          // protocols for security, so handing the device an HTTP URL here
+          // causes OTA downloads to fail silently when behind a TLS-terminating
+          // proxy that redirects to HTTPS.
+          appUpdate = {
+            versionCode: latestApp.versionCode,
+            versionName: latestApp.versionName,
+            apkSize: latestApp.apkSize,
+            releaseNotes: latestApp.releaseNotes || "",
+            downloadUrl: `${scheme}://${req.get("host")}/api/app/download`,
+          };
+        }
       }
     } catch (updateErr) {
       console.error("[Heartbeat] App update check failed:", updateErr.message);
