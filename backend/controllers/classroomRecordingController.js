@@ -725,7 +725,15 @@ exports.getDevices = async (_req, res) => {
       .filter(d => d.isOnline && d.lastHeartbeat && now - d.lastHeartbeat.getTime() > 5 * 60 * 1000)
       .map(d => d._id);
     if (staleIds.length > 0) {
-      await ClassroomDevice.updateMany({ _id: { $in: staleIds } }, { isOnline: false });
+      // v3.7.0 — wrap so Atlas quota errors don't black-hole the read
+      // response. Stale devices still show isOnline=false in the
+      // returned objects (we mutate the in-memory copies regardless of
+      // whether the persisted update succeeds).
+      try {
+        await ClassroomDevice.updateMany({ _id: { $in: staleIds } }, { isOnline: false });
+      } catch (e) {
+        console.warn(`[getDevices] stale-mark updateMany failed (quota?): ${e.message}`);
+      }
       for (const d of devices) {
         if (staleIds.some(id => id.equals(d._id))) d.isOnline = false;
       }
