@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Tv, Wifi, WifiOff, CircleDot, Trash2, Play, Square, RefreshCw,
-  Camera, Mic, Monitor, HardDrive, Cpu, Battery, AlertTriangle,
+  Camera, Mic, Monitor, HardDrive, Cpu, MemoryStick, Battery, AlertTriangle,
   CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Signal,
   Terminal, Download, Power, RotateCcw, Loader2,
 } from "lucide-react";
@@ -55,6 +55,72 @@ function UsageBar({ value, warn = 75, danger = 90, label }) {
       </div>
       <span className="text-xs text-gray-600 shrink-0">{value}%</span>
       {label && <span className="text-xs text-gray-400 shrink-0">{label}</span>}
+    </div>
+  );
+}
+
+// v3.7.0 — CPU sparkline. Reads `health.cpu.history` (oldest-first array
+// of percent samples, 30s cadence on TV). Renders an inline SVG bar
+// chart so admins can spot drift / spike patterns at a glance without
+// drilling into a separate analytics page. Width auto-scales by
+// container; height fixed at 14px to fit inside the device card row.
+function CpuSparkline({ data, height = 14 }) {
+  if (!Array.isArray(data) || data.length < 2) return null;
+  const n = data.length;
+  // Use a fixed virtual viewport (n × 4) so each sample is 4 units
+  // wide regardless of container — SVG `preserveAspectRatio="none"`
+  // stretches it to fill the available width.
+  const w = n * 4;
+  return (
+    <svg
+      className="w-full mt-0.5"
+      viewBox={`0 0 ${w} ${height}`}
+      preserveAspectRatio="none"
+      style={{ height }}
+      aria-label="cpu history"
+    >
+      {data.map((v, i) => {
+        const h = Math.max(1, (Math.min(v, 100) / 100) * (height - 1));
+        const fill = v >= 90 ? "#ef4444" : v >= 75 ? "#f59e0b" : "#10b981";
+        return (
+          <rect
+            key={i}
+            x={i * 4}
+            y={height - h}
+            width={3}
+            height={h}
+            fill={fill}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// v3.7.0 — Thermal tier badge. Surfaces governor state to the operator
+// when the TV is being protected. NORMAL tier is intentionally suppressed
+// upstream — only WATCH / THROTTLE / COOL / ABORT render here.
+function ThermalBadge({ tier, action }) {
+  const palette = {
+    WATCH:    "bg-blue-50 text-blue-700 border-blue-200",
+    THROTTLE: "bg-yellow-50 text-yellow-700 border-yellow-200",
+    COOL:     "bg-orange-50 text-orange-700 border-orange-200",
+    ABORT:    "bg-red-50 text-red-700 border-red-200",
+  };
+  const label = {
+    WATCH:    "WATCH — CPU sustained high",
+    THROTTLE: "THROTTLE — camera paused to cool",
+    COOL:     "COOL — camera dropped to protect recording",
+    ABORT:    "ABORT — recording stopped (thermal)",
+  }[tier] || `${tier}`;
+  return (
+    <div className={`mt-2 px-2 py-1 rounded text-[10px] font-medium border ${palette[tier] || "bg-gray-50 border-gray-200 text-gray-600"}`}>
+      <div className="flex items-center gap-1">
+        <span>{label}</span>
+        {action && action !== "idle" && (
+          <span className="ml-auto text-[9px] opacity-70 truncate">{action}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -385,23 +451,52 @@ function DeviceCard({ device, onForceStart, onForceStop, onDelete, isSelected, o
                 <HardwareIcon ok={micOk} Icon={Mic} label="Mic" tooltip={micTooltip} />
                 <HardwareIcon ok={screenOk} Icon={Monitor} label="Screen" tooltip={screenTooltip} />
               <div className="flex-1 min-w-0">
-                {h.disk?.usedPercent != null && (
+                {/* v3.6.3: CPU added alongside RAM/Disk so 96%-CPU runaway is visible at a glance.
+                    v3.7.0: also show 5-min peak + sparkline + cpu temperature when reported. */}
+                {h.cpu?.usagePercent != null && (
                   <div className="mb-1">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Cpu size={11} className="text-gray-400" />
+                      <span className="text-[10px] text-gray-500">CPU</span>
+                      {h.cpu.peak5min != null && h.cpu.peak5min > h.cpu.usagePercent && (
+                        <span className="text-[10px] text-gray-400 ml-auto">peak {h.cpu.peak5min}% / 5min</span>
+                      )}
+                      {h.cpu.temperature != null && (
+                        <span className={`text-[10px] ml-2 font-medium ${h.cpu.temperature >= 75 ? "text-red-600" : h.cpu.temperature >= 65 ? "text-yellow-600" : "text-gray-400"}`}>
+                          {h.cpu.temperature.toFixed(0)}&#176;C
+                        </span>
+                      )}
+                    </div>
+                    <UsageBar value={h.cpu.usagePercent} />
+                    {Array.isArray(h.cpu.history) && h.cpu.history.length >= 3 && (
+                      <CpuSparkline data={h.cpu.history} />
+                    )}
+                  </div>
+                )}
+                {/* v3.7.0 — thermal-governor tier badge. Surfaces ONLY when
+                    governor is active and NOT in NORMAL state, so the
+                    fleet-wide view is clean for healthy TVs but instantly
+                    visible when a TV's recording is being protected. */}
+                {h.thermal?.tier && h.thermal.tier !== "NORMAL" && (
+                  <ThermalBadge tier={h.thermal.tier} action={h.thermal.action} />
+                )}
+                {h.ram?.usedPercent != null && (
+                  <div className="mb-1">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <MemoryStick size={11} className="text-gray-400" />
+                      <span className="text-[10px] text-gray-500">RAM</span>
+                    </div>
+                    <UsageBar value={h.ram.usedPercent} />
+                  </div>
+                )}
+                {h.disk?.usedPercent != null && (
+                  <div>
                     <div className="flex items-center gap-1 mb-0.5">
                       <HardDrive size={11} className="text-gray-400" />
                       <span className="text-[10px] text-gray-500">Disk</span>
                       {h.disk.freeGB != null && <span className="text-[10px] text-gray-400 ml-auto">{h.disk.freeGB} GB free</span>}
                     </div>
                     <UsageBar value={h.disk.usedPercent} />
-                  </div>
-                )}
-                {h.ram?.usedPercent != null && (
-                  <div>
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <Cpu size={11} className="text-gray-400" />
-                      <span className="text-[10px] text-gray-500">RAM</span>
-                    </div>
-                    <UsageBar value={h.ram.usedPercent} />
                   </div>
                 )}
               </div>

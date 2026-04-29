@@ -24,6 +24,17 @@ const healthSchema = new mongoose.Schema({
   },
   cpu: {
     usagePercent: { type: Number },
+    // v3.7.0 — additive history fields from CpuMonitor on TV.
+    // Allows admin portal to draw a sparkline + show peaks without
+    // querying time-series collection. All optional; old TVs (pre-v3.7)
+    // simply omit them.
+    temperature: { type: Number },              // °C, from /sys/class/thermal
+    history: { type: [Number], default: undefined }, // last N samples, oldest-first (~30 min @ 30s)
+    peak60s: { type: Number },                   // max in last ~60 s
+    peak5min: { type: Number },                  // max in last ~5 min
+    peakWindow: { type: Number },                // max across full history
+    samples: { type: Number },                   // count of samples in history
+    windowSeconds: { type: Number },             // total window length the history covers
   },
   ram: {
     freeGB: { type: Number },
@@ -38,6 +49,10 @@ const healthSchema = new mongoose.Schema({
   battery: {
     level: { type: Number },        // 0-100, Android only
     charging: { type: Boolean },
+    // v3.7.0 — battery temperature in °C. Most signage TVs synthesise a
+    // fake battery and return null/0; ThermalReader on TV side filters
+    // those to null so admin doesn't display garbage.
+    temperature: { type: Number },
   },
   recording: {
     frameDrop: { type: Number, default: 0 },
@@ -82,6 +97,19 @@ const healthSchema = new mongoose.Schema({
     // captured. Without this declaration, Mongoose strict mode
     // strips the field on save and the heartbeat field is invisible.
     usbMicBoundOk: { type: Boolean },
+  },
+  // v3.7.0 — ThermalGovernor snapshot. Populated only while a recording
+  // is active on the TV (governor is constructed in startLiveKitRecording
+  // and torn down in stopCurrentRecording). When absent, the TV is idle
+  // OR is running pre-v3.7 firmware. The admin portal shows a thermal
+  // badge ("THROTTLE — camera paused" / "COOL — camera dropped") when
+  // tier != "NORMAL".
+  thermal: {
+    tier: { type: String },          // NORMAL | WATCH | THROTTLE | COOL | ABORT
+    action: { type: String },        // human-readable last action e.g. "throttle_camera_paused"
+    cpuTempC: { type: Number },      // duplicate of health.cpu.temperature for tier-time correlation
+    batteryTempC: { type: Number },
+    cpuLatest: { type: Number },     // duplicate of health.cpu.usagePercent at tier-eval time
   },
   serviceUptime: { type: Number },  // seconds
   alerts: [{
