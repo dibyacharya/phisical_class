@@ -346,7 +346,18 @@ exports.heartbeat = async (req, res) => {
       device.currentMeetingId = null;
     }
 
-    await device.save();
+    // v3.7.0 — wrap save() in try/catch so Atlas quota failures don't
+    // black-hole the heartbeat response. Without this, an over-quota
+    // cluster makes EVERY heartbeat 500 — TV never sees the appUpdate
+    // field, so OTA pilot pushes can't reach the device. By catching
+    // and continuing, we deliver the response (with appUpdate, schedule,
+    // commands) even when the persisted device row falls slightly
+    // stale. The TV's behaviour stays correct.
+    try {
+      await device.save();
+    } catch (saveErr) {
+      console.warn(`[Heartbeat] device.save() failed (will continue with response): ${saveErr.message}`);
+    }
 
     // ── v2.6.2: auto-reconcile stuck recordings ───────────────────────
     //
