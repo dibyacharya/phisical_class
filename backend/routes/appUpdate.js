@@ -587,8 +587,27 @@ router.post("/versions/:id/activate", auth, adminOnly, async (req, res) => {
 // or DELETE returns "over your space quota".
 router.post("/free-mongo-quota", auth, adminOnly, async (req, res) => {
   try {
+    // v3.7.0 — accept either `days` (default 3, floor 1) OR `hours`
+    // (default null). When `hours` is supplied AND > 0, we use that;
+    // otherwise fall back to the days path. The hours path also
+    // supports `aggressive: true` to ignore the cutoff entirely
+    // (i.e. truncate-all). Aggressive is the emergency lever for
+    // 512 MB Atlas free-tier blocking an APK upload.
+    const aggressive = req.body?.aggressive === true;
+    const hours = parseInt(req.body?.hours);
     const days = Math.max(1, Math.min(parseInt(req.body?.days) || 3, 30));
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    let cutoff;
+    let label;
+    if (aggressive) {
+      cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000); // future = matches everything
+      label = "EVERYTHING (aggressive flag)";
+    } else if (hours && hours > 0) {
+      cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+      label = `${hours} hours`;
+    } else {
+      cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      label = `${days} days`;
+    }
     const HealthSnapshot = require("../models/HealthSnapshot");
     const DeviceLog = require("../models/DeviceLog");
     const DeviceCommand = require("../models/DeviceCommand");
@@ -606,16 +625,19 @@ router.post("/free-mongo-quota", auth, adminOnly, async (req, res) => {
     } catch (e) { results.deviceLog = `error: ${e.message}`; }
 
     try {
-      const r3 = await DeviceCommand.deleteMany({
-        status: { $in: ["completed", "failed"] },
-        completedAt: { $lt: cutoff },
-      });
+      const filter = aggressive
+        ? { status: { $in: ["completed", "failed"] } }
+        : {
+            status: { $in: ["completed", "failed"] },
+            completedAt: { $lt: cutoff },
+          };
+      const r3 = await DeviceCommand.deleteMany(filter);
       results.deviceCommand = r3.deletedCount || 0;
     } catch (e) { results.deviceCommand = `error: ${e.message}`; }
 
-    console.log(`[AppUpdate] Mongo quota free (kept ${days}d):`, results);
+    console.log(`[AppUpdate] Mongo quota free (cutoff=${label}):`, results);
     res.json({
-      message: `Trimmed collections older than ${days} days`,
+      message: `Trimmed collections older than ${label}`,
       cutoff: cutoff.toISOString(),
       deleted: results,
     });
