@@ -36,6 +36,74 @@ function getApkBucket() {
   return new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "lcs_apks" });
 }
 
+// v3.7.0 — POST /api/app/upload-fs — Emergency upload path that bypasses
+// GridFS and writes the APK to Railway container's ephemeral filesystem.
+// Used when MongoDB Atlas free tier (512 MB) is full and rejects GridFS
+// writes. The /api/app/download endpoint prefers GridFS but falls
+// through to fsPath when GridFS is missing.
+//
+// CAVEAT: Railway containers reset their filesystem on every redeploy.
+// This is a pilot/emergency mechanism, NOT durable fleet storage.
+// Long-term fix is migrating APK storage to Azure Blob (the same
+// container that holds recordings) — see future roadmap.
+router.post("/upload-fs", auth, adminOnly, async (req, res) => {
+  const fs = require("fs");
+  const path = require("path");
+  try {
+    if (!req.files || !req.files.apk) {
+      return res.status(400).json({ error: "APK file is required" });
+    }
+    const { versionCode, versionName, releaseNotes } = req.body;
+    if (!versionCode || !versionName) {
+      return res.status(400).json({ error: "versionCode and versionName are required" });
+    }
+    const code = parseInt(versionCode, 10);
+    if (isNaN(code) || code < 1) {
+      return res.status(400).json({ error: "versionCode must be a positive integer" });
+    }
+    const apkFile = req.files.apk;
+
+    const existing = await AppVersion.findOne({ versionCode: code });
+    if (existing) {
+      return res.status(409).json({ error: `Version code ${code} already exists` });
+    }
+
+    // Persist to ephemeral filesystem
+    const apkDir = "/tmp/lecturelens-apks";
+    fs.mkdirSync(apkDir, { recursive: true });
+    const fsPath = path.join(apkDir, `v${versionName}-${code}.apk`);
+    const apkBytes = await apkBytesFrom(apkFile);
+    fs.writeFileSync(fsPath, apkBytes);
+    console.log(`[AppUpdate] FS upload OK: ${fsPath} (${apkBytes.length} bytes)`);
+
+    await AppVersion.updateMany({}, { isActive: false });
+    const av = await AppVersion.create({
+      versionCode: code,
+      versionName,
+      releaseNotes: releaseNotes || "",
+      apkData: null,
+      apkGridFsId: null,
+      apkFsPath: fsPath,
+      apkSize: apkBytes.length,
+      uploadedBy: req.user?._id,
+      isActive: true,
+    });
+
+    res.json({
+      message: "APK uploaded to filesystem (ephemeral)",
+      versionCode: code,
+      versionName,
+      apkSize: apkBytes.length,
+      fsPath,
+      _id: av._id,
+      caveat: "Railway redeploys wipe this. Long-term: migrate to Azure Blob.",
+    });
+  } catch (err) {
+    console.error("[AppUpdate] /upload-fs failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/app/upload — Admin uploads new APK (uses GridFS for files > 14MB)
 router.post("/upload", auth, adminOnly, async (req, res) => {
   try {
@@ -287,7 +355,7 @@ router.get("/download", deviceAuth, async (req, res) => {
     // in each path depending on Mongoose + MongoDB driver versions. We try
     // both in one request rather than flipping code back and forth.
     let latest = await AppVersion.findOne({ isActive: true })
-      .select("apkData apkGridFsId versionName versionCode apkSize")
+      .select("apkData apkGridFsId apkFsPath versionName versionCode apkSize")
       .sort({ versionCode: -1 });
     // If hydrated Mongoose doc returned but apkData is the wrapper shape
     // that toNodeBuffer() can't unwrap, refetch lean and re-try.
@@ -295,13 +363,38 @@ router.get("/download", deviceAuth, async (req, res) => {
     if (hydratedFailed) {
       console.log(`[AppUpdate] hydrated shape=${describeBuffer(latest.apkData)} — retrying with .lean()`);
       latest = await AppVersion.findOne({ isActive: true })
-        .select("apkData apkGridFsId versionName versionCode apkSize")
+        .select("apkData apkGridFsId apkFsPath versionName versionCode apkSize")
         .sort({ versionCode: -1 })
         .lean();
     }
 
     if (!latest) {
       return res.status(404).json({ error: "No APK available" });
+    }
+
+    // v3.7.0 — filesystem fallback (only when GridFS is unavailable due
+    // to Atlas free-tier quota). See /upload-fs route.
+    if (latest.apkFsPath) {
+      const fs = require("fs");
+      try {
+        const stat = fs.statSync(latest.apkFsPath);
+        console.log(`[AppUpdate] download: serving ${stat.size} bytes from FS path=${latest.apkFsPath}`);
+        res.set({
+          "Content-Type": "application/vnd.android.package-archive",
+          "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
+          "Content-Length": stat.size,
+        });
+        const stream = fs.createReadStream(latest.apkFsPath);
+        stream.on("error", (err) => {
+          console.error(`[AppUpdate] FS stream err: ${err.message}`);
+          if (!res.headersSent) res.status(500).json({ error: err.message });
+        });
+        stream.pipe(res);
+        return;
+      } catch (err) {
+        console.warn(`[AppUpdate] FS fallback miss for ${latest.apkFsPath}: ${err.message} — trying GridFS/inline`);
+        // fall through to GridFS/inline paths below
+      }
     }
 
     if (latest.apkGridFsId) {
@@ -423,7 +516,7 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     // in each path depending on Mongoose + MongoDB driver versions. We try
     // both in one request rather than flipping code back and forth.
     let latest = await AppVersion.findOne({ isActive: true })
-      .select("apkData apkGridFsId versionName versionCode apkSize")
+      .select("apkData apkGridFsId apkFsPath versionName versionCode apkSize")
       .sort({ versionCode: -1 });
     // If hydrated Mongoose doc returned but apkData is the wrapper shape
     // that toNodeBuffer() can't unwrap, refetch lean and re-try.
@@ -431,7 +524,7 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
     if (hydratedFailed) {
       console.log(`[AppUpdate] hydrated shape=${describeBuffer(latest.apkData)} — retrying with .lean()`);
       latest = await AppVersion.findOne({ isActive: true })
-        .select("apkData apkGridFsId versionName versionCode apkSize")
+        .select("apkData apkGridFsId apkFsPath versionName versionCode apkSize")
         .sort({ versionCode: -1 })
         .lean();
     }
@@ -440,7 +533,29 @@ router.get("/download-admin", auth, adminOnly, async (req, res) => {
       return res.status(404).json({ error: "No APK available" });
     }
 
-    console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : "inline"}, declared size=${latest.apkSize}, apkData shape=${describeBuffer(latest.apkData)}`);
+    console.log(`[AppUpdate] download-admin v${latest.versionName} (code ${latest.versionCode}), storage=${latest.apkGridFsId ? "gridfs" : (latest.apkFsPath ? "fs" : "inline")}, declared size=${latest.apkSize}`);
+
+    // v3.7.0 — filesystem fallback (Atlas free-tier emergency path)
+    if (latest.apkFsPath) {
+      const fs = require("fs");
+      try {
+        const stat = fs.statSync(latest.apkFsPath);
+        res.set({
+          "Content-Type": "application/vnd.android.package-archive",
+          "Content-Disposition": `attachment; filename="LectureLens-v${latest.versionName}.apk"`,
+          "Content-Length": stat.size,
+        });
+        const stream = fs.createReadStream(latest.apkFsPath);
+        stream.on("error", (err) => {
+          console.error(`[AppUpdate] (admin) FS stream err: ${err.message}`);
+          if (!res.headersSent) res.status(500).json({ error: err.message });
+        });
+        stream.pipe(res);
+        return;
+      } catch (err) {
+        console.warn(`[AppUpdate] (admin) FS fallback miss: ${err.message} — trying GridFS`);
+      }
+    }
 
     if (latest.apkGridFsId) {
       const ok = await streamGridFsApk(res, latest.apkGridFsId, latest.versionName, "admin");
