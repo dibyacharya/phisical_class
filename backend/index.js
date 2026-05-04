@@ -160,6 +160,9 @@ app.use("/api/app", require("./routes/appUpdate"));
 app.use("/api/analytics", require("./routes/analytics"));
 app.use("/api/remote", require("./routes/remote"));
 
+// ── Windows Edition routes (isolated from Android — never modify Android above) ──
+app.use("/api/windows", require("./routes/windows"));
+
 // Global error handler — returns JSON instead of ugly HTML stack traces
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err.message);

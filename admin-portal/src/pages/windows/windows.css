@@ -1,0 +1,415 @@
+/* Windows Edition admin portal styles — isolated namespace */
+
+.page-windows-devices,
+.page-windows-recordings,
+.page-windows-booking,
+.page-windows-licenses,
+.page-windows-dashboard {
+  padding: 24px;
+  max-width: 1400px;
+}
+
+.page-windows-devices .page-header h1::before,
+.page-windows-recordings .page-header h1::before,
+.page-windows-booking .page-header h1::before,
+.page-windows-licenses .page-header h1::before,
+.page-windows-dashboard .page-header h1::before {
+  content: "🪟 ";
+  margin-right: 4px;
+}
+
+/* ── Device grid ─────────────────────────────────────── */
+.device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.device-card {
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.device-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 12px;
+}
+
+.device-icon {
+  font-size: 32px;
+}
+
+.device-card-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #0a2540;
+}
+
+.device-card-header small {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.device-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.metric-row > span:first-child {
+  color: #6b7280;
+}
+
+.metric-row > span:last-child {
+  font-weight: 500;
+  color: #111827;
+}
+
+.device-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-top: 1px solid #eef2f7;
+  padding-top: 12px;
+}
+
+.device-card-actions button {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.device-card-actions button:hover {
+  background: #e5e7eb;
+}
+
+/* ── Status badges ──────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.badge-online { background: #d1fae5; color: #065f46; }
+.badge-offline { background: #f3f4f6; color: #6b7280; }
+.badge-recording { background: #fee2e2; color: #991b1b; animation: pulse 2s infinite; }
+.badge-license { background: #dbeafe; color: #1e40af; }
+.badge-warning { background: #fef3c7; color: #92400e; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
+.badge-muted { background: #f3f4f6; color: #6b7280; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Status pills (table cells) ─────────────────────── */
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.status-recording { background: #fee2e2; color: #991b1b; }
+.status-uploading { background: #fef3c7; color: #92400e; }
+.status-merging { background: #dbeafe; color: #1e40af; }
+.status-completed { background: #d1fae5; color: #065f46; }
+.status-failed { background: #fecaca; color: #991b1b; }
+.status-active { background: #d1fae5; color: #065f46; }
+.status-issued { background: #dbeafe; color: #1e40af; }
+.status-expired { background: #fef3c7; color: #92400e; }
+.status-revoked { background: #fee2e2; color: #991b1b; }
+
+/* ── Tier badges (license table) ────────────────────── */
+.tier-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tier-starter { background: #f3f4f6; color: #374151; }
+.tier-professional { background: #dbeafe; color: #1e40af; }
+.tier-enterprise { background: linear-gradient(135deg, #d4a017 0%, #b8870c 100%); color: white; }
+
+/* ── Tables ──────────────────────────────────────────── */
+.recordings-table,
+.licenses-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.recordings-table th,
+.licenses-table th {
+  background: #f9fafb;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #6b7280;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.recordings-table td,
+.licenses-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eef2f7;
+  font-size: 13px;
+}
+
+.recordings-table tbody tr:hover,
+.licenses-table tbody tr:hover {
+  background: #fafbfc;
+}
+
+/* ── Forms ───────────────────────────────────────────── */
+.booking-form {
+  max-width: 600px;
+  background: white;
+  padding: 24px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.form-row label {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.form-row input,
+.form-row select,
+.form-row textarea {
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-row-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  font-weight: 500;
+}
+
+.btn-primary { background: #0a2540; color: white; }
+.btn-primary:hover { background: #1e3a5f; }
+.btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+
+.btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+.btn-secondary:hover { background: #e5e7eb; }
+
+.btn-link { color: #2563eb; text-decoration: none; padding: 4px 8px; }
+.btn-link:hover { text-decoration: underline; }
+
+.btn-danger-link {
+  color: #dc2626;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.btn-danger-link:hover { text-decoration: underline; }
+
+/* ── Banners ─────────────────────────────────────────── */
+.error-banner {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.success-banner {
+  background: #d1fae5;
+  color: #065f46;
+  padding: 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.success-banner .license-key {
+  display: inline-block;
+  background: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 8px 0;
+  letter-spacing: 1px;
+}
+
+/* ── Modals ──────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.modal-header h2 { margin: 0; font-size: 18px; }
+.modal-header button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-body pre {
+  background: #f9fafb;
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+/* ── Stat cards (Dashboard) ──────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-icon { font-size: 32px; margin-bottom: 8px; }
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0a2540;
+}
+.stat-label {
+  font-size: 13px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+.stat-sub {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+/* ── Quick actions ───────────────────────────────────── */
+.quick-actions {
+  margin-top: 32px;
+  background: white;
+  padding: 20px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+}
+
+.quick-actions h2 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.action-link {
+  display: block;
+  padding: 10px;
+  color: #1e40af;
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.action-link:hover {
+  background: #dbeafe;
+}
+
+/* ── Empty / loading states ──────────────────────────── */
+.page-loading {
+  padding: 40px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.text-muted {
+  color: #6b7280;
+}

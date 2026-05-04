@@ -16,6 +16,14 @@ import Analytics from "./pages/Analytics";
 import DeviceRemote from "./pages/DeviceRemote";
 import Layout from "./components/Layout";
 
+// ── Windows Edition pages (isolated namespace, no Android pages touched) ──
+import WindowsDashboard from "./pages/windows/WindowsDashboard";
+import WindowsDevices from "./pages/windows/WindowsDevices";
+import WindowsRecordings from "./pages/windows/WindowsRecordings";
+import WindowsBooking from "./pages/windows/WindowsBooking";
+import WindowsLicenses from "./pages/windows/WindowsLicenses";
+import "./pages/windows/windows.css";
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -79,6 +87,13 @@ export default function App() {
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/device/:deviceId/remote" element={<DeviceRemote />} />
                   <Route path="/attendance/:classId" element={<AttendanceView />} />
+
+                  {/* ── Windows Edition routes (isolated under /windows/*) ── */}
+                  <Route path="/windows" element={<WindowsDashboard />} />
+                  <Route path="/windows/devices" element={<WindowsDevices />} />
+                  <Route path="/windows/recordings" element={<WindowsRecordings />} />
+                  <Route path="/windows/booking" element={<WindowsBooking />} />
+                  <Route path="/windows/licenses" element={<WindowsLicenses />} />
                 </Routes>
               </Layout>
             ) : (
