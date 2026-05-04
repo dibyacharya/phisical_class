@@ -3,6 +3,7 @@ const WindowsDeviceCommand = require("../../models/windows/WindowsDeviceCommand"
 const WindowsLicense = require("../../models/windows/WindowsLicense");
 const ScheduledClass = require("../../models/ScheduledClass");
 const WindowsRecording = require("../../models/windows/WindowsRecording");
+const WindowsAppVersion = require("../../models/windows/WindowsAppVersion");
 
 /**
  * POST /api/windows/devices/register
@@ -187,9 +188,28 @@ exports.heartbeat = async (req, res) => {
       console.error("[WinHeartbeat] Command lookup failed:", cmdErr.message);
     }
 
-    // ── App update check (separate from Android OTA) ──────────────
-    // For now: stub. Phase 7 will add Windows MSIX OTA.
-    const appUpdate = null;
+    // ── App update check — Windows .exe OTA ──────────────────────
+    let appUpdate = null;
+    try {
+      const deviceVc = parseInt(body.appVersionCode) || 0;
+      const active = await WindowsAppVersion.findOne({ isActive: true })
+        .select("versionCode versionName exeSize releaseNotes sha256")
+        .sort({ versionCode: -1 });
+      if (active && active.versionCode > deviceVc) {
+        const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+        const scheme = proto === "http" ? "https" : proto;
+        appUpdate = {
+          versionCode: active.versionCode,
+          versionName: active.versionName,
+          exeSize: active.exeSize,
+          sha256: active.sha256,
+          releaseNotes: active.releaseNotes || "",
+          downloadUrl: `${scheme}://${req.get("host")}/api/windows/app/download`,
+        };
+      }
+    } catch (updateErr) {
+      console.error("[WinHeartbeat] appUpdate check failed:", updateErr.message);
+    }
 
     res.json({
       schedule,

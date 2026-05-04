@@ -28,6 +28,7 @@ const windowsNavItems = [
   { to: "/windows/devices", label: "Devices", icon: Cpu },
   { to: "/windows/recordings", label: "Recordings", icon: Video },
   { to: "/windows/licenses", label: "Licenses", icon: KeyRound },
+  { to: "/windows/app-update", label: "App Update", icon: Download },
 ];
 
 export default function Layout({ user, onLogout, children }) {

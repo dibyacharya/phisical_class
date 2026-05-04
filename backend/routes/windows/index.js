@@ -5,6 +5,7 @@ const { windowsDeviceAuth } = require("../../middleware/windowsDeviceAuth");
 const deviceCtrl = require("../../controllers/windows/deviceController");
 const recordingCtrl = require("../../controllers/windows/recordingController");
 const licenseCtrl = require("../../controllers/windows/licenseController");
+const appUpdateCtrl = require("../../controllers/windows/appUpdateController");
 
 // ── Device endpoints ──────────────────────────────────────
 // Public
@@ -43,5 +44,11 @@ router.patch("/licenses/:key/extend", auth, adminOnly, licenseCtrl.extend);
 
 // Public (called by Windows installer to validate before activation)
 router.get("/licenses/:key/validate", licenseCtrl.validate);
+
+// ── Windows App OTA / installer management ───────────────────
+router.post("/app/upload", auth, adminOnly, appUpdateCtrl.upload);
+router.get("/app/versions", auth, adminOnly, appUpdateCtrl.list);
+router.post("/app/versions/:id/activate", auth, adminOnly, appUpdateCtrl.activate);
+router.get("/app/download", appUpdateCtrl.download); // public — used by self-updater
 
 module.exports = router;

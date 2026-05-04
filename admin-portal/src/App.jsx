@@ -22,6 +22,7 @@ import WindowsDevices from "./pages/windows/WindowsDevices";
 import WindowsRecordings from "./pages/windows/WindowsRecordings";
 import WindowsBooking from "./pages/windows/WindowsBooking";
 import WindowsLicenses from "./pages/windows/WindowsLicenses";
+import WindowsAppUpdate from "./pages/windows/WindowsAppUpdate";
 import "./pages/windows/windows.css";
 
 export default function App() {
@@ -94,6 +95,7 @@ export default function App() {
                   <Route path="/windows/recordings" element={<WindowsRecordings />} />
                   <Route path="/windows/booking" element={<WindowsBooking />} />
                   <Route path="/windows/licenses" element={<WindowsLicenses />} />
+                  <Route path="/windows/app-update" element={<WindowsAppUpdate />} />
                 </Routes>
               </Layout>
             ) : (
