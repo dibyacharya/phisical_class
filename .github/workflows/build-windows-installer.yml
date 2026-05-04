@@ -1,0 +1,130 @@
+name: Build Windows Installer
+
+# When this runs:
+#   - Manually via "Run workflow" button on GitHub
+#   - Automatically on every push to main that touches the Windows app
+#   - When a tag like v1.0.0 is pushed (creates a GitHub Release with the .exe)
+#
+# What you get:
+#   - A real Windows .exe installer, built on a real Windows machine
+#   - Uploaded as a downloadable artifact on the GitHub Actions run page
+#   - For tagged releases, also published as a GitHub Release asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: "Version name (e.g., 1.0.1)"
+        required: true
+        default: "1.0.0"
+      versionCode:
+        description: "Version code (integer)"
+        required: true
+        default: "100"
+  push:
+    tags:
+      - "win-v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: dibyacharya/lecturelens-windows-recorder
+          path: lecturelens-windows-recorder
+        continue-on-error: true
+
+      # If the Windows app source isn't a separate repo yet, fall back to the
+      # local lecturelens-windows-recorder folder (sibling of this repo's root)
+      - name: Locate Windows app source
+        id: locate
+        shell: pwsh
+        run: |
+          if (Test-Path "lecturelens-windows-recorder/src") {
+            echo "src_path=lecturelens-windows-recorder" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            git clone https://github.com/dibyacharya/lecturelens-windows-recorder.git win-app
+            echo "src_path=win-app" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+
+      - name: Restore + Build .NET service
+        shell: pwsh
+        working-directory: ${{ steps.locate.outputs.src_path }}
+        run: |
+          dotnet restore src/LectureLens.WindowsRecorder/LectureLens.WindowsRecorder.csproj
+          dotnet publish src/LectureLens.WindowsRecorder/LectureLens.WindowsRecorder.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -o src/LectureLens.WindowsRecorder/bin/Release/net8.0-windows/publish
+
+      - name: Cache OBS Studio installer
+        id: cache-obs
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.locate.outputs.src_path }}/installer/obs-deps/OBS-Studio-Setup.exe
+          key: obs-studio-30.2.3
+
+      - name: Download OBS Studio (if not cached)
+        if: steps.cache-obs.outputs.cache-hit != 'true'
+        shell: pwsh
+        working-directory: ${{ steps.locate.outputs.src_path }}/installer
+        run: |
+          New-Item -ItemType Directory -Path obs-deps -Force | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/30.2.3/OBS-Studio-30.2.3-Windows-Installer.exe" -OutFile "obs-deps/OBS-Studio-Setup.exe" -UseBasicParsing
+
+      - name: Create OBS scene template
+        shell: pwsh
+        working-directory: ${{ steps.locate.outputs.src_path }}/installer/obs-deps
+        run: |
+          $scene = @{
+            name = "LectureLens"
+            current_scene = "LectureLens"
+            current_program_scene = "LectureLens"
+            scene_order = @(@{ name = "LectureLens" })
+            sources = @(
+              @{ name = "LectureLens"; id = "scene"; settings = @{} }
+              @{ name = "Lumens Camera"; id = "ffmpeg_source"; settings = @{ input = "rtsp://192.168.0.6:554/live/main"; is_local_file = $false; restart_on_activate = $true } }
+              @{ name = "Microphone (DMP Plus)"; id = "wasapi_input_capture"; settings = @{ device_id = "default" } }
+            )
+          } | ConvertTo-Json -Depth 6
+          Set-Content -Path "LectureLens-scene-collection.json" -Value $scene
+
+      - name: Compile installer with Inno Setup
+        shell: pwsh
+        working-directory: ${{ steps.locate.outputs.src_path }}/installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q setup.iss
+
+      - name: Verify output
+        shell: pwsh
+        working-directory: ${{ steps.locate.outputs.src_path }}/installer
+        run: |
+          Get-ChildItem Output | Format-Table Name, Length, LastWriteTime
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LectureLens-Setup-v${{ github.event.inputs.versionName || github.ref_name }}
+          path: ${{ steps.locate.outputs.src_path }}/installer/Output/*.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release (for tagged builds)
+        if: startsWith(github.ref, 'refs/tags/win-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.locate.outputs.src_path }}/installer/Output/*.exe
+          generate_release_notes: true
+          name: "Windows Recorder ${{ github.ref_name }}"
