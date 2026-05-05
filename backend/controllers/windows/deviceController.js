@@ -16,6 +16,7 @@ exports.register = async (req, res) => {
       name, roomNumber,
       campus, block, floor, spaceCode,
       hardwareModel, cpuModel, osVersion, macAddress, hardwareFingerprint,
+      detectedHardware,
     } = req.body;
 
     if (!name || !roomNumber) {
@@ -33,6 +34,9 @@ exports.register = async (req, res) => {
         if (block !== undefined)     existing.block     = block;
         if (floor !== undefined)     existing.floor     = floor;
         if (spaceCode !== undefined) existing.spaceCode = spaceCode;
+        if (detectedHardware && Object.keys(detectedHardware).length > 0) {
+          existing.detectedHardware = detectedHardware;
+        }
         await existing.save();
         return res.json({
           deviceId: existing.deviceId,
@@ -54,6 +58,7 @@ exports.register = async (req, res) => {
       osVersion,
       macAddress,
       hardwareFingerprint,
+      detectedHardware: detectedHardware || undefined,
     });
 
     res.status(201).json({

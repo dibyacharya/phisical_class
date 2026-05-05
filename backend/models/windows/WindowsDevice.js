@@ -38,6 +38,35 @@ const windowsDeviceSchema = new mongoose.Schema(
     macAddress: String,
     hardwareFingerprint: String,  // For license binding
 
+    // Hardware inventory — captured by installer's hardware-detect.ps1 at first run.
+    // Updated again on every heartbeat if the Mini PC sends a refreshed snapshot
+    // (e.g., a new USB camera was plugged in).
+    detectedHardware: {
+      cameras:       [String],
+      microphones:   [String],
+      displays: [
+        {
+          name:        String,
+          width:       Number,
+          height:      Number,
+          refreshRate: Number,
+        },
+      ],
+      monitorCount:  Number,
+      cpuModel:      String,
+      cpuCores:      Number,
+      cpuLogical:    Number,
+      gpu:           String,
+      ramGB:         Number,
+      diskGB:        Number,
+      diskFreeGB:    Number,
+      hostname:      String,
+      hardwareModel: String,
+      osCaption:     String,
+      osBuild:       String,
+      detectedAt:    Date,
+    },
+
     // App version (Windows MSIX)
     appVersionCode: { type: Number, default: 0 },
     appVersionName: { type: String, default: "" },

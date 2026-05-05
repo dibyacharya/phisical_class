@@ -113,6 +113,16 @@ export default function WindowsDevices() {
                   </span>
                 </div>
               )}
+              {d.detectedHardware && (
+                <div className="metric-row">
+                  <span>Hardware:</span>
+                  <span>
+                    {(d.detectedHardware.cameras?.length ?? 0)} cam ·{" "}
+                    {(d.detectedHardware.microphones?.length ?? 0)} mic ·{" "}
+                    {(d.detectedHardware.ramGB ?? 0)} GB RAM
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="device-card-actions">
@@ -132,6 +142,7 @@ export default function WindowsDevices() {
 }
 
 function DeviceDetailModal({ device, onClose }) {
+  const hw = device.detectedHardware;
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -140,7 +151,81 @@ function DeviceDetailModal({ device, onClose }) {
           <button onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          <pre>{JSON.stringify(device, null, 2)}</pre>
+          {hw ? (
+            <div className="device-hardware-section">
+              <h3>Hardware Inventory</h3>
+              <p className="text-muted" style={{ marginTop: "-8px", marginBottom: "12px" }}>
+                Detected at install
+                {hw.detectedAt ? ` · ${new Date(hw.detectedAt).toLocaleString()}` : ""}
+              </p>
+
+              <div className="hw-grid">
+                <div className="hw-section">
+                  <h4>Cameras ({hw.cameras?.length ?? 0})</h4>
+                  {hw.cameras?.length > 0 ? (
+                    <ul>{hw.cameras.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                  ) : (
+                    <p className="text-muted">None detected</p>
+                  )}
+                </div>
+
+                <div className="hw-section">
+                  <h4>Microphones ({hw.microphones?.length ?? 0})</h4>
+                  {hw.microphones?.length > 0 ? (
+                    <ul>{hw.microphones.map((m, i) => <li key={i}>{m}</li>)}</ul>
+                  ) : (
+                    <p className="text-muted">None detected</p>
+                  )}
+                </div>
+
+                <div className="hw-section">
+                  <h4>Displays ({hw.displays?.length ?? 0})</h4>
+                  {hw.displays?.length > 0 ? (
+                    <ul>
+                      {hw.displays.map((d, i) => (
+                        <li key={i}>
+                          {d.name} — {d.width}×{d.height} @ {d.refreshRate}Hz
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted">None detected</p>
+                  )}
+                  {hw.monitorCount > 0 && (
+                    <p className="text-muted">{hw.monitorCount} monitor{hw.monitorCount !== 1 ? "s" : ""} connected</p>
+                  )}
+                </div>
+
+                <div className="hw-section">
+                  <h4>System</h4>
+                  <table className="hw-system-table">
+                    <tbody>
+                      {hw.hostname &&      <tr><td>Hostname</td><td>{hw.hostname}</td></tr>}
+                      {hw.hardwareModel && <tr><td>Model</td><td>{hw.hardwareModel}</td></tr>}
+                      {hw.cpuModel &&      <tr><td>CPU</td><td>{hw.cpuModel} ({hw.cpuCores} cores / {hw.cpuLogical} threads)</td></tr>}
+                      {hw.gpu &&           <tr><td>GPU</td><td>{hw.gpu}</td></tr>}
+                      {hw.ramGB &&         <tr><td>RAM</td><td>{hw.ramGB} GB</td></tr>}
+                      {hw.diskGB &&        <tr><td>Disk</td><td>{hw.diskGB} GB total · {hw.diskFreeGB} GB free</td></tr>}
+                      {hw.osCaption &&     <tr><td>OS</td><td>{hw.osCaption} (build {hw.osBuild})</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <details style={{ marginTop: "16px" }}>
+                <summary>Raw device document</summary>
+                <pre style={{ fontSize: "11px", marginTop: "8px" }}>{JSON.stringify(device, null, 2)}</pre>
+              </details>
+            </div>
+          ) : (
+            <>
+              <p className="text-muted">
+                Hardware inventory not yet captured. This device may have been registered with an older
+                installer (before v1.0.4). Run the latest installer to populate hardware details.
+              </p>
+              <pre>{JSON.stringify(device, null, 2)}</pre>
+            </>
+          )}
         </div>
       </div>
     </div>

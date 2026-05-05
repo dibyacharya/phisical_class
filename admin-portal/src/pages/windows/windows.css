@@ -302,7 +302,7 @@
 .modal-content {
   background: white;
   border-radius: 8px;
-  max-width: 600px;
+  max-width: 760px;
   width: 90%;
   max-height: 90vh;
   overflow-y: auto;
@@ -334,6 +334,78 @@
   border-radius: 4px;
   font-size: 12px;
   overflow-x: auto;
+}
+
+/* ── Device hardware inventory (in detail modal) ──────── */
+.device-hardware-section h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: #0a2540;
+}
+
+.hw-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.hw-section {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+
+.hw-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hw-section ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #111827;
+}
+
+.hw-section ul li {
+  margin: 2px 0;
+  word-break: break-word;
+}
+
+.hw-section p {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+}
+
+.hw-system-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.hw-system-table td {
+  padding: 3px 0;
+  vertical-align: top;
+}
+
+.hw-system-table td:first-child {
+  width: 70px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.hw-system-table td:last-child {
+  color: #111827;
+  word-break: break-word;
+}
+
+@media (max-width: 600px) {
+  .hw-grid { grid-template-columns: 1fr; }
 }
 
 /* ── Stat cards (Dashboard) ──────────────────────────── */
