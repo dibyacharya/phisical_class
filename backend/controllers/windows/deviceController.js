@@ -155,11 +155,21 @@ exports.heartbeat = async (req, res) => {
     });
 
     // ── License validation ─────────────────────────────────────────
+    // Stock licenses are created with status="issued" (sold but not yet bound
+    // to a device). The first heartbeat from a real device with a valid
+    // fingerprint activates the license: status flips to "active", boundDevice
+    // gets set, recording is enabled. Subsequent heartbeats just re-validate
+    // the existing "active" state.
     let licenseStatus = null;
     if (body.license?.key) {
       const lic = await WindowsLicense.findOne({ licenseKey: body.license.key });
       if (lic) {
-        const valid = lic.status === "active" && (!lic.expiresAt || lic.expiresAt > new Date());
+        const notExpired = !lic.expiresAt || lic.expiresAt > new Date();
+        // "issued" or "active" both count as valid as long as not expired.
+        // "expired" / "revoked" / "suspended" are explicitly invalid.
+        const validStatus = ["issued", "active"].includes(lic.status);
+        const valid = validStatus && notExpired;
+
         licenseStatus = {
           valid,
           tier: lic.tier,
@@ -167,14 +177,15 @@ exports.heartbeat = async (req, res) => {
           features: lic.features,
         };
 
-        // Auto-bind if not already bound
+        // Auto-bind on first valid heartbeat from a fingerprinted device
         if (valid && !lic.boundDeviceId && body.license.fingerprint) {
           lic.boundDevice = device._id;
           lic.boundDeviceId = device.deviceId;
           lic.boundAt = new Date();
           lic.hardwareFingerprint = body.license.fingerprint;
           lic.activatedAt = lic.activatedAt || new Date();
-          await lic.save();
+          // Transition issued -> active on first activation
+          if (lic.status === "issued") lic.status = "active";
         }
         lic.lastValidatedAt = new Date();
         await lic.save();
