@@ -16,7 +16,7 @@ const windowsLicenseSchema = new mongoose.Schema(
 
     tier: {
       type: String,
-      enum: ["starter", "professional", "enterprise"],
+      enum: ["professional"],
       required: true,
       default: "professional",
     },
@@ -91,47 +91,22 @@ windowsLicenseSchema.statics.generateKey = function () {
   return `WIN-${groups.join("-")}`;
 };
 
-// Static helper to apply tier-default features
-windowsLicenseSchema.statics.featuresForTier = function (tier) {
-  const defaults = {
-    starter: {
-      maxRecordingHoursPerDay: 4,
-      maxResolution: "720p",
-      liveWatchEnabled: false,
-      multiCameraEnabled: false,
-      fourKEnabled: false,
-      customOverlayEnabled: false,
-      cloudUploadEnabled: true,
-      apiAccessEnabled: false,
-      maxConcurrentLiveViewers: 0,
-      cloudStorageGB: 100,
-    },
-    professional: {
-      maxRecordingHoursPerDay: 12,
-      maxResolution: "1080p",
-      liveWatchEnabled: true,
-      multiCameraEnabled: false,
-      fourKEnabled: false,
-      customOverlayEnabled: false,
-      cloudUploadEnabled: true,
-      apiAccessEnabled: true,
-      maxConcurrentLiveViewers: 5,
-      cloudStorageGB: 500,
-    },
-    enterprise: {
-      maxRecordingHoursPerDay: null,
-      maxResolution: "4k",
-      liveWatchEnabled: true,
-      multiCameraEnabled: true,
-      fourKEnabled: true,
-      customOverlayEnabled: true,
-      cloudUploadEnabled: true,
-      apiAccessEnabled: true,
-      maxConcurrentLiveViewers: 999,
-      cloudStorageGB: 999999,
-    },
+// Static helper to apply tier-default features.
+// Only one tier (professional) is offered today: 1080p + live-watch + cloud upload.
+// Other tiers were dropped to simplify the catalogue; reintroduce here when needed.
+windowsLicenseSchema.statics.featuresForTier = function (_tier) {
+  return {
+    maxRecordingHoursPerDay: 12,
+    maxResolution: "1080p",
+    liveWatchEnabled: true,
+    multiCameraEnabled: false,
+    fourKEnabled: false,
+    customOverlayEnabled: false,
+    cloudUploadEnabled: true,
+    apiAccessEnabled: true,
+    maxConcurrentLiveViewers: 5,
+    cloudStorageGB: 500,
   };
-  return defaults[tier] || defaults.professional;
 };
 
 module.exports = mongoose.model("WindowsLicense", windowsLicenseSchema);

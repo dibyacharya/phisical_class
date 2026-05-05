@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import { winLicenses } from "../../services/windowsApi";
 
-const TIER_PRICING = {
-  starter: { inr: 20000, usd: 275 },
-  professional: { inr: 45000, usd: 600 },
-  enterprise: { inr: 75000, usd: 1000 },
-};
+// Single-tier catalogue: 1080p Professional with live-watch.
+// (Starter / Enterprise were retired — keep this constant if they return later.)
+const PRO_PRICE = { inr: 45000, usd: 600 };
 
 export default function WindowsLicenses() {
   const [licenses, setLicenses] = useState([]);
@@ -146,7 +144,6 @@ export default function WindowsLicenses() {
 }
 
 function IssueLicenseForm({ onClose, onIssued }) {
-  const [tier, setTier] = useState("professional");
   const [form, setForm] = useState({
     customerName: "",
     customerEmail: "",
@@ -160,12 +157,11 @@ function IssueLicenseForm({ onClose, onIssued }) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const pricing = TIER_PRICING[tier];
       const result = await winLicenses.issue({
-        tier,
+        tier: "professional",
         ...form,
-        pricePerYearINR: pricing.inr,
-        pricePerYearUSD: pricing.usd,
+        pricePerYearINR: PRO_PRICE.inr,
+        pricePerYearUSD: PRO_PRICE.usd,
       });
       onIssued(result);
     } catch (e) {
@@ -183,13 +179,8 @@ function IssueLicenseForm({ onClose, onIssued }) {
           <button onClick={onClose}>×</button>
         </div>
         <form onSubmit={submit} className="modal-body">
-          <div className="form-row">
-            <label>Tier</label>
-            <select value={tier} onChange={(e) => setTier(e.target.value)}>
-              <option value="starter">Starter — ₹20,000/yr (720p, 4hrs/day)</option>
-              <option value="professional">Professional — ₹45,000/yr (1080p, 12hrs/day, live-watch)</option>
-              <option value="enterprise">Enterprise — ₹75,000/yr (4K, multi-cam, unlimited)</option>
-            </select>
+          <div className="form-row plan-summary">
+            <strong>Plan:</strong> Professional &mdash; 1080p recording, live-watch, 12 hrs/day, 5 concurrent viewers, 500 GB cloud storage. <em>₹{PRO_PRICE.inr.toLocaleString()}/yr</em>
           </div>
           <div className="form-row">
             <label>Customer Name *</label>

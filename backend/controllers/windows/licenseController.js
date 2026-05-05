@@ -1,4 +1,10 @@
 const WindowsLicense = require("../../models/windows/WindowsLicense");
+// Force-register the User model so the .populate("issuedBy", ...) call below
+// can resolve it. Without this, Mongoose throws "Schema hasn't been registered
+// for model 'User'" because the Windows controllers are loaded from a
+// different require chain than the rest of the app.
+require("../../models/User");
+require("../../models/windows/WindowsDevice");
 
 /**
  * POST /api/windows/licenses (admin)
