@@ -109,9 +109,14 @@ exports.recordChunk = async (req, res) => {
 
 /**
  * POST /api/windows/recordings/:id/finalize
- * Device endpoint — called when recording stops. Backend marks complete and triggers merge.
+ * Device endpoint — called when recording stops. Device may already have done
+ * the post-process merge locally and uploaded final.mp4; if so, it sends
+ * mergedVideoUrl + mergedFileSize and the backend marks the recording fully
+ * completed in one call. Otherwise (no merged URL), recording goes into a
+ * "merging" state for a server-side worker.
+ *
  * Auth: windowsDeviceAuth
- * Body: { recordingEnd, duration }
+ * Body: { recordingEnd, duration, mergedVideoUrl?, mergedFileSize? }
  */
 exports.finalize = async (req, res) => {
   try {
@@ -120,20 +125,35 @@ exports.finalize = async (req, res) => {
 
     rec.recordingEnd = req.body.recordingEnd ? new Date(req.body.recordingEnd) : new Date();
     rec.duration = req.body.duration || Math.floor((rec.recordingEnd - rec.recordingStart) / 1000);
-    rec.status = "merging";
-    rec.mergeStatus = "pending";
+
+    // v2.0.4: device-side post-process — if the device has already merged + uploaded
+    // the final file, accept the URL here and mark fully complete.
+    if (req.body.mergedVideoUrl) {
+      rec.mergedVideoUrl = req.body.mergedVideoUrl;
+      if (req.body.mergedFileSize) {
+        rec.mergedFileSize = req.body.mergedFileSize;
+        rec.fileSize = req.body.mergedFileSize;
+      }
+      rec.mergeStatus = "ready";
+      rec.mergedAt = new Date();
+      rec.status = "completed";
+      rec.isPublished = true;
+    } else {
+      // Legacy path: device only did capture, server will merge
+      rec.status = "merging";
+      rec.mergeStatus = "pending";
+    }
+
     await rec.save();
 
-    // Mark class as completed
     if (rec.scheduledClass) {
       await ScheduledClass.findByIdAndUpdate(rec.scheduledClass, { status: "completed" }).catch(() => {});
     }
 
-    // TODO Phase 3: trigger ffmpeg merge worker server-side
-    // For v1: chunks remain individually accessible via blobUrl;
-    // mergedVideoUrl is set when merge worker completes.
-
-    res.json({ message: "Recording finalized — merge pending", recording: rec });
+    res.json({
+      message: rec.mergedVideoUrl ? "Recording finalized + published" : "Recording finalized — merge pending",
+      recording: rec,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

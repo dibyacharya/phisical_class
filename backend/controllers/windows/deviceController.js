@@ -265,6 +265,40 @@ exports.heartbeat = async (req, res) => {
 };
 
 /**
+ * GET /api/windows/devices/blob-config
+ * Device-authenticated. Returns Azure Blob credentials so the device can
+ * upload chunks + merged recordings directly. Backend env owns the secret;
+ * the device receives the connection string at runtime (no hardcoding in
+ * the .exe). Service caches in memory + re-fetches on each service start.
+ *
+ * Tradeoff: every authenticated device sees the full connection string. For
+ * pilot/school deployments where devices are physically secured this is OK.
+ * Production hardening (v2.x): switch to short-lived SAS tokens scoped to
+ * each device's recording prefix.
+ */
+exports.blobConfig = async (_req, res) => {
+  try {
+    const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+    if (!cs) {
+      return res.status(503).json({
+        error: "Azure Blob not configured on backend (AZURE_STORAGE_CONNECTION_STRING env missing)",
+      });
+    }
+    const container = process.env.AZURE_STORAGE_CONTAINER || "lms-storage";
+    const prefix = process.env.AZURE_BLOB_PREFIX || "physical-class-recordings";
+
+    res.json({
+      connectionString: cs,
+      container,
+      pathPrefix: prefix,
+    });
+  } catch (err) {
+    console.error("[Windows/blobConfig] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * GET /api/windows/devices  (admin)
  */
 exports.list = async (_req, res) => {

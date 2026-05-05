@@ -13,6 +13,7 @@ router.post("/devices/register", deviceCtrl.register);
 
 // Device-authenticated (called by Windows app)
 router.post("/devices/:deviceId/heartbeat", windowsDeviceAuth, deviceCtrl.heartbeat);
+router.get("/devices/blob-config", windowsDeviceAuth, deviceCtrl.blobConfig);
 
 // Admin-authenticated
 router.get("/devices", auth, adminOnly, deviceCtrl.list);
