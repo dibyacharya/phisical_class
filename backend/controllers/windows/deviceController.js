@@ -12,16 +12,28 @@ const WindowsAppVersion = require("../../models/windows/WindowsAppVersion");
  */
 exports.register = async (req, res) => {
   try {
-    const { name, roomNumber, hardwareModel, cpuModel, osVersion, macAddress, hardwareFingerprint } = req.body;
+    const {
+      name, roomNumber,
+      campus, block, floor, spaceCode,
+      hardwareModel, cpuModel, osVersion, macAddress, hardwareFingerprint,
+    } = req.body;
 
     if (!name || !roomNumber) {
       return res.status(400).json({ error: "name and roomNumber are required" });
     }
 
     // If a device with this fingerprint already exists, return its credentials
+    // (and refresh its location info — operator may have moved the Mini PC).
     if (hardwareFingerprint) {
       const existing = await WindowsDevice.findOne({ hardwareFingerprint });
       if (existing) {
+        existing.name = name;
+        existing.roomNumber = roomNumber;
+        if (campus !== undefined)    existing.campus    = campus;
+        if (block !== undefined)     existing.block     = block;
+        if (floor !== undefined)     existing.floor     = floor;
+        if (spaceCode !== undefined) existing.spaceCode = spaceCode;
+        await existing.save();
         return res.json({
           deviceId: existing.deviceId,
           authToken: existing.authToken,
@@ -33,6 +45,10 @@ exports.register = async (req, res) => {
     const device = await WindowsDevice.create({
       name,
       roomNumber,
+      campus: campus || "",
+      block: block || "",
+      floor: floor || "",
+      spaceCode: spaceCode || "",
       hardwareModel,
       cpuModel,
       osVersion,

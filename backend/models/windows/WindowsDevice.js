@@ -22,8 +22,13 @@ const windowsDeviceSchema = new mongoose.Schema(
     },
 
     name: { type: String, required: true },
+    // Location hierarchy — same fields as the Android TV setup wizard so
+    // admin portal grouping/listing is identical across platforms.
+    campus: { type: String, default: "", index: true },
+    block: { type: String, default: "", index: true },
+    floor: { type: String, default: "", index: true },
     roomNumber: { type: String, required: true, index: true },
-    spaceCode: { type: String },
+    spaceCode: { type: String, index: true },
     facilityId: { type: mongoose.Schema.Types.ObjectId, ref: "Facility" },
 
     // Hardware
@@ -42,7 +47,7 @@ const windowsDeviceSchema = new mongoose.Schema(
 
     // License binding
     licenseKey: { type: String, index: true },
-    licenseTier: { type: String, enum: ["starter", "professional", "enterprise"] },
+    licenseTier: { type: String, enum: ["professional"], default: "professional" },
     licenseExpiresAt: Date,
     licenseStatus: {
       type: String,
