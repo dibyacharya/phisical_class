@@ -1,16 +1,11 @@
 import { useEffect, useState } from "react";
 import { winLicenses } from "../../services/windowsApi";
 
-// Single-tier catalogue: 1080p Professional with live-watch.
-// (Starter / Enterprise were retired — keep this constant if they return later.)
-const PRO_PRICE = { inr: 45000, usd: 600 };
-
 export default function WindowsLicenses() {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showIssueForm, setShowIssueForm] = useState(false);
-  const [issueResult, setIssueResult] = useState(null);
+  const [copiedKey, setCopiedKey] = useState("");
 
   async function load() {
     try {
@@ -39,43 +34,35 @@ export default function WindowsLicenses() {
     }
   }
 
+  async function copyKey(key) {
+    try {
+      await navigator.clipboard.writeText(key);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(""), 1500);
+    } catch {
+      // Fallback for older browsers / non-secure contexts
+      const ta = document.createElement("textarea");
+      ta.value = key;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(""), 1500);
+    }
+  }
+
   if (loading) return <div className="page-loading">Loading licenses...</div>;
 
   return (
     <div className="page-windows-licenses">
       <div className="page-header">
         <h1>Windows Licenses</h1>
-        <p className="text-muted">{licenses.length} licenses issued</p>
-        <button className="btn btn-primary" onClick={() => setShowIssueForm(true)}>
-          + Issue New License
-        </button>
+        <p className="text-muted">{licenses.length} licenses available</p>
         <button className="btn btn-secondary" onClick={load}>Refresh</button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
-
-      {issueResult && (
-        <div className="success-banner">
-          <h3>License Issued Successfully!</h3>
-          <p>Share this key with the customer:</p>
-          <code className="license-key">{issueResult.shareThisKey}</code>
-          <p className="text-muted">
-            Customer enters this key during Windows app installation.
-          </p>
-          <button onClick={() => setIssueResult(null)}>Dismiss</button>
-        </div>
-      )}
-
-      {showIssueForm && (
-        <IssueLicenseForm
-          onClose={() => setShowIssueForm(false)}
-          onIssued={(result) => {
-            setIssueResult(result);
-            setShowIssueForm(false);
-            load();
-          }}
-        />
-      )}
 
       <table className="licenses-table">
         <thead>
@@ -93,7 +80,20 @@ export default function WindowsLicenses() {
         <tbody>
           {licenses.map((lic) => (
             <tr key={lic._id}>
-              <td><code>{lic.licenseKey}</code></td>
+              <td>
+                <div className="license-key-cell">
+                  <code>{lic.licenseKey}</code>
+                  <button
+                    type="button"
+                    onClick={() => copyKey(lic.licenseKey)}
+                    className="btn-copy"
+                    title="Copy license key"
+                    aria-label="Copy license key"
+                  >
+                    {copiedKey === lic.licenseKey ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </td>
               <td>
                 <span className={`tier-badge tier-${lic.tier}`}>{lic.tier}</span>
               </td>
@@ -133,102 +133,12 @@ export default function WindowsLicenses() {
           {licenses.length === 0 && (
             <tr>
               <td colSpan={8} className="empty-state">
-                No licenses issued yet. Click "Issue New License" to create one.
+                No licenses available. Contact engineering to provision more.
               </td>
             </tr>
           )}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function IssueLicenseForm({ onClose, onIssued }) {
-  const [form, setForm] = useState({
-    customerName: "",
-    customerEmail: "",
-    customerOrg: "",
-    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-    notes: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      const result = await winLicenses.issue({
-        tier: "professional",
-        ...form,
-        pricePerYearINR: PRO_PRICE.inr,
-        pricePerYearUSD: PRO_PRICE.usd,
-      });
-      onIssued(result);
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Issue New License</h2>
-          <button onClick={onClose}>×</button>
-        </div>
-        <form onSubmit={submit} className="modal-body">
-          <div className="form-row plan-summary">
-            <strong>Plan:</strong> Professional &mdash; 1080p recording, live-watch, 12 hrs/day, 5 concurrent viewers, 500 GB cloud storage. <em>₹{PRO_PRICE.inr.toLocaleString()}/yr</em>
-          </div>
-          <div className="form-row">
-            <label>Customer Name *</label>
-            <input
-              type="text"
-              value={form.customerName}
-              onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-              required
-            />
-          </div>
-          <div className="form-row">
-            <label>Customer Email</label>
-            <input
-              type="email"
-              value={form.customerEmail}
-              onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
-            />
-          </div>
-          <div className="form-row">
-            <label>Customer Organization</label>
-            <input
-              type="text"
-              value={form.customerOrg}
-              onChange={(e) => setForm({ ...form, customerOrg: e.target.value })}
-            />
-          </div>
-          <div className="form-row">
-            <label>Expires *</label>
-            <input
-              type="date"
-              value={form.expiresAt}
-              onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
-              required
-            />
-          </div>
-          <div className="form-row">
-            <label>Notes</label>
-            <textarea
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              rows={3}
-            />
-          </div>
-          <button type="submit" disabled={submitting} className="btn btn-primary">
-            {submitting ? "Issuing..." : "Issue License"}
-          </button>
-        </form>
-      </div>
     </div>
   );
 }

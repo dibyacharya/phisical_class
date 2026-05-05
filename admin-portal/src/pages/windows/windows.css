@@ -460,3 +460,29 @@
   color: #6b7280;
   font-size: 12px;
 }
+
+/* License key cell — code chip + copy button side-by-side */
+.license-key-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.license-key-cell code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: #f3f4f6;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.btn-copy {
+  background: transparent;
+  border: 1px solid #d0d7de;
+  color: #374151;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.btn-copy:hover { background: #f3f4f6; border-color: #9ca3af; }
+.btn-copy:active { background: #e5e7eb; }
