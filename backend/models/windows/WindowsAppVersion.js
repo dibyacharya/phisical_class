@@ -20,7 +20,7 @@ const windowsAppVersionSchema = new mongoose.Schema(
 
     isActive: { type: Boolean, default: false, index: true },
 
-    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_User" },
     uploadedAt: { type: Date, default: Date.now },
   },
   {

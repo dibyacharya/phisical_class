@@ -60,8 +60,8 @@ const windowsLicenseSchema = new mongoose.Schema(
 
     // Audit
     notes: String,
-    issuedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    revokedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    issuedBy: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_User" },
+    revokedBy: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_User" },
     revokedAt: Date,
     revokeReason: String,
 

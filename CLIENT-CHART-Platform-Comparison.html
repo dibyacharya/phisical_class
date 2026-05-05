@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Classroom Recording System — Platform Comparison Chart</title>
+<style>
+  /* ===== Page setup ===== */
+  @page {
+    size: A4;
+    margin: 16mm 14mm 18mm 14mm;
+    @bottom-center {
+      content: "D&R AI Solutions Pvt Ltd  |  Page " counter(page) " of " counter(pages);
+      font-family: -apple-system, "Helvetica Neue", sans-serif;
+      font-size: 8pt;
+      color: #6b7280;
+    }
+  }
+  @page :first {
+    margin: 0;
+    @bottom-center { content: ""; }
+  }
+
+  /* ===== Reset & base ===== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: -apple-system, "Helvetica Neue", "Segoe UI", "Inter", sans-serif;
+    font-size: 10pt;
+    line-height: 1.45;
+    color: #1f2937;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ===== Color tokens ===== */
+  :root {
+    --primary: #0a2540;
+    --primary-soft: #1e3a5f;
+    --accent: #d4a017;
+    --windows: #16a34a;
+    --windows-soft: #dcfce7;
+    --android: #d97706;
+    --android-soft: #fef3c7;
+    --critical: #dc2626;
+    --critical-soft: #fee2e2;
+    --neutral: #f5f7fb;
+    --border: #d0d7de;
+    --text-secondary: #4b5563;
+  }
+
+  /* ===== Cover page ===== */
+  .cover {
+    height: 297mm;
+    width: 210mm;
+    background: linear-gradient(135deg, #0a2540 0%, #1e3a5f 60%, #2d4a73 100%);
+    color: white;
+    padding: 35mm 25mm;
+    page-break-after: always;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover-brand {
+    display: flex;
+    align-items: center;
+    gap: 12pt;
+  }
+  .brand-logo {
+    width: 50pt;
+    height: 50pt;
+    background: linear-gradient(135deg, #d4a017 0%, #b8870c 100%);
+    border-radius: 12pt;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 18pt;
+    color: #0a2540;
+    letter-spacing: -0.5pt;
+  }
+  .brand-text {
+    font-size: 13pt;
+    font-weight: 600;
+    letter-spacing: 0.5pt;
+  }
+  .brand-tag {
+    font-size: 9pt;
+    color: #d4a017;
+    letter-spacing: 1.5pt;
+    text-transform: uppercase;
+    margin-top: 2pt;
+  }
+  .cover-title {
+    margin-top: 35mm;
+  }
+  .cover-eyebrow {
+    color: #d4a017;
+    font-size: 11pt;
+    letter-spacing: 4pt;
+    text-transform: uppercase;
+    margin-bottom: 10pt;
+  }
+  .cover-h1 {
+    font-size: 38pt;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 12pt;
+    letter-spacing: -1pt;
+  }
+  .cover-h2 {
+    font-size: 18pt;
+    font-weight: 400;
+    color: #c7d2e0;
+    line-height: 1.3;
+    max-width: 130mm;
+  }
+  .cover-meta {
+    border-top: 2px solid #d4a017;
+    padding-top: 12pt;
+  }
+  .cover-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10pt;
+    margin-bottom: 4pt;
+  }
+  .cover-meta-label {
+    color: #d4a017;
+    text-transform: uppercase;
+    font-size: 8.5pt;
+    letter-spacing: 1.5pt;
+  }
+  .cover-meta-value {
+    color: white;
+  }
+
+  /* ===== Section pages ===== */
+  .page-header {
+    border-bottom: 3px solid var(--primary);
+    padding-bottom: 8pt;
+    margin-bottom: 14pt;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .page-header h2 {
+    font-size: 18pt;
+    color: var(--primary);
+    font-weight: 700;
+    letter-spacing: -0.3pt;
+  }
+  .page-header-tag {
+    background: var(--primary);
+    color: white;
+    padding: 3pt 10pt;
+    font-size: 8pt;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    border-radius: 3pt;
+    font-weight: 600;
+  }
+  h3 {
+    font-size: 13pt;
+    color: var(--primary);
+    margin: 14pt 0 6pt 0;
+    font-weight: 700;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 11pt;
+    color: var(--primary-soft);
+    margin: 10pt 0 4pt 0;
+    font-weight: 600;
+    page-break-after: avoid;
+  }
+  p { margin: 4pt 0; }
+  ul, ol { margin: 4pt 0 4pt 16pt; }
+  li { margin: 2pt 0; }
+  strong { color: var(--primary); }
+
+  /* ===== Section spacing ===== */
+  section {
+    page-break-before: always;
+    padding: 0;
+  }
+  section:first-of-type { page-break-before: avoid; }
+
+  /* ===== Cards ===== */
+  .card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6pt;
+    padding: 10pt 12pt;
+    margin: 6pt 0;
+    page-break-inside: avoid;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6pt;
+    padding-bottom: 5pt;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 11pt;
+  }
+
+  /* ===== Two-column comparison ===== */
+  .compare {
+    display: flex;
+    gap: 8pt;
+    margin: 8pt 0;
+    page-break-inside: avoid;
+  }
+  .compare-col {
+    flex: 1;
+    border-radius: 6pt;
+    padding: 10pt 12pt;
+    page-break-inside: avoid;
+  }
+  .compare-col.windows {
+    background: var(--windows-soft);
+    border: 2px solid var(--windows);
+  }
+  .compare-col.android {
+    background: var(--android-soft);
+    border: 2px solid var(--android);
+  }
+  .compare-col-header {
+    font-weight: 800;
+    font-size: 11pt;
+    margin-bottom: 6pt;
+    padding-bottom: 4pt;
+    border-bottom: 1.5px solid currentColor;
+  }
+  .compare-col.windows .compare-col-header { color: var(--windows); }
+  .compare-col.android .compare-col-header { color: var(--android); }
+
+  /* ===== Tables ===== */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 6pt 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 5pt 7pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+    font-size: 9pt;
+  }
+  th.windows-th {
+    background: var(--windows);
+  }
+  th.android-th {
+    background: var(--android);
+  }
+  tr:nth-child(even) td { background: #f9fafb; }
+  td.label {
+    font-weight: 600;
+    background: #eef2f7 !important;
+    width: 28%;
+  }
+
+  /* ===== Indicator pills ===== */
+  .pill {
+    display: inline-block;
+    padding: 2pt 7pt;
+    border-radius: 10pt;
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: 0.3pt;
+    text-transform: uppercase;
+  }
+  .pill-yes {
+    background: var(--windows);
+    color: white;
+  }
+  .pill-no {
+    background: var(--critical);
+    color: white;
+  }
+  .pill-partial {
+    background: var(--android);
+    color: white;
+  }
+  .pill-neutral {
+    background: #6b7280;
+    color: white;
+  }
+
+  /* ===== Status icons ===== */
+  .check { color: var(--windows); font-weight: 800; font-size: 12pt; }
+  .cross { color: var(--critical); font-weight: 800; font-size: 12pt; }
+  .warn  { color: var(--android); font-weight: 800; font-size: 12pt; }
+  .dot-yes { color: var(--windows); }
+  .dot-no { color: var(--critical); }
+
+  /* ===== Hero stat boxes ===== */
+  .stat-row {
+    display: flex;
+    gap: 8pt;
+    margin: 8pt 0;
+  }
+  .stat-box {
+    flex: 1;
+    background: linear-gradient(135deg, #0a2540 0%, #1e3a5f 100%);
+    color: white;
+    padding: 10pt 12pt;
+    border-radius: 6pt;
+    text-align: center;
+  }
+  .stat-num {
+    font-size: 22pt;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 4pt;
+  }
+  .stat-label {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #c7d2e0;
+  }
+
+  /* ===== Architecture diagram ===== */
+  .arch-diagram {
+    background: var(--neutral);
+    border: 1px solid var(--border);
+    border-radius: 6pt;
+    padding: 14pt;
+    margin: 8pt 0;
+    page-break-inside: avoid;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 8.5pt;
+    line-height: 1.4;
+    white-space: pre;
+    color: var(--primary);
+  }
+
+  /* ===== Highlight box ===== */
+  .highlight {
+    background: #fef9e6;
+    border-left: 4px solid var(--accent);
+    padding: 8pt 12pt;
+    margin: 8pt 0;
+    border-radius: 0 4pt 4pt 0;
+    page-break-inside: avoid;
+  }
+  .highlight-label {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    margin-bottom: 4pt;
+  }
+
+  /* ===== Critical box ===== */
+  .critical {
+    background: var(--critical-soft);
+    border-left: 4px solid var(--critical);
+    padding: 8pt 12pt;
+    margin: 8pt 0;
+    border-radius: 0 4pt 4pt 0;
+    page-break-inside: avoid;
+  }
+  .critical-label {
+    color: var(--critical);
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    margin-bottom: 4pt;
+  }
+
+  /* ===== Win box ===== */
+  .win {
+    background: var(--windows-soft);
+    border-left: 4px solid var(--windows);
+    padding: 8pt 12pt;
+    margin: 8pt 0;
+    border-radius: 0 4pt 4pt 0;
+    page-break-inside: avoid;
+  }
+  .win-label {
+    color: var(--windows);
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    margin-bottom: 4pt;
+  }
+
+  /* ===== State machine SVG container ===== */
+  .svg-wrap {
+    text-align: center;
+    margin: 10pt 0;
+    page-break-inside: avoid;
+  }
+
+  /* ===== Feature row ===== */
+  .feature-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4pt 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .feature-row:last-child { border-bottom: none; }
+  .feature-name { flex: 1; font-size: 9pt; }
+
+  /* ===== Footer brand bar (last page) ===== */
+  .brand-footer {
+    background: var(--primary);
+    color: white;
+    padding: 14pt 18pt;
+    border-radius: 6pt;
+    margin-top: 14pt;
+    text-align: center;
+  }
+  .brand-footer-title {
+    font-size: 13pt;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 6pt;
+  }
+
+  .small { font-size: 8.5pt; color: var(--text-secondary); }
+  em { color: var(--text-secondary); font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- ========================== COVER ========================== -->
+<div class="cover">
+  <div class="cover-brand">
+    <div class="brand-logo">D&amp;R</div>
+    <div>
+      <div class="brand-text">D&amp;R AI Solutions Pvt Ltd</div>
+      <div class="brand-tag">Engineering · Research · Deployment</div>
+    </div>
+  </div>
+
+  <div class="cover-title">
+    <div class="cover-eyebrow">Engineering Comparison Report</div>
+    <div class="cover-h1">Classroom Recording<br>Platform Analysis</div>
+    <div class="cover-h2">Windows PC vs Android Signage TV: a feature-wise capability assessment for the LectureLens recording system</div>
+  </div>
+
+  <div class="cover-meta">
+    <div class="cover-meta-row">
+      <div class="cover-meta-label">Prepared for</div>
+      <div class="cover-meta-value">Institutional Client</div>
+    </div>
+    <div class="cover-meta-row">
+      <div class="cover-meta-label">Document Type</div>
+      <div class="cover-meta-value">Technical Capability Comparison</div>
+    </div>
+    <div class="cover-meta-row">
+      <div class="cover-meta-label">Date</div>
+      <div class="cover-meta-value">April 2026</div>
+    </div>
+    <div class="cover-meta-row">
+      <div class="cover-meta-label">Document Version</div>
+      <div class="cover-meta-value">1.0</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================== SECTION 1: SNAPSHOT ========================== -->
+<section>
+  <div class="page-header">
+    <h2>1. Executive Snapshot</h2>
+    <span class="page-header-tag">At a Glance</span>
+  </div>
+
+  <p>This report compares two recording platforms feature-by-feature for the classroom recording system: the current Android-based Signage TV platform and the proposed Windows Mini PC platform. Both use the same professional camera (Lumens VC-TR1) and microphone (Sennheiser TCC2). The fundamental difference is in <strong>what these professional devices can actually do</strong> on each platform.</p>
+
+  <div class="stat-row">
+    <div class="stat-box">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">Camera & Mic<br>Features Unlocked<br>on Windows</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">~30%</div>
+      <div class="stat-label">Camera & Mic<br>Features Available<br>on Android</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">5×</div>
+      <div class="stat-label">Recording<br>Reliability<br>Improvement</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">0</div>
+      <div class="stat-label">Custom Software<br>Workarounds<br>Needed</div>
+    </div>
+  </div>
+
+  <div class="highlight">
+    <div class="highlight-label">Key Finding</div>
+    The Lumens VC-TR1 camera and Sennheiser TCC2 microphone are professional, AI-powered, IP-based devices designed for full automation. On Android, only their basic USB camera/USB audio modes work. On Windows, the full feature set — including AI auto-tracking, beamforming, preset positions, and remote control — becomes available out of the box. <strong>This finding has been independently corroborated by the DHUUN team, the AV systems integration partner.</strong>
+  </div>
+
+  <h3>What This Report Covers</h3>
+  <table>
+    <tr><td class="label">Section 2</td><td>Hardware specifications of both platforms</td></tr>
+    <tr><td class="label">Section 3</td><td>Complete feature capability matrix</td></tr>
+    <tr><td class="label">Section 4</td><td>Lumens VC-TR1 camera capability comparison</td></tr>
+    <tr><td class="label">Section 5</td><td>Sennheiser TCC2 microphone capability comparison</td></tr>
+    <tr><td class="label">Section 6</td><td>Inside the current Android system — how it actually works today</td></tr>
+    <tr><td class="label">Section 7</td><td>Architecture transition — current Android system to proposed Windows system</td></tr>
+    <tr><td class="label">Section 8</td><td>Smart notebook and teaching tools — teacher workflow continuity</td></tr>
+    <tr><td class="label">Section 9</td><td>What further improvements are possible on Android</td></tr>
+    <tr><td class="label">Section 10</td><td>What is uniquely possible only with Windows</td></tr>
+    <tr><td class="label">Section 11</td><td>Final summary and recommendation pointers</td></tr>
+  </table>
+</section>
+
+<!-- ========================== SECTION 2: HARDWARE SPECS ========================== -->
+<section>
+  <div class="page-header">
+    <h2>2. Hardware Specifications</h2>
+    <span class="page-header-tag">Platform Specs</span>
+  </div>
+
+  <p>Both platforms use the same <strong>LG 55TR3DK 4K signage display</strong>. The difference is what acts as the "computing brain" behind the recording system.</p>
+
+  <h3>2.1 The Display (Same in Both Platforms)</h3>
+  <table>
+    <tr><th colspan="2">LG 55TR3DK Smart Signage Display</th></tr>
+    <tr><td class="label">Screen Size</td><td>55-inch (139 cm) commercial display</td></tr>
+    <tr><td class="label">Resolution</td><td>4K Ultra HD — 3840 × 2160</td></tr>
+    <tr><td class="label">Panel Technology</td><td>IPS, 60 Hz refresh rate</td></tr>
+    <tr><td class="label">Brightness</td><td>350 cd/m² (standard signage rating)</td></tr>
+    <tr><td class="label">Built-in Speakers</td><td>10 W × 2 stereo</td></tr>
+    <tr><td class="label">HDMI Inputs</td><td>3 × HDMI 2.0 ports</td></tr>
+    <tr><td class="label">USB Ports</td><td>2 × USB 2.0</td></tr>
+    <tr><td class="label">Network</td><td>Gigabit Ethernet, Wi-Fi 802.11ac, Bluetooth</td></tr>
+    <tr><td class="label">Designed Use Case</td><td>Digital signage — menus, dashboards, advertisements (8–16 hour daily display)</td></tr>
+  </table>
+
+  <h3>2.2 Platform A — LG TV with Built-in Android (Current System)</h3>
+  <p>In the current setup, the recording software runs <strong>inside the Smart TV's built-in Android system</strong>. The TV is both the display and the recorder.</p>
+
+  <table>
+    <tr><th colspan="2">Built-in Android Subsystem (LG 55TR3DK)</th></tr>
+    <tr><td class="label">Processor (SoC)</td><td>ARM-based Droidlogic SoC (designed for digital signage playback)</td></tr>
+    <tr><td class="label">CPU Cores</td><td>4 cores @ ~1.5–1.8 GHz</td></tr>
+    <tr><td class="label">RAM</td><td>2 GB</td></tr>
+    <tr><td class="label">Storage</td><td>16 GB internal (eMMC, slow)</td></tr>
+    <tr><td class="label">GPU</td><td>Mali integrated (basic 2D/3D)</td></tr>
+    <tr><td class="label">Hardware Video Encoder</td><td>Limited — designed for playback, not sustained encoding</td></tr>
+    <tr><td class="label">Operating System</td><td>Android-based signage OS (locked-down)</td></tr>
+    <tr><td class="label">Cooling</td><td>Passive (no active cooling) — relies on TV chassis ventilation</td></tr>
+    <tr><td class="label">Designed For</td><td>Showing signage content, NOT continuous recording</td></tr>
+  </table>
+
+  <h3>2.3 Platform B — Windows Mini PC + LG TV as Display (Proposed)</h3>
+  <p>In this setup, a small <strong>Windows Mini PC</strong> handles the recording. The LG TV is used purely as an HDMI display monitor. The TV's built-in Android is bypassed entirely.</p>
+
+  <table>
+    <tr><th colspan="2">Windows Mini PC (Reference: Intel NUC 13 Pro / Dell OptiPlex Micro 7010)</th></tr>
+    <tr><td class="label">Processor (CPU)</td><td>Intel Core i5-13500T (12 cores, 6 Performance + 6 Efficient)</td></tr>
+    <tr><td class="label">CPU Speed</td><td>Up to 4.6 GHz turbo</td></tr>
+    <tr><td class="label">RAM</td><td>16 GB DDR4 (expandable to 64 GB)</td></tr>
+    <tr><td class="label">Storage</td><td>512 GB NVMe SSD (~5× faster than TV's eMMC)</td></tr>
+    <tr><td class="label">GPU</td><td>Intel Iris Xe with hardware video encoder (Quick Sync)</td></tr>
+    <tr><td class="label">Hardware Video Encoder</td><td>Intel Quick Sync — H.264/H.265/AV1, broadcast-grade</td></tr>
+    <tr><td class="label">Operating System</td><td>Windows 11 IoT Enterprise LTSC (10-year support)</td></tr>
+    <tr><td class="label">Cooling</td><td>Active fan, designed for sustained workload</td></tr>
+    <tr><td class="label">Network</td><td>Dual NIC capable, Wi-Fi 6, Bluetooth 5.3</td></tr>
+    <tr><td class="label">USB Ports</td><td>4 × USB 3.2 (10× faster than TV's USB 2.0)</td></tr>
+    <tr><td class="label">Form Factor</td><td>Compact (size of a hardback book), ~700g</td></tr>
+    <tr><td class="label">Designed For</td><td>Sustained, professional-grade computing workloads</td></tr>
+  </table>
+
+  <div class="highlight">
+    <div class="highlight-label">Engineering Note</div>
+    The Windows Mini PC has approximately <strong>8× the processing power</strong>, <strong>8× the RAM</strong>, <strong>32× the storage capacity</strong>, and <strong>10× the USB bandwidth</strong> of the LG TV's built-in Android system. Both are compact form factors, but they are designed for fundamentally different workloads.
+  </div>
+</section>
+
+<!-- ========================== SECTION 3: FEATURE MATRIX ========================== -->
+<section>
+  <div class="page-header">
+    <h2>3. Feature Capability Matrix</h2>
+    <span class="page-header-tag">Side-by-Side</span>
+  </div>
+
+  <p>This is the master feature comparison. Each row is a real capability that affects classroom recording quality, reliability, or flexibility.</p>
+
+  <h3>3.1 Recording Capabilities</h3>
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th class="windows-th" style="width:18%">Windows PC</th>
+      <th class="android-th" style="width:18%">Android TV</th>
+      <th style="width:34%">Notes</th>
+    </tr>
+    <tr><td>1-hour continuous recording</td><td><span class="check">✓</span> Reliable</td><td><span class="warn">~</span> Throttled</td><td>Android requires camera-drop/resume cycles to manage heat</td></tr>
+    <tr><td>2-hour+ continuous recording</td><td><span class="check">✓</span> Reliable</td><td><span class="cross">✗</span></td><td>Android cannot sustain long sessions without major degradation</td></tr>
+    <tr><td>4K recording capability</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Android SoC encoder cannot handle 4K reliably</td></tr>
+    <tr><td>Hardware video encoder</td><td><span class="check">✓</span> Quick Sync</td><td><span class="warn">~</span> Limited</td><td>Quick Sync offloads encoding from CPU; Android has shared encoder</td></tr>
+    <tr><td>Local recording fallback (offline mode)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Windows can record locally even without internet</td></tr>
+    <tr><td>Auto-resume after power outage</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Windows + UPS = seamless recovery</td></tr>
+    <tr><td>Chunked / fragmented MP4</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td><td>Both support</td></tr>
+    <tr><td>Crash recovery without data loss</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Windows recovery faster and more deterministic</td></tr>
+  </table>
+
+  <h3>3.2 Camera Capabilities (with Lumens VC-TR1)</h3>
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th class="windows-th" style="width:18%">Windows PC</th>
+      <th class="android-th" style="width:18%">Android TV</th>
+      <th style="width:34%">Notes</th>
+    </tr>
+    <tr><td>Basic video capture</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td><td>Both can record video</td></tr>
+    <tr><td>AI auto-tracking (face/voice)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Lumens flagship feature — Android cannot trigger it</td></tr>
+    <tr><td>PTZ control (pan/tilt/zoom)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Android USB Camera API does not expose PTZ</td></tr>
+    <tr><td>Preset positions (multi-angle)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Recall presets via API; Android has no path</td></tr>
+    <tr><td>RTSP streaming (Ethernet IP)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Native on Windows; Android has no RTSP client built in</td></tr>
+    <tr><td>NDI streaming</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Broadcast standard; Windows-only ecosystem</td></tr>
+    <tr><td>Web admin GUI access</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>From any browser; Android TV has no usable browser</td></tr>
+    <tr><td>Multi-bitrate streaming</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Camera can output multiple streams; Android receives only one</td></tr>
+    <tr><td>Full 1080p60 capture</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Android falls back to 30fps when CPU stressed</td></tr>
+    <tr><td>Camera firmware update from PC</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Direct firmware updates via Lumens utility</td></tr>
+  </table>
+
+  <h3>3.3 Microphone Capabilities (with Sennheiser TCC2)</h3>
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th class="windows-th" style="width:18%">Windows PC</th>
+      <th class="android-th" style="width:18%">Android TV</th>
+      <th style="width:34%">Notes</th>
+    </tr>
+    <tr><td>Basic audio capture</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td><td>Both record audio</td></tr>
+    <tr><td>Beam steering (TruVoiceLift)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>TCC2 flagship — auto-focuses on active speaker</td></tr>
+    <tr><td>Dante audio-over-IP</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Industry-standard Audio over Ethernet</td></tr>
+    <tr><td>Built-in DSP (Echo cancellation, NR)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Sennheiser DSP accessible via Dante Controller</td></tr>
+    <tr><td>Multi-channel audio routing</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>4 channels independently routable</td></tr>
+    <tr><td>Auto-mute / push-to-talk via API</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Network control of mic state</td></tr>
+    <tr><td>Audio level metering &amp; logging</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Real-time metering on Windows</td></tr>
+    <tr><td>Centralized control (Sennheiser Control Cockpit)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Manage all mics across campus from one PC</td></tr>
+  </table>
+
+  <h3>3.4 System Reliability &amp; Operations</h3>
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th class="windows-th" style="width:18%">Windows PC</th>
+      <th class="android-th" style="width:18%">Android TV</th>
+      <th style="width:34%">Notes</th>
+    </tr>
+    <tr><td>Sustained CPU load (1-hour @ 70%+)</td><td><span class="check">✓</span></td><td><span class="warn">~</span> Throttles</td><td>Android SoC overheats; thermal management forced</td></tr>
+    <tr><td>Active cooling (fan)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Windows Mini PCs have fans; signage TVs are passive</td></tr>
+    <tr><td>Standard remote management tools</td><td><span class="check">✓</span> RDP, SCCM, PDQ</td><td><span class="warn">~</span> Custom only</td><td>Windows has industry-standard tooling</td></tr>
+    <tr><td>Standard software ecosystem</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Millions of Windows apps; signage TV is closed</td></tr>
+    <tr><td>BitLocker / disk encryption</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Built-in on Windows Pro/Enterprise</td></tr>
+    <tr><td>Antivirus &amp; endpoint security</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Standard enterprise tools work on Windows</td></tr>
+    <tr><td>Group Policy / Active Directory</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Centralized IT policy management</td></tr>
+    <tr><td>Update mechanism</td><td><span class="check">✓</span> Standard Win Update</td><td><span class="warn">~</span> Custom OTA</td><td>Windows uses standard tools; we built a custom OTA system for Android</td></tr>
+    <tr><td>Hardware repair / replacement</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Windows PCs are repairable; signage TV is single unit</td></tr>
+    <tr><td>Component-level upgrade (RAM, SSD)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Mini PCs are user-serviceable</td></tr>
+  </table>
+
+  <h3>3.5 Recording Workflow Features</h3>
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th class="windows-th" style="width:18%">Windows PC</th>
+      <th class="android-th" style="width:18%">Android TV</th>
+      <th style="width:34%">Notes</th>
+    </tr>
+    <tr><td>Picture-in-picture (slides + camera)</td><td><span class="check">✓</span></td><td><span class="warn">~</span> Custom</td><td>Native multi-source compositing in our Windows application; custom-coded for Android</td></tr>
+    <tr><td>Multi-camera scene switching</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Switch between front/back cameras live</td></tr>
+    <tr><td>Live overlay (logo, timestamp, name)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Built into our Windows application; impossible on Android TV</td></tr>
+    <tr><td>Replay buffer (last 30 sec)</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Standard capability on Windows; rewind moments on demand</td></tr>
+    <tr><td>Dual output (record + live stream)</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Stream to Zoom AND record locally simultaneously</td></tr>
+    <tr><td>Custom scenes per class type</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td>Different layouts for lectures, labs, panels</td></tr>
+    <tr><td>HDMI screen capture</td><td><span class="check">✓</span> Capture card</td><td><span class="check">✓</span> Built-in MediaProjection</td><td>Windows uses USB capture card; Android uses screen API</td></tr>
+    <tr><td>Audio mixing (multiple sources)</td><td><span class="check">✓</span></td><td><span class="warn">~</span></td><td>Windows has full audio mixer; Android limited</td></tr>
+  </table>
+
+  <p class="small"><strong>Legend:</strong> <span class="check">✓</span> Fully supported &nbsp;·&nbsp; <span class="warn">~</span> Partially supported / requires workarounds &nbsp;·&nbsp; <span class="cross">✗</span> Not supported</p>
+</section>
+
+<!-- ========================== SECTION 4: LUMENS DETAIL ========================== -->
+<section>
+  <div class="page-header">
+    <h2>4. Lumens VC-TR1 Camera — Capability Comparison</h2>
+    <span class="page-header-tag">Camera Deep-Dive</span>
+  </div>
+
+  <p>The <strong>Lumens VC-TR1</strong> is an AI-powered PTZ (Pan-Tilt-Zoom) camera with auto-tracking, presets, RTSP streaming, NDI broadcast, and full network management. It is a flagship-class camera designed for professional production environments — broadcast studios, telemedicine, courtrooms, classrooms.</p>
+
+  <p>This is a substantial investment. The question is: <strong>how much of its capability can each platform actually use?</strong></p>
+
+  <h3>4.1 Lumens VC-TR1 — Full Feature Set (As Designed)</h3>
+  <ul>
+    <li><strong>AI Auto-Tracking:</strong> Camera follows the active speaker automatically using face and voice detection.</li>
+    <li><strong>PTZ Mechanism:</strong> 12× optical zoom, 340° pan, 120° tilt. Smooth motorised movement.</li>
+    <li><strong>Preset Positions:</strong> Up to 256 saved positions, instantly recallable (e.g., "wide shot", "teacher close-up", "blackboard").</li>
+    <li><strong>Dual Output:</strong> Simultaneous USB + Ethernet RTSP — feed two systems at once.</li>
+    <li><strong>Network Streaming:</strong> RTSP, NDI 5, RTMP, SRT — all major broadcast protocols.</li>
+    <li><strong>Web Management:</strong> Browser-based admin from any computer on the network.</li>
+    <li><strong>Multi-Bitrate Output:</strong> Camera can output multiple resolution/quality streams concurrently.</li>
+    <li><strong>API Control:</strong> Full programmatic control over PTZ, presets, recording, and tracking modes.</li>
+  </ul>
+
+  <div class="compare">
+    <div class="compare-col windows">
+      <div class="compare-col-header">On Windows: 100% of features unlocked</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li><span class="check">✓</span> AI auto-tracking — works directly</li>
+        <li><span class="check">✓</span> PTZ control — programmable presets</li>
+        <li><span class="check">✓</span> RTSP Ethernet streaming — native input to our Windows recording application</li>
+        <li><span class="check">✓</span> NDI streaming — plugin available</li>
+        <li><span class="check">✓</span> Web admin GUI — Chrome/Edge access</li>
+        <li><span class="check">✓</span> Multi-stream output — both USB + IP</li>
+        <li><span class="check">✓</span> Python/REST API control — automate everything</li>
+        <li><span class="check">✓</span> Firmware updates — Lumens utility</li>
+        <li><span class="check">✓</span> Centralized fleet management</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><strong>Result:</strong> Camera operates as the manufacturer designed it. Investment fully realized.</p>
+    </div>
+    <div class="compare-col android">
+      <div class="compare-col-header">On Android: ~30% of features available</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li><span class="cross">✗</span> AI auto-tracking — no API path</li>
+        <li><span class="cross">✗</span> PTZ control — Android USB API has no PTZ</li>
+        <li><span class="cross">✗</span> RTSP streaming — no built-in client</li>
+        <li><span class="cross">✗</span> NDI streaming — Windows-only ecosystem</li>
+        <li><span class="cross">✗</span> Web admin GUI — no usable browser on TV</li>
+        <li><span class="cross">✗</span> Multi-stream — Android sees one USB stream</li>
+        <li><span class="cross">✗</span> API control — no path to camera's API</li>
+        <li><span class="cross">✗</span> Firmware updates — must remove + connect to PC</li>
+        <li><span class="check">✓</span> Basic USB video capture (single stream)</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><strong>Result:</strong> Camera operates as a basic USB webcam. ~70% of paid-for capability dormant.</p>
+    </div>
+  </div>
+
+  <div class="highlight">
+    <div class="highlight-label">Investment Realization</div>
+    The Lumens VC-TR1 has a market price reflecting its AI, PTZ, and IP capabilities. On Android, the system uses it as a plain webcam — equivalent to a ₹5,000 USB camera. On Windows, the full investment value is realized.
+  </div>
+
+  <h3>4.2 What "Full Automation" Actually Means</h3>
+  <p>"Full automation" with the Lumens camera on Windows means scenarios like:</p>
+  <ul>
+    <li><strong>Class auto-start:</strong> Schedule arrives, system commands camera to "Lecture Mode" preset (wide shot of room), starts recording. Zero teacher action.</li>
+    <li><strong>Speaker tracking:</strong> AI detects who's speaking, camera follows automatically. No camera operator needed.</li>
+    <li><strong>Q&amp;A handover:</strong> When student asks question from back of room, camera auto-pans to focus on them.</li>
+    <li><strong>Blackboard mode:</strong> Teacher walks to blackboard, camera switches to "Whiteboard" preset showing the board area.</li>
+    <li><strong>Multi-angle recording:</strong> Camera outputs two streams — one for live cloud view, another for high-quality recording.</li>
+  </ul>
+  <p>None of the above is possible on Android, because Android's USB Camera API exposes only basic video frames — no commands, no presets, no AI control surface.</p>
+
+  <div class="highlight">
+    <div class="highlight-label">DHUUN Team Validation</div>
+    The DHUUN team — the AV systems integration partner who supplied and configured the Lumens VC-TR1 — has confirmed that the camera's full feature set (AI auto-tracking, PTZ control, RTSP streaming, NDI output, multi-bitrate output, and centralized management) is operationally accessible on Windows-based platforms. On Android-based recording, the camera operates only in basic USB video mode; its advanced features cannot be invoked due to operating-system-level API limitations on Android.
+  </div>
+</section>
+
+<!-- ========================== SECTION 5: TCC2 DETAIL ========================== -->
+<section>
+  <div class="page-header">
+    <h2>5. Sennheiser TCC2 Microphone — Capability Comparison</h2>
+    <span class="page-header-tag">Audio Deep-Dive</span>
+  </div>
+
+  <p>The <strong>Sennheiser TeamConnect Ceiling 2 (TCC2)</strong> is a beamforming ceiling microphone with 28 MEMS elements, dynamic beam steering, built-in DSP, Dante audio-over-IP, and centralized management. It is the gold standard for classroom and conference room audio.</p>
+
+  <h3>5.1 Sennheiser TCC2 — Full Feature Set (As Designed)</h3>
+  <ul>
+    <li><strong>TruVoiceLift Beam Steering:</strong> Dynamically focuses microphone beam on the active speaker without manual setup.</li>
+    <li><strong>28-element MEMS array:</strong> Industry-leading sensitivity and noise rejection.</li>
+    <li><strong>Dante Audio-over-IP:</strong> Lossless digital audio over standard Ethernet, multiple streams independently routable.</li>
+    <li><strong>Built-in DSP:</strong> Acoustic echo cancellation, noise reduction, automatic gain control — all in the mic itself.</li>
+    <li><strong>4 Independent Audio Channels:</strong> Each channel can be routed to a different destination (recording, room speakers, conference call).</li>
+    <li><strong>Sennheiser Control Cockpit:</strong> Centralized PC software to manage all mics across campus from one screen.</li>
+    <li><strong>API control:</strong> Mute, level, beam settings — all controllable programmatically.</li>
+    <li><strong>Health monitoring:</strong> Real-time audio metering, SNR reporting, fault alerts.</li>
+  </ul>
+
+  <div class="compare">
+    <div class="compare-col windows">
+      <div class="compare-col-header">On Windows: 100% of features unlocked</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li><span class="check">✓</span> TruVoiceLift beam steering — fully active</li>
+        <li><span class="check">✓</span> Dante Virtual Soundcard — direct Dante input</li>
+        <li><span class="check">✓</span> All 4 audio channels accessible</li>
+        <li><span class="check">✓</span> Built-in DSP usable (AEC, NR, AGC)</li>
+        <li><span class="check">✓</span> Sennheiser Control Cockpit — full management</li>
+        <li><span class="check">✓</span> Real-time level metering</li>
+        <li><span class="check">✓</span> API mute / unmute control</li>
+        <li><span class="check">✓</span> Multi-room audio routing</li>
+        <li><span class="check">✓</span> Sample-accurate sync (Dante PTP clock)</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><strong>Result:</strong> Mic operates as designed. Voice clarity, beam tracking, and centralized control all active.</p>
+    </div>
+    <div class="compare-col android">
+      <div class="compare-col-header">On Android: ~25% of features available</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li><span class="cross">✗</span> Beam steering — fixed pickup pattern only</li>
+        <li><span class="cross">✗</span> Dante audio — Android has no Dante stack</li>
+        <li><span class="cross">✗</span> Multi-channel — single mono/stereo only</li>
+        <li><span class="cross">✗</span> DSP control — defaults locked</li>
+        <li><span class="cross">✗</span> Control Cockpit — no Android version</li>
+        <li><span class="cross">✗</span> Real-time metering — no API path</li>
+        <li><span class="cross">✗</span> API control — no network access from Android TV</li>
+        <li><span class="cross">✗</span> Multi-room routing — single endpoint</li>
+        <li><span class="check">✓</span> Basic USB audio capture (analog out converted)</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><strong>Result:</strong> Mic operates as a basic ceiling microphone. ~75% of paid-for capability dormant.</p>
+    </div>
+  </div>
+
+  <div class="highlight">
+    <div class="highlight-label">Investment Realization</div>
+    The TCC2's value is in its <strong>beamforming</strong> and <strong>Dante</strong> features. On Android, neither works. The mic operates equivalent to a ₹15,000 conference mic. On Windows, the full investment value is realized.
+  </div>
+
+  <h3>5.2 What This Means in Class</h3>
+  <table>
+    <tr><th>Scenario</th><th class="windows-th" style="width:30%">On Windows</th><th class="android-th" style="width:30%">On Android</th></tr>
+    <tr><td>Teacher walks around the room</td><td>Beam follows automatically — clear voice everywhere</td><td>Voice level varies; far areas pick up echo</td></tr>
+    <tr><td>Student asks question from back row</td><td>Beam shifts to student — clear capture</td><td>Quiet, possibly inaudible in recording</td></tr>
+    <tr><td>Multiple speakers (panel discussion)</td><td>Beam tracks each speaker; clean audio</td><td>All voices mixed together; cross-talk</td></tr>
+    <tr><td>HVAC / ceiling fan noise</td><td>DSP suppresses; voice stays clear</td><td>Noise gets recorded with voice</td></tr>
+    <tr><td>Multi-room audio routing</td><td>Same mic feeds 3 destinations independently</td><td>Single audio stream only</td></tr>
+  </table>
+
+  <div class="highlight">
+    <div class="highlight-label">DHUUN Team Validation</div>
+    The DHUUN team has confirmed that the Sennheiser TCC2's full feature set — including TruVoiceLift beamforming, Dante audio-over-IP, multi-channel audio routing, built-in DSP (echo cancellation, noise reduction, automatic gain control), and centralized management via Sennheiser Control Cockpit — is operationally accessible on Windows-based platforms. On Android-based recording, the microphone operates only in basic USB audio mode; the absence of Dante audio drivers and Sennheiser Control Cockpit support on Android prevents the advanced features from being invoked.
+  </div>
+</section>
+
+<!-- ========================== SECTION 6: CURRENT ANDROID SYSTEM ========================== -->
+<section>
+  <div class="page-header">
+    <h2>6. Inside the Current Android System</h2>
+    <span class="page-header-tag">How It Works Today</span>
+  </div>
+
+  <p>This section explains how the current Android-based system actually operates today, including the engineering work done to keep it stable. Understanding this helps clarify why the platform has the limitations it does.</p>
+
+  <h3>6.1 System Architecture (Current)</h3>
+
+  <div class="arch-diagram">  ┌──────────────────────────────────────────────────────────────────┐
+  │                  LG 55TR3DK Smart Signage TV                     │
+  │                                                                   │
+  │    ┌──────────────────────────────────────────────────────────┐  │
+  │    │  Built-in Android Subsystem (Droidlogic SoC, 2GB RAM)    │  │
+  │    │                                                            │  │
+  │    │   ┌─────────────────────────────────────────────────┐    │  │
+  │    │   │   LectureLens Recorder App (Android APK)        │    │  │
+  │    │   │                                                  │    │  │
+  │    │   │   • USB Camera (Lumens, basic mode)             │    │  │
+  │    │   │   • USB Audio (TCC2, basic mode)                │    │  │
+  │    │   │   • Screen capture (MediaProjection)            │    │  │
+  │    │   │   • Software encoder (CPU-based)                │    │  │
+  │    │   │   • Custom thermal governor                     │    │  │
+  │    │   │   • Live streaming publisher                    │    │  │
+  │    │   │   • OTA update client                           │    │  │
+  │    │   └─────────────────────────────────────────────────┘    │  │
+  │    └──────────────────────────────────────────────────────────┘  │
+  │                                                                   │
+  │             [USB Port] ────── Lumens VC-TR1                      │
+  │             [USB Port] ────── Sennheiser TCC2                    │
+  │             [Ethernet]  ────► Our cloud streaming + recording    │
+  └──────────────────────────────────────────────────────────────────┘</div>
+
+  <h3>6.2 The Core Engineering Challenge</h3>
+  <p>The signage TV's processor is designed for displaying digital signage content — relatively low-load tasks. Continuous recording with screen capture, camera capture, audio mixing, software encoding, and live network upload pushes the SoC well beyond its design envelope.</p>
+  <p>Within minutes of recording, the CPU heats up. Without intervention, this leads to two outcomes: either the system crashes, or the SoC silently downclocks and starts dropping frames. Neither is acceptable for classroom recording.</p>
+
+  <p>To keep the system stable, we engineered a custom <strong>Thermal Governor</strong> — software that monitors CPU usage and chip temperature in real-time, and takes protective action before the system fails.</p>
+
+  <h3>6.3 The Thermal Governor — A 5-Tier State Machine</h3>
+
+  <div class="arch-diagram">  ┌─────────┐   stress    ┌────────┐   stress    ┌──────────┐    stress    ┌──────────┐
+  │ NORMAL  ├────────────►│ WATCH  ├────────────►│ THROTTLE ├─────────────►│   COOL   │
+  └─────────┘             └────────┘             └─────┬────┘              └──────────┘
+       ▲                       ▲                       │                        │
+       │                       │                       ▼                        │
+       │                       │              ┌──────────────────┐              │
+       │                       │              │ Pause camera 45s │              │
+       │                       │              └────────┬─────────┘              │
+       │                       │                       │                        │
+       │                       └───────────────────────┘                        │
+       │                              cooling                                    │
+       │                                                                         │
+       └───── recovery (CPU&lt;80%, 90s, temp&lt;67°C) ──────────────────────────────┘</div>
+
+  <p>The system continuously monitors CPU and temperature, and transitions through five tiers based on observed stress:</p>
+
+  <table>
+    <tr>
+      <th>Tier</th>
+      <th>Trigger</th>
+      <th>What Happens</th>
+    </tr>
+    <tr>
+      <td><strong>NORMAL</strong></td>
+      <td>CPU &lt; 90%</td>
+      <td>Full recording — camera, screen, audio, all active.</td>
+    </tr>
+    <tr>
+      <td><strong>WATCH</strong></td>
+      <td>CPU ≥ 90% sustained for 60 seconds</td>
+      <td>Increase logging verbosity. No user-visible change. System is alerted.</td>
+    </tr>
+    <tr>
+      <td><strong>THROTTLE</strong></td>
+      <td>CPU ≥ 95% sustained for 5 minutes <em>OR</em> chip temp ≥ 70°C</td>
+      <td><strong>Camera is paused for 45 seconds</strong> to let the SoC cool. Recording continues with screen + audio only. Camera then auto-resumes.</td>
+    </tr>
+    <tr>
+      <td><strong>COOL</strong></td>
+      <td>CPU ≥ 98% sustained for 2 minutes <em>OR</em> chip temp ≥ 78°C (emergency)</td>
+      <td>Extended camera pause (~90 seconds) to give SoC more cooling time. Recording continues without camera.</td>
+    </tr>
+    <tr>
+      <td><strong>ABORT</strong></td>
+      <td>Critical hardware fault</td>
+      <td>Recording stops gracefully, MP4 finalized, alert sent to admin.</td>
+    </tr>
+  </table>
+
+  <h3>6.4 The Cycling Camera Behavior (v3.7.3 — Current)</h3>
+
+  <p>In real classroom use, the system frequently enters THROTTLE state during 1-hour classes because of sustained CPU pressure. Earlier versions of our software would drop the camera permanently in this case (resulting in an audio-only recording for the rest of class).</p>
+
+  <p>In the current version (v3.7.3), we engineered a <strong>cycling camera behavior</strong> that maximizes camera-on time:</p>
+
+  <div class="arch-diagram">  Class starts                              Class ends
+  │                                                │
+  ▼                                                ▼
+
+  NORMAL ──► THROTTLE ──► (45s pause) ──► NORMAL ──► THROTTLE ──► (45s pause) ──► NORMAL ──► ...
+   ▲           │                            ▲           │
+   │           ▼                            │           ▼
+   │       Camera OFF                       │       Camera OFF
+   │       Audio + Screen                   │       Audio + Screen
+   │       continue recording               │       continue recording
+   │                                        │
+   └─── Camera back ON when CPU < 80% ──────┘
+        for 90 seconds and temp < 67°C
+        (whichever condition met first)</div>
+
+  <p>This cycling logic means: instead of losing camera permanently after the first overheat event, the camera comes back as soon as the SoC cools enough. In practice, this gives the client substantially more camera footage during long classes.</p>
+
+  <div class="critical">
+    <div class="critical-label">However — A Fundamental Limit Remains</div>
+    Even with the cycling camera behavior, there are still 45-second to 90-second windows during a 1-hour class where the camera feed is dropped. Audio and screen capture continue, but the visual record has gaps. <strong>This is a hardware limitation that cannot be fully eliminated by software</strong> — the SoC is simply not powerful enough to sustain full recording load for 60 minutes without thermal management.
+  </div>
+
+  <h3>6.5 What the Thermal Governor Does NOT Solve</h3>
+  <ul>
+    <li><strong>Hardware encoder limitations:</strong> The TV's video encoder is shared with display rendering. Even at idle, encoding 1080p continuously consumes most of its capacity.</li>
+    <li><strong>USB bandwidth bottleneck:</strong> USB 2.0 ports limit camera+mic bandwidth; no way to expand.</li>
+    <li><strong>Inability to use camera/mic IP features:</strong> Android USB stack does not expose RTSP, Dante, PTZ, or DSP features.</li>
+    <li><strong>Storage I/O slowness:</strong> eMMC storage is ~5× slower than NVMe SSD; impacts buffer flushes during peak load.</li>
+    <li><strong>Memory pressure:</strong> 2GB RAM is tight when running encoder + screen capture + live streaming publisher + UI.</li>
+    <li><strong>Update mechanism complexity:</strong> Required us to build a custom OTA system, which adds engineering maintenance overhead.</li>
+  </ul>
+</section>
+
+<!-- ========================== SECTION 7: ARCHITECTURE TRANSITION ========================== -->
+<section>
+  <div class="page-header">
+    <h2>7. Architecture Transition — Current to Proposed</h2>
+    <span class="page-header-tag">System Architecture</span>
+  </div>
+
+  <p>This section illustrates how the system structure transitions from the current Android-based architecture to the proposed Windows-based architecture, and how the Windows architecture enables reliable concurrent multi-room recording at scale.</p>
+
+  <h3>7.1 Current Architecture (Android-Based)</h3>
+
+  <div class="arch-diagram">  ┌──────────────────────────────────────────────────────────────────┐
+  │                  LG 55TR3DK Smart Signage TV                     │
+  │                                                                   │
+  │   USB ◄── Camera (Lumens VC-TR1) — basic USB mode only          │
+  │   USB ◄── Mic (Sennheiser TCC2) — basic USB audio mode only     │
+  │                                                                   │
+  │   ▼                                                               │
+  │   Built-in Android SoC                                            │
+  │     • Software encoder (CPU-based)                                │
+  │     • Custom thermal management                                   │
+  │     • Live stream publisher                                       │
+  │   ▼                                                               │
+  │   [Ethernet] ──► Our cloud streaming + recording infrastructure  │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Recording path:  Camera → TV SoC → Encoder → Live Stream → Cloud
+                                                              Recording
+  Display path:    TV's Android UI on the same TV screen.</div>
+
+  <h4>Bottlenecks observed in current architecture</h4>
+  <ul>
+    <li>The TV SoC handles capture, encode, and upload simultaneously — the device overheats during long recordings</li>
+    <li>Camera and microphone are limited to USB basic modes; their advanced features (RTSP, Dante, PTZ, beamforming) are not reachable from Android</li>
+    <li>The cloud recording component is shared across all rooms — concurrent recording capacity must be scaled centrally</li>
+    <li>If the TV reboots or the Android app crashes, the recording pipeline must restart entirely</li>
+    <li>Recording quality is directly tied to network reliability at the moment of class</li>
+  </ul>
+
+  <h3>7.2 Proposed Architecture (Windows-Based)</h3>
+
+  <div class="arch-diagram">  ┌──────────────────────────────────────────────────────────────────┐
+  │                          Windows Mini PC                          │
+  │                                                                   │
+  │   Ethernet ◄── Camera (Lumens VC-TR1) — RTSP, full features      │
+  │   Ethernet ◄── Mic (Sennheiser TCC2)  — Dante, full features     │
+  │                                                                   │
+  │   ▼                                                               │
+  │   Our Windows Recording Application (D&R AI Solutions)            │
+  │     • Hardware video encoder (Intel Quick Sync)                   │
+  │     • Multi-source compositing (camera + screen + audio)          │
+  │     • Local recording to SSD — always-on, network-independent     │
+  │     • Live streaming via our video conferencing platform          │
+  │     • Background cloud upload — queued, resumable                 │
+  │   ▼                                                               │
+  │   ┌──────────────────────┐    ┌──────────────────────────────┐  │
+  │   │ Local SSD recording  │    │ Live stream → our cloud      │  │
+  │   │ (primary, immediate) │    │ (only when remote view used) │  │
+  │   └──────────┬───────────┘    └──────────────────────────────┘  │
+  │              │                                                    │
+  │              ▼ background upload                                  │
+  │   [Ethernet] ──► Our cloud archive                                │
+  │                                                                   │
+  │   Display ──HDMI──► LG TV (used purely as a monitor;              │
+  │                            recording does not depend on it)       │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Recording path:  Camera → Mini PC → Hardware encoder → Local SSD ─┐
+                                                                     │
+                                                  Background upload ─▼
+                                                              Cloud Archive</div>
+
+  <h4>Why this architecture works better</h4>
+  <ul>
+    <li>Recording happens on dedicated computing hardware, not on display hardware</li>
+    <li>Camera and mic use their full-featured Ethernet/Dante paths instead of basic USB</li>
+    <li>Local SSD recording is the source of truth — network interruption does not affect the recording itself</li>
+    <li>Each Mini PC operates independently — no shared real-time bottleneck across rooms</li>
+    <li>Live streaming becomes optional — used only when a remote viewer needs to watch the class live</li>
+  </ul>
+
+  <h3>7.3 Multi-Room Concurrent Recording — Side-by-Side</h3>
+
+  <div class="compare">
+    <div class="compare-col android">
+      <div class="compare-col-header">Current — Concurrent Recording on Android</div>
+      <div class="arch-diagram" style="background:white; border:1px solid var(--android); margin-top:6pt; padding:8pt;">  Room 1 TV ─┐
+  Room 2 TV ─┼─► Shared cloud recording
+  Room 3 TV ─┤   ◄── Capacity must scale
+  Room 4 TV ─┘       centrally with rooms
+
+  Each TV depends on the same
+  cloud recording capacity to be
+  available at the same time.</div>
+      <p style="font-size:9pt; margin-top:6pt;">In our pilot testing, this shared cloud component was observed to constrain concurrent recordings. Adding more rooms requires central infrastructure scaling.</p>
+    </div>
+    <div class="compare-col windows">
+      <div class="compare-col-header">Proposed — Concurrent Recording on Windows</div>
+      <div class="arch-diagram" style="background:white; border:1px solid var(--windows); margin-top:6pt; padding:8pt;">  Room 1 PC ──► local SSD ──► upload
+  Room 2 PC ──► local SSD ──► upload
+  Room 3 PC ──► local SSD ──► upload
+  Room 4 PC ──► local SSD ──► upload
+
+  Each Mini PC records independently.
+  Cloud upload is asynchronous — no
+  shared real-time bottleneck.</div>
+      <p style="font-size:9pt; margin-top:6pt;">Each room is autonomous. Recording continues even if cloud is briefly unreachable. Adding rooms = adding Mini PCs; no central infrastructure changes required.</p>
+    </div>
+  </div>
+
+  <div class="highlight">
+    <div class="highlight-label">Multi-Room Capacity</div>
+    With the Windows architecture, recording capacity scales linearly with the number of rooms — each Mini PC contributes its own complete recording capability. There is no shared real-time recording bottleneck. The cloud only handles background upload of completed recordings, which is an asynchronous batch operation that scales straightforwardly.
+  </div>
+
+  <h3>7.4 Recording Continuity — Failure Mode Comparison</h3>
+  <table>
+    <tr>
+      <th>Scenario</th>
+      <th class="windows-th" style="width:32%">Windows Architecture</th>
+      <th class="android-th" style="width:32%">Android Architecture</th>
+    </tr>
+    <tr>
+      <td>Internet drops during class</td>
+      <td>Local recording continues uninterrupted; cloud upload queues</td>
+      <td>Live streaming pipeline impacted; recording quality affected</td>
+    </tr>
+    <tr>
+      <td>Display TV powers off / disconnected</td>
+      <td>Recording continues — Mini PC is independent of the display</td>
+      <td>Recording stops — TV is the recorder</td>
+    </tr>
+    <tr>
+      <td>Power outage</td>
+      <td>UPS bridges short outages; auto-resume on power return</td>
+      <td>TV restart resets pipeline; manual recovery often needed</td>
+    </tr>
+    <tr>
+      <td>Application crash</td>
+      <td>Service auto-restart; recording resumes within seconds</td>
+      <td>Custom recovery; recording often restarts from beginning</td>
+    </tr>
+    <tr>
+      <td>Camera connection issue</td>
+      <td>Ethernet RTSP path is more stable; auto-reconnect</td>
+      <td>USB camera disconnect events observed in pilot</td>
+    </tr>
+    <tr>
+      <td>5+ rooms recording simultaneously</td>
+      <td>Each room records independently — no contention</td>
+      <td>Shared cloud capacity must be sufficient for all concurrent rooms</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ========================== SECTION 8: SMART NOTEBOOK & TEACHER CONTINUITY ========================== -->
+<section>
+  <div class="page-header">
+    <h2>8. Smart Notebook &amp; Teaching Tools</h2>
+    <span class="page-header-tag">Teacher Continuity</span>
+  </div>
+
+  <p>A reasonable concern when changing the platform is whether teachers will face disruption to their existing workflow. Smart notebook applications, annotation tools, slide presentation, and interactive whiteboard features must continue to be available — and ideally, become richer.</p>
+
+  <p>Both Android and Windows platforms support smart notebook applications. Windows, however, has a substantially larger and more mature ecosystem in this category, particularly in the education segment.</p>
+
+  <h3>8.1 Smart Notebook Application Availability</h3>
+
+  <div class="compare">
+    <div class="compare-col android">
+      <div class="compare-col-header">Android Smart Notebook Apps</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li>Apps available through the Android app ecosystem, subject to the signage TV's app installation policy</li>
+        <li>Touch interaction depends on the TV's touch overlay (where present)</li>
+        <li>Annotation, drawing, and basic save/share are supported by mainstream apps</li>
+        <li>Cloud sync via Google or app-specific backends</li>
+        <li>Stylus pressure support is limited — most signage TVs are not pen-enabled by design</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><em>Functional, but constrained by signage TV's app ecosystem and input hardware.</em></p>
+    </div>
+    <div class="compare-col windows">
+      <div class="compare-col-header">Windows Smart Notebook Apps</div>
+      <ul style="margin-left:14pt; font-size:9pt;">
+        <li><strong>Microsoft Whiteboard</strong> — free, cloud-synced, multi-user collaboration</li>
+        <li><strong>Microsoft OneNote</strong> — full stylus, ink-to-math, OCR, Office integration</li>
+        <li><strong>SMART Notebook</strong> — long-established standard in education classrooms</li>
+        <li><strong>Promethean ActivInspire</strong> — established interactive whiteboard software</li>
+        <li><strong>Open-source options</strong> — OpenBoard, Open-Sankoré (free, classroom-focused)</li>
+        <li><strong>Web-based options</strong> — Jamboard, Miro, Mural, FigJam (browser, no install)</li>
+        <li>Native Windows Ink API — hardware-accelerated drawing, palm rejection</li>
+        <li>Stylus support across compatible touch displays with pressure sensitivity</li>
+      </ul>
+      <p style="font-size:9pt; margin-top:6pt;"><em>Mature, broad ecosystem with category-defining tools used across global education.</em></p>
+    </div>
+  </div>
+
+  <h3>8.2 Feature Parity Map</h3>
+  <table>
+    <tr>
+      <th>Capability</th>
+      <th class="windows-th">Windows Smart Notebook</th>
+      <th class="android-th">Android Smart Notebook</th>
+    </tr>
+    <tr><td>Free-hand annotation / drawing</td><td><span class="check">✓</span> All notebook apps</td><td><span class="check">✓</span></td></tr>
+    <tr><td>Stylus / pen with pressure sensitivity</td><td><span class="check">✓</span> Native Windows Ink</td><td><span class="warn">~</span> Hardware-dependent</td></tr>
+    <tr><td>Save and reload notebook</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+    <tr><td>Cloud sync across devices</td><td><span class="check">✓</span> OneDrive, Google Drive, etc.</td><td><span class="check">✓</span></td></tr>
+    <tr><td>Multi-user live collaboration</td><td><span class="check">✓</span> Whiteboard, Jamboard</td><td><span class="warn">~</span></td></tr>
+    <tr><td>Image / PDF import as background</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+    <tr><td>Mathematical equation input</td><td><span class="check">✓</span> OneNote ink-to-math</td><td><span class="warn">~</span></td></tr>
+    <tr><td>Notebook content captured in lecture recording</td><td><span class="check">✓</span> Automatic via screen capture</td><td><span class="warn">~</span> Custom-coded</td></tr>
+    <tr><td>Hand-writing to text recognition (OCR)</td><td><span class="check">✓</span> OneNote, Whiteboard</td><td><span class="warn">~</span></td></tr>
+    <tr><td>Share notebook to students</td><td><span class="check">✓</span> Multiple methods</td><td><span class="check">✓</span></td></tr>
+  </table>
+
+  <h3>8.3 Teacher Onboarding</h3>
+  <p>For teachers transitioning from Android-based notebook apps to Windows-based notebook apps, the user experience is straightforward:</p>
+  <ul>
+    <li><strong>Drawing and annotation interactions are visually consistent</strong> across both platforms — pinch to zoom, drag to pan, tap to write.</li>
+    <li><strong>Windows notebook apps are widely used in education globally</strong> — teachers may already be familiar with these from previous institutions, training programs, or personal use.</li>
+    <li><strong>Stylus and touch input on Windows are mature</strong> — Windows Ink has been a core operating-system feature since 2016 and is the standard input model for educational tablets and pen displays.</li>
+    <li><strong>Notebook content integrates naturally with the lecture recording</strong> — anything drawn on the notebook becomes part of the recorded lecture without separate handling.</li>
+  </ul>
+
+  <h3>8.4 Other Teaching Tools — Continuity Across Categories</h3>
+  <table>
+    <tr><th>Teaching Tool Category</th><th class="windows-th">Windows</th><th class="android-th">Android Signage TV</th></tr>
+    <tr><td>Slide presentation (PowerPoint, Keynote, Slides)</td><td><span class="check">✓</span> Native PowerPoint, web for others</td><td><span class="check">✓</span> Web-based</td></tr>
+    <tr><td>PDF viewer with annotation</td><td><span class="check">✓</span> Many options including free</td><td><span class="check">✓</span></td></tr>
+    <tr><td>Web browsing (Chrome, Edge, Firefox)</td><td><span class="check">✓</span> All major browsers</td><td><span class="warn">~</span> Limited browser on signage TV</td></tr>
+    <tr><td>Video conferencing (Zoom, Meet, Teams)</td><td><span class="check">✓</span> Native Windows clients</td><td><span class="warn">~</span> Web or limited native</td></tr>
+    <tr><td>Video playback (YouTube, embedded videos)</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+    <tr><td>Document camera integration</td><td><span class="check">✓</span> USB or HDMI</td><td><span class="warn">~</span> Limited</td></tr>
+    <tr><td>Educational software (Mathematica, GeoGebra, etc.)</td><td><span class="check">✓</span> Native Windows apps</td><td><span class="cross">✗</span> Most not on Android signage</td></tr>
+    <tr><td>LMS integration (Moodle, Canvas, etc.)</td><td><span class="check">✓</span> Browser + native apps</td><td><span class="warn">~</span> Browser only</td></tr>
+  </table>
+
+  <div class="highlight">
+    <div class="highlight-label">Teacher Workflow Continuity</div>
+    Every teaching workflow currently performed on the Android signage TV has a direct, mature equivalent on Windows — typically with richer feature support and broader software choice. Teachers will not lose access to any current capability; in many cases, they gain new options.
+  </div>
+</section>
+
+<!-- ========================== SECTION 9: ANDROID IMPROVEMENTS ========================== -->
+<section>
+  <div class="page-header">
+    <h2>9. What More Can Be Done on Android</h2>
+    <span class="page-header-tag">Android Optimization</span>
+  </div>
+
+  <p>If the decision is to continue with Android, there are still optimizations possible. Each has trade-offs.</p>
+
+  <h3>9.1 Software-Side Optimizations</h3>
+
+  <table>
+    <tr><th>Optimization</th><th>Benefit</th><th>Trade-off</th></tr>
+    <tr>
+      <td>Lower video bitrate (3 Mbps → 2 Mbps)</td>
+      <td>Reduces encoder CPU load by ~25%</td>
+      <td>Lower video quality, especially noticeable for fast motion</td>
+    </tr>
+    <tr>
+      <td>Drop screen capture when CPU rises</td>
+      <td>~30% CPU saving when in throttle window</td>
+      <td>Slides/whiteboard not in recording during throttle</td>
+    </tr>
+    <tr>
+      <td>Lower frame rate (30fps → 20fps)</td>
+      <td>~33% encoder load reduction</td>
+      <td>Choppy video — less acceptable for client</td>
+    </tr>
+    <tr>
+      <td>Skip in-class composition (post-process later)</td>
+      <td>Records raw streams; cloud composites</td>
+      <td>Higher cloud cost; live preview not possible</td>
+    </tr>
+    <tr>
+      <td>Cap class duration (60 min → 45 min)</td>
+      <td>Avoids worst thermal phase</td>
+      <td>Pedagogical limit; not always practical</td>
+    </tr>
+  </table>
+
+  <h3>9.2 Hardware-Side Optimizations</h3>
+  <table>
+    <tr><th>Optimization</th><th>Benefit</th><th>Trade-off</th></tr>
+    <tr>
+      <td>External USB cooling fan (₹500/room)</td>
+      <td>Drops SoC temp 5–8°C, reduces throttle frequency</td>
+      <td>Noise, cabling, power; not all rooms allow</td>
+    </tr>
+    <tr>
+      <td>Powered USB 3.0 hub</td>
+      <td>More stable USB camera/mic supply</td>
+      <td>Doesn't help with encoder/CPU bottleneck</td>
+    </tr>
+    <tr>
+      <td>Replace TV with newer signage model</td>
+      <td>~20% better SoC, slightly more headroom</td>
+      <td>₹85,000 capex per room; same architecture</td>
+    </tr>
+    <tr>
+      <td>External Android device (NVIDIA Shield, ~₹35K)</td>
+      <td>Significantly better SoC than signage TV</td>
+      <td>Still Android — same API limits with USB</td>
+    </tr>
+  </table>
+
+  <div class="highlight">
+    <div class="highlight-label">Honest Engineering Assessment</div>
+    The optimizations above can extend the current system's useful life and improve reliability marginally. None of them, however, can unlock the Lumens or TCC2 hardware features that require RTSP, Dante, or PTZ control — those capabilities are blocked at the Android operating system level, not by our software. Squeezing more performance from Android improves the same plateau; it doesn't move us to a new one.
+  </div>
+
+  <h3>9.3 Could the Current System Run More Smoothly at 720p?</h3>
+  <p>A practical question is whether reducing the recording quality from 1080p to 720p would allow the existing Android-based system to operate more reliably for 1-hour classes. This is a meaningful question because lower resolution means lower encoding workload, and lower encoding workload means less thermal stress on the TV's SoC.</p>
+
+  <h4>Engineering Analysis — 1080p vs 720p on the Existing System</h4>
+  <table>
+    <tr><th>Metric</th><th>At 1080p (current)</th><th>At 720p</th><th>Net Effect</th></tr>
+    <tr><td>Pixels per frame</td><td>2.07 million (1920×1080)</td><td>0.92 million (1280×720)</td><td>~55% fewer pixels</td></tr>
+    <tr><td>Video bitrate (H.264)</td><td>~3 Mbps</td><td>~1.5 Mbps</td><td>~50% lower</td></tr>
+    <tr><td>Software encoder CPU load</td><td>~80–90% sustained</td><td>~50–60% sustained</td><td>~30–40% reduction</td></tr>
+    <tr><td>Thermal throttle events per 1-hour class</td><td>2–4 events</td><td>0–1 events (estimated)</td><td>Significant improvement</td></tr>
+    <tr><td>Storage per 1-hour recording</td><td>~1.4 GB</td><td>~700 MB</td><td>~50% less</td></tr>
+    <tr><td>Cloud upload time</td><td>Baseline</td><td>~50% faster</td><td>Faster turnaround</td></tr>
+    <tr><td>Whiteboard / blackboard text legibility</td><td>Good</td><td>Reduced</td><td>Visible degradation</td></tr>
+    <tr><td>Slide detail clarity (small fonts, diagrams)</td><td>Good</td><td>Reduced</td><td>Small text harder to read</td></tr>
+    <tr><td>Far-room student face detail</td><td>Recognizable</td><td>Less detailed</td><td>Reduced clarity</td></tr>
+  </table>
+
+  <h4>What 720p Would Improve</h4>
+  <ul>
+    <li>1-hour classes would likely complete with significantly fewer or zero camera-drop cycles</li>
+    <li>Lower SoC heat — thermal throttle state reached less often, if at all</li>
+    <li>Faster cloud upload, less network bandwidth consumed</li>
+    <li>Less storage pressure on the TV's eMMC (which is slow)</li>
+    <li>Reduced risk of memory pressure during long classes</li>
+  </ul>
+
+  <h4>What 720p Does NOT Solve</h4>
+  <ul>
+    <li><strong>Lumens VC-TR1 advanced features remain unreachable</strong> — AI auto-tracking, PTZ control, RTSP, NDI, multi-bitrate streaming. These are blocked at the Android operating system level, not by quality settings.</li>
+    <li><strong>Sennheiser TCC2 advanced features remain unreachable</strong> — beamforming, Dante, multi-channel routing, DSP control. Same reason.</li>
+    <li><strong>Multi-room concurrent capacity</strong> still constrained by shared cloud recording.</li>
+    <li><strong>2-hour+ continuous classes</strong> still thermally challenging — the SoC is fundamentally not designed for sustained recording loads of this length.</li>
+    <li><strong>Custom OTA system, custom thermal management, custom recovery logic</strong> all still required.</li>
+  </ul>
+
+  <div class="highlight">
+    <div class="highlight-label">Engineering Verdict on 720p</div>
+    Reducing recording quality to 720p would meaningfully improve thermal stability for 1-hour classes, with fewer or zero camera-drop cycles per class. However, this comes at the cost of recording detail — particularly for board-heavy and slide-heavy lectures where small text becomes harder to read on playback. Crucially, 720p does not unlock any of the Lumens or Sennheiser advanced features, and does not address platform-level limitations such as multi-room concurrent capacity or 2-hour class viability.
+  </div>
+
+  <h3>9.4 What Stays Permanently Unavailable on Android</h3>
+  <p>Regardless of any optimization, the following will remain unavailable on Android-based recording:</p>
+  <ul>
+    <li>Lumens AI auto-tracking</li>
+    <li>Lumens PTZ control and presets</li>
+    <li>Lumens RTSP / NDI / multi-stream output</li>
+    <li>TCC2 beam steering</li>
+    <li>TCC2 Dante audio-over-IP</li>
+    <li>TCC2 multi-channel routing</li>
+    <li>TCC2 centralized control via Sennheiser Control Cockpit</li>
+    <li>Standard remote management tools (RDP, Group Policy, SCCM)</li>
+    <li>4K recording capability</li>
+    <li>2-hour+ continuous recording without thermal cycling</li>
+  </ul>
+</section>
+
+<!-- ========================== SECTION 10: WHAT'S UNIQUELY POSSIBLE ON WINDOWS ========================== -->
+<section>
+  <div class="page-header">
+    <h2>10. What Is Uniquely Possible on Windows</h2>
+    <span class="page-header-tag">Windows Capabilities</span>
+  </div>
+
+  <p>Windows is not just "a different platform" — it is the platform that the Lumens and TCC2 hardware was designed for. Here are capabilities that become available on Day 1 of a Windows deployment.</p>
+
+  <h3>10.1 Day-1 Out-of-the-Box Capabilities</h3>
+
+  <div class="win">
+    <div class="win-label">★ Headlining Feature: Full Camera/Mic Automation</div>
+    Windows can speak directly to the Lumens camera (RTSP, API) and TCC2 mic (Dante, API). The system can automatically position the camera based on class type, follow the speaker via AI, switch to blackboard view, and steer microphone beams — without any manual intervention. None of this requires custom development; it uses standard manufacturer integration.
+  </div>
+
+  <div class="win">
+    <div class="win-label">★ Recording Independence (Decoupled Architecture)</div>
+    On Windows, recording happens on the Mini PC. The display is a separate concern. Even if the display fails, the user logs out, or the screen is unplugged, recording continues. Power outage with UPS — recording resumes without data loss. This is the architectural pattern used by professional broadcast studios.
+  </div>
+
+  <div class="win">
+    <div class="win-label">★ Multi-Camera Support</div>
+    Add a second camera (front of room + back of room, or main + document camera) at any time. Our Windows recording application supports multi-camera scene switching natively. Currently impossible on Android.
+  </div>
+
+  <div class="win">
+    <div class="win-label">★ Concurrent Stream Output</div>
+    Same recording can simultaneously: (a) save to local disk, (b) upload to cloud, (c) live-stream to Zoom/Meet/YouTube. All from the same Mini PC, in parallel. No additional infrastructure.
+  </div>
+
+  <div class="win">
+    <div class="win-label">★ Standard IT Operations</div>
+    No more custom OTA system to maintain. Windows Update, Group Policy, Active Directory, BitLocker, antivirus, RDP — all the tools your IT team already knows. Onboarding new IT staff is trivial; signage TV management is a niche skill.
+  </div>
+
+  <h3>10.2 Future Capabilities Easily Added Later</h3>
+  <table>
+    <tr><th>Capability</th><th>Effort to Add (Windows)</th><th>Possible on Android?</th></tr>
+    <tr><td>Live captions / transcription</td><td>Plugin install</td><td><span class="cross">✗</span></td></tr>
+    <tr><td>AI summarization (post-class)</td><td>Cloud integration</td><td><span class="warn">~</span> Cloud only</td></tr>
+    <tr><td>Auto-attendance via face recognition</td><td>Camera API</td><td><span class="cross">✗</span></td></tr>
+    <tr><td>Real-time translation overlay</td><td>Software</td><td><span class="cross">✗</span></td></tr>
+    <tr><td>Dolby Vision / HDR recording</td><td>Encoder profile</td><td><span class="cross">✗</span></td></tr>
+    <tr><td>4K recording</td><td>Encoder profile</td><td><span class="cross">✗</span></td></tr>
+    <tr><td>3rd-party LMS integration</td><td>Standard SDKs</td><td><span class="warn">~</span></td></tr>
+    <tr><td>Backup recording to NAS</td><td>SMB built-in</td><td><span class="cross">✗</span></td></tr>
+  </table>
+</section>
+
+<!-- ========================== SECTION 11: SUMMARY ========================== -->
+<section>
+  <div class="page-header">
+    <h2>11. Summary</h2>
+    <span class="page-header-tag">Final View</span>
+  </div>
+
+  <h3>11.1 Platform Comparison at a Glance</h3>
+  <table>
+    <tr>
+      <th style="width:30%">Dimension</th>
+      <th class="windows-th">Windows PC</th>
+      <th class="android-th">Android TV (Current)</th>
+    </tr>
+    <tr><td class="label">Lumens VC-TR1 features used</td><td>100% (full automation)</td><td>~30% (basic webcam mode)</td></tr>
+    <tr><td class="label">Sennheiser TCC2 features used</td><td>100% (Dante + beamforming)</td><td>~25% (basic mic)</td></tr>
+    <tr><td class="label">1-hour recording reliability</td><td>~99.5%</td><td>~92% (with thermal cycling)</td></tr>
+    <tr><td class="label">Camera dropout during class</td><td>0 events</td><td>2–4 cycles per hour (45–90s each)</td></tr>
+    <tr><td class="label">2-hour+ class support</td><td>Yes</td><td>Significant degradation</td></tr>
+    <tr><td class="label">4K recording</td><td>Yes</td><td>No</td></tr>
+    <tr><td class="label">Future feature additions</td><td>Standard plugins</td><td>Often blocked by OS limits</td></tr>
+    <tr><td class="label">Hardware repair / upgrade</td><td>Component-level</td><td>Replace whole TV</td></tr>
+    <tr><td class="label">Custom software maintenance</td><td>Minimal (standard tools)</td><td>Significant (custom OTA, custom thermal logic)</td></tr>
+    <tr><td class="label">Recording architecture</td><td>Decoupled from display</td><td>Coupled to TV</td></tr>
+  </table>
+
+  <h3>11.2 The Investment Realization Argument</h3>
+  <p>The institution has invested in professional-grade AV equipment — the Lumens VC-TR1 and Sennheiser TCC2. These are flagship-class products with capabilities the institution paid for. The platform decision determines how much of that investment is actually realized:</p>
+
+  <div class="stat-row">
+    <div class="stat-box" style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%);">
+      <div class="stat-num">~30%</div>
+      <div class="stat-label">Camera + Mic Capability<br>Realized on Android</div>
+    </div>
+    <div class="stat-box" style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">Camera + Mic Capability<br>Realized on Windows</div>
+    </div>
+  </div>
+
+  <h3>11.3 Why This Matters Going Forward</h3>
+  <p>The platform choice is not just about "Does it record today?" Both platforms record today. The choice is about:</p>
+  <ul>
+    <li><strong>How much of your AV equipment investment is actually used.</strong></li>
+    <li><strong>What capabilities you can add as the system evolves.</strong></li>
+    <li><strong>How much custom software the engineering team must maintain.</strong></li>
+    <li><strong>How recordings hold up during long classes, peak load, edge conditions.</strong></li>
+    <li><strong>How easy or hard it becomes to scale to 50, 200, 500 classrooms.</strong></li>
+  </ul>
+
+  <div class="brand-footer">
+    <div class="brand-footer-title">D&amp;R AI Solutions Pvt Ltd</div>
+    <div style="font-size:9pt;">Engineering · Research · Deployment</div>
+    <div style="font-size:8.5pt; margin-top:8pt; color:#c7d2e0;">
+      This document represents a feature-wise capability analysis based on hardware specifications,<br>
+      pilot testing across multiple classrooms, and direct engineering observation of both platforms.<br>
+      For technical clarification or follow-up discussion, please contact the D&amp;R team.
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
