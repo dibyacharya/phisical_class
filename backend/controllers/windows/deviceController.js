@@ -118,17 +118,30 @@ exports.heartbeat = async (req, res) => {
       console.warn(`[WinHeartbeat] device.save() failed (continuing): ${saveErr.message}`);
     }
 
-    // ── Build schedule for today's classes for this room ────────────
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // ── Build schedule for the relevant time window ─────────────────
+    // We send the device a 48-hour window (yesterday + today + tomorrow) so
+    // that timezone boundaries don't drop classes on the floor:
+    //
+    //   - Server runs in UTC; admin portal users schedule in IST.
+    //   - A class whose date is "2026-05-06T00:00Z" has startTime "00:17"
+    //     interpreted as IST -> actual fire window is 2026-05-05 18:47 UTC.
+    //     A strict { $gte: todayUTC, $lt: tomorrowUTC } filter would have
+    //     EXCLUDED this class on the boundary day.
+    //   - The device's RecordingManager.ProcessScheduleAsync compares the
+    //     full UTC start/end ISO timestamps against DateTime.UtcNow, so
+    //     sending a wider window is safe — only classes whose computed
+    //     start <= now < end fire recording.
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const windowStart = new Date(Date.now() - oneDayMs);
+    windowStart.setHours(0, 0, 0, 0);
+    const windowEnd = new Date(Date.now() + 2 * oneDayMs);
+    windowEnd.setHours(0, 0, 0, 0);
 
     const classes = await ScheduledClass.find({
       roomNumber: device.roomNumber,
-      date: { $gte: today, $lt: tomorrow },
+      date: { $gte: windowStart, $lt: windowEnd },
       status: { $ne: "cancelled" },
-    }).sort({ startTime: 1 });
+    }).sort({ date: 1, startTime: 1 });
 
     const classIds = classes.map((c) => c._id);
 
