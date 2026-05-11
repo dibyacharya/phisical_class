@@ -1,197 +1,178 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
+import {
+  Cpu, RefreshCw, Search, Radio, AlertTriangle, FileText,
+  Camera, Power, ChevronRight, Filter, Wifi, WifiOff, HardDrive,
+  Video, X, Monitor, MemoryStick,
+} from "lucide-react";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
+
+const FILTER_OPTIONS = [
+  { id: "all", label: "All" },
+  { id: "online", label: "Online" },
+  { id: "recording", label: "Recording" },
+  { id: "live", label: "Live now" },
+  { id: "warning", label: "Disk warn / offline" },
+];
 
 export default function WindowsDevices() {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  // v2.1.0: live-watch — { deviceId, recordingId, title } or null.
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [selected, setSelected] = useState(null);
   const [liveWatchTarget, setLiveWatchTarget] = useState(null);
 
-  async function load() {
+  const load = useCallback(async () => {
+    setRefreshing(true);
     try {
-      setLoading(true);
+      setError("");
       const data = await winDevices.list();
       setDevices(data.devices || []);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, []);
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [load]);
 
-  async function sendCommand(deviceId, command, params = {}) {
+  async function sendCommand(deviceId, command) {
     try {
-      await winDevices.issueCommand(deviceId, command, params);
-      alert(`Command "${command}" queued for device.`);
+      await winDevices.issueCommand(deviceId, command, {});
+      alert(`Command "${command}" queued.`);
     } catch (e) {
       alert(`Failed: ${e.message}`);
     }
   }
 
-  function statusBadge(device) {
-    if (!device.isOnline) return <span className="badge badge-offline">Offline</span>;
-    if (device.isRecording) return <span className="badge badge-recording">Recording</span>;
-    return <span className="badge badge-online">Online</span>;
-  }
+  const filtered = useMemo(() => {
+    return devices.filter((d) => {
+      if (filter !== "all") {
+        const liveState = d.health?.liveWatch?.state;
+        const diskState = d.health?.diskGovernor?.state;
+        if (filter === "online" && !d.isOnline) return false;
+        if (filter === "recording" && !d.health?.recording?.isRecording) return false;
+        if (filter === "live" && liveState !== "Connected") return false;
+        if (filter === "warning") {
+          const hasWarning =
+            !d.isOnline ||
+            (diskState && diskState !== "Normal");
+          if (!hasWarning) return false;
+        }
+      }
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const fields = [
+          d.name, d.deviceId, d.roomNumber, d.licenseTier,
+        ].filter(Boolean).map(String).map((v) => v.toLowerCase());
+        if (!fields.some((f) => f.includes(q))) return false;
+      }
+      return true;
+    });
+  }, [devices, filter, search]);
 
-  function licenseBadge(device) {
-    const tier = device.licenseTier;
-    const status = device.licenseStatus;
-    if (status === "active") return <span className="badge badge-license">{tier}</span>;
-    if (status === "expired") return <span className="badge badge-warning">Expired</span>;
-    if (status === "revoked") return <span className="badge badge-danger">Revoked</span>;
-    return <span className="badge badge-muted">Unlicensed</span>;
-  }
-
-  // v2.1.0: DiskGovernor + LiveWatch badges (only shown if device reports them)
-  function diskGovernorBadge(device) {
-    const s = device.health?.diskGovernor?.state;
-    if (!s || s === "Normal") return null;
-    const cls =
-      s === "HardStop" ? "badge-danger"
-      : s === "Cleanup" ? "badge-warning"
-      : s === "Warn"    ? "badge-warning"
-      : "badge-muted";
-    return <span className={`badge ${cls}`} title={`Free: ${(device.health?.diskGovernor?.freeBytes / 1e9 || 0).toFixed(1)} GB`}>Disk: {s}</span>;
-  }
-  function liveWatchBadge(device) {
-    const s = device.health?.liveWatch?.state;
-    if (!s || s === "Idle") return null;
-    const cls =
-      s === "Connected"     ? "badge-recording"
-      : s === "Reconnecting" ? "badge-warning"
-      : s === "Failed"      ? "badge-danger"
-      : "badge-muted";
-    return <span className={`badge ${cls}`}>Live: {s}</span>;
-  }
-  function canWatchLive(device) {
+  if (loading) {
     return (
-      device.health?.liveWatch?.state === "Connected" &&
-      device.health?.recording?.isRecording
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="animate-spin text-blue-500" size={32} />
+        <span className="ml-3 text-slate-500">Loading Windows devices...</span>
+      </div>
     );
   }
 
-  if (loading) return <div className="page-loading">Loading Windows devices...</div>;
-
   return (
-    <div className="page-windows-devices">
-      <div className="page-header">
-        <h1>Windows Devices</h1>
-        <p className="text-muted">
-          {devices.length} device{devices.length !== 1 ? "s" : ""} registered
-        </p>
-        <button className="btn btn-secondary" onClick={load}>
-          Refresh
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Windows Devices</h1>
+          <p className="text-sm text-slate-500">
+            {filtered.length} of {devices.length} registered
+          </p>
+        </div>
+        <button
+          onClick={load}
+          disabled={refreshing}
+          className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
         </button>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
-
-      <div className="device-grid">
-        {devices.map((d) => (
-          <div key={d._id} className="device-card">
-            <div className="device-card-header">
-              <span className="device-icon">🖥️</span>
-              <div>
-                <h3>{d.name || `Room ${d.roomNumber}`}</h3>
-                <small>Room {d.roomNumber} · {d.deviceId.substring(0, 16)}...</small>
-              </div>
-              {statusBadge(d)}
-            </div>
-
-            <div className="device-card-body">
-              <div className="metric-row">
-                <span>Version:</span>
-                <span>{d.appVersionName || "—"}</span>
-              </div>
-              <div className="metric-row">
-                <span>License:</span>
-                {licenseBadge(d)}
-              </div>
-              <div className="metric-row">
-                <span>Last seen:</span>
-                <span>{d.lastHeartbeat ? new Date(d.lastHeartbeat).toLocaleString() : "Never"}</span>
-              </div>
-              {d.health?.cpu && (
-                <div className="metric-row">
-                  <span>CPU:</span>
-                  <span>
-                    {d.health.cpu.usagePercent ?? "?"}%{" "}
-                    {d.health.cpu.temperature && `(${d.health.cpu.temperature}°C)`}
-                  </span>
-                </div>
-              )}
-              {d.health?.disk && (
-                <div className="metric-row">
-                  <span>Disk free:</span>
-                  <span>{d.health.disk.freeGB?.toFixed(1) ?? "?"} GB</span>
-                </div>
-              )}
-              {d.health?.recording && (
-                <div className="metric-row">
-                  <span>Chunks:</span>
-                  <span>
-                    {d.health.recording.chunksUploaded ?? 0} / {d.health.recording.chunksWritten ?? 0}
-                  </span>
-                </div>
-              )}
-              {d.detectedHardware && (
-                <div className="metric-row">
-                  <span>Hardware:</span>
-                  <span>
-                    {(d.detectedHardware.cameras?.length ?? 0)} cam ·{" "}
-                    {(d.detectedHardware.microphones?.length ?? 0)} mic ·{" "}
-                    {(d.detectedHardware.ramGB ?? 0)} GB RAM
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="device-card-extras" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              {diskGovernorBadge(d)}
-              {liveWatchBadge(d)}
-            </div>
-
-            <div className="device-card-actions">
-              <Link to={`/windows/devices/${d.deviceId}/remote`} className="btn-primary">
-                Manage
-              </Link>
-              <button onClick={() => setSelectedDevice(d)}>Quick info</button>
-              {canWatchLive(d) && (
-                <button
-                  className="btn-primary"
-                  onClick={() =>
-                    setLiveWatchTarget({
-                      deviceId: d.deviceId,
-                      title: d.name || `Room ${d.roomNumber}`,
-                    })
-                  }
-                >
-                  Watch Live
-                </button>
-              )}
-              <button onClick={() => sendCommand(d.deviceId, "pull_logs")}>Logs</button>
-              <button onClick={() => sendCommand(d.deviceId, "capture_screenshot")}>Screenshot</button>
-              <button onClick={() => sendCommand(d.deviceId, "restart_service")}>Restart Service</button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {selectedDevice && (
-        <DeviceDetailModal device={selectedDevice} onClose={() => setSelectedDevice(null)} />
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded p-3 flex items-center gap-2">
+          <AlertTriangle size={16} /> {error}
+        </div>
       )}
 
+      {/* Filters */}
+      <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search name, device id, room, tier..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8 pr-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-1 text-xs">
+          <Filter size={12} className="text-slate-400" />
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setFilter(opt.id)}
+              className={`px-2 py-1 rounded ${
+                filter === opt.id
+                  ? "bg-blue-100 text-blue-700"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">
+          {devices.length === 0
+            ? "No Windows devices registered yet. Install the recorder on a Mini PC and complete the wizard."
+            : "No devices match the current filters."}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((d) => (
+            <DeviceCard
+              key={d._id}
+              d={d}
+              onDetails={() => setSelected(d)}
+              onWatchLive={() =>
+                setLiveWatchTarget({
+                  deviceId: d.deviceId,
+                  title: d.name || `Room ${d.roomNumber}`,
+                })
+              }
+              onCommand={(cmd) => sendCommand(d.deviceId, cmd)}
+            />
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <DeviceDetailModal device={selected} onClose={() => setSelected(null)} />
+      )}
       {liveWatchTarget && (
         <WindowsLiveWatchModal
           deviceId={liveWatchTarget.deviceId}
@@ -203,93 +184,254 @@ export default function WindowsDevices() {
   );
 }
 
+function DeviceCard({ d, onDetails, onWatchLive, onCommand }) {
+  const h = d.health || {};
+  const live = h.liveWatch?.state;
+  const disk = h.diskGovernor?.state;
+  const isRecording = h.recording?.isRecording;
+  const canLive = live === "Connected" && isRecording;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow transition">
+      <div className="flex items-center gap-3 mb-3">
+        <div
+          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+            d.isOnline ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"
+          }`}
+        >
+          <Cpu size={20} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-slate-800 truncate">
+            {d.name || `Room ${d.roomNumber}`}
+          </h3>
+          <p className="text-[11px] text-slate-500 font-mono truncate">
+            {d.deviceId}
+          </p>
+        </div>
+        <StatusBadge online={d.isOnline} recording={isRecording} />
+      </div>
+
+      {/* Health metrics row */}
+      <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
+        <Metric icon={Cpu} label="CPU" value={h.cpu?.usagePercent != null ? `${h.cpu.usagePercent}%` : "—"} />
+        <Metric icon={MemoryStick} label="RAM" value={h.ram?.freeGB != null ? `${h.ram.freeGB.toFixed(1)} GB` : "—"} />
+        <Metric icon={HardDrive} label="Disk" value={h.disk?.freeGB != null ? `${h.disk.freeGB.toFixed(1)} GB` : "—"} />
+        <Metric icon={Wifi} label="App" value={d.appVersionName || "—"} />
+      </div>
+
+      {/* Special-state badges */}
+      <div className="flex flex-wrap gap-1 mb-3 min-h-[20px]">
+        {disk && disk !== "Normal" && (
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full ${
+              disk === "HardStop"
+                ? "bg-red-100 text-red-700"
+                : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            Disk: {disk}
+          </span>
+        )}
+        {live && live !== "Idle" && (
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full ${
+              live === "Connected"
+                ? "bg-red-100 text-red-700"
+                : live === "Failed"
+                ? "bg-red-100 text-red-700"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            Live: {live}
+          </span>
+        )}
+        {d.licenseTier && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 uppercase">
+            {d.licenseTier}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+        <Link
+          to={`/windows/devices/${d.deviceId}/remote`}
+          className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1"
+        >
+          Manage <ChevronRight size={12} />
+        </Link>
+        {canLive && (
+          <button
+            onClick={onWatchLive}
+            className="text-xs px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded flex items-center gap-1"
+          >
+            <Radio size={12} className="animate-pulse" /> Watch Live
+          </button>
+        )}
+        <button
+          onClick={onDetails}
+          className="text-xs px-3 py-1.5 border border-slate-300 hover:bg-slate-50 rounded"
+        >
+          Details
+        </button>
+        <button
+          onClick={() => onCommand("pull_logs")}
+          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
+          title="Pull logs"
+        >
+          <FileText size={14} />
+        </button>
+        <button
+          onClick={() => onCommand("capture_screenshot")}
+          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
+          title="Screenshot"
+        >
+          <Camera size={14} />
+        </button>
+        <button
+          onClick={() => onCommand("restart_service")}
+          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
+          title="Restart service"
+        >
+          <Power size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ online, recording }) {
+  if (recording) {
+    return (
+      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold flex items-center gap-1">
+        <Radio size={10} className="animate-pulse" /> REC
+      </span>
+    );
+  }
+  if (online) {
+    return (
+      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold flex items-center gap-1">
+        <Wifi size={10} /> Online
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold flex items-center gap-1">
+      <WifiOff size={10} /> Offline
+    </span>
+  );
+}
+
+function Metric({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-center gap-1.5 text-slate-600">
+      <Icon size={12} className="text-slate-400 flex-shrink-0" />
+      <span className="text-slate-400 min-w-[28px]">{label}</span>
+      <span className="font-medium truncate">{value}</span>
+    </div>
+  );
+}
+
 function DeviceDetailModal({ device, onClose }) {
   const hw = device.detectedHardware;
+  const h = device.health || {};
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{device.name}</h2>
-          <button onClick={onClose}>×</button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+          <div>
+            <h2 className="font-semibold text-slate-800 text-sm">
+              {device.name || `Room ${device.roomNumber}`}
+            </h2>
+            <p className="text-xs text-slate-500 font-mono">{device.deviceId}</p>
+          </div>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700">
+            <X size={18} />
+          </button>
         </div>
-        <div className="modal-body">
-          {hw ? (
-            <div className="device-hardware-section">
-              <h3>Hardware Inventory</h3>
-              <p className="text-muted" style={{ marginTop: "-8px", marginBottom: "12px" }}>
-                Detected at install
-                {hw.detectedAt ? ` · ${new Date(hw.detectedAt).toLocaleString()}` : ""}
-              </p>
+        <div className="p-5 space-y-4 overflow-y-auto">
+          <DetailGroup title="Identity">
+            <DetailRow label="Room" value={device.roomNumber} />
+            <DetailRow label="License tier" value={device.licenseTier} />
+            <DetailRow label="License status" value={device.licenseStatus} />
+            <DetailRow label="App version" value={`${device.appVersionName} (vc=${device.appVersionCode})`} />
+            <DetailRow label="Last heartbeat" value={device.lastHeartbeat ? new Date(device.lastHeartbeat).toLocaleString() : "Never"} />
+          </DetailGroup>
 
-              <div className="hw-grid">
-                <div className="hw-section">
-                  <h4>Cameras ({hw.cameras?.length ?? 0})</h4>
-                  {hw.cameras?.length > 0 ? (
-                    <ul>{hw.cameras.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                  ) : (
-                    <p className="text-muted">None detected</p>
-                  )}
-                </div>
+          {hw && (
+            <DetailGroup title="Hardware inventory (snapshot at install)">
+              <DetailRow label="CPU" value={hw.cpuModel} />
+              <DetailRow label="RAM" value={`${hw.ramGB} GB`} />
+              <DetailRow label="Cameras" value={(hw.cameras || []).join(", ")} />
+              <DetailRow label="Microphones" value={(hw.microphones || []).join(", ")} />
+              <DetailRow label="Monitors" value={`${hw.monitorCount || 1}`} />
+              {hw.displays?.[0] && (
+                <DetailRow
+                  label="Primary display"
+                  value={`${hw.displays[0].name} · ${hw.displays[0].width}x${hw.displays[0].height} @ ${hw.displays[0].refreshRate}Hz`}
+                />
+              )}
+            </DetailGroup>
+          )}
 
-                <div className="hw-section">
-                  <h4>Microphones ({hw.microphones?.length ?? 0})</h4>
-                  {hw.microphones?.length > 0 ? (
-                    <ul>{hw.microphones.map((m, i) => <li key={i}>{m}</li>)}</ul>
-                  ) : (
-                    <p className="text-muted">None detected</p>
-                  )}
-                </div>
+          {h.diskGovernor && (
+            <DetailGroup title="Disk Governor">
+              <DetailRow label="State" value={h.diskGovernor.state} />
+              <DetailRow
+                label="Free space"
+                value={h.diskGovernor.freeBytes ? `${(h.diskGovernor.freeBytes / 1e9).toFixed(2)} GB` : "—"}
+              />
+              <DetailRow
+                label="Last cleanup"
+                value={h.diskGovernor.lastCleanupAt ? new Date(h.diskGovernor.lastCleanupAt).toLocaleString() : "—"}
+              />
+            </DetailGroup>
+          )}
 
-                <div className="hw-section">
-                  <h4>Displays ({hw.displays?.length ?? 0})</h4>
-                  {hw.displays?.length > 0 ? (
-                    <ul>
-                      {hw.displays.map((d, i) => (
-                        <li key={i}>
-                          {d.name} — {d.width}×{d.height} @ {d.refreshRate}Hz
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted">None detected</p>
-                  )}
-                  {hw.monitorCount > 0 && (
-                    <p className="text-muted">{hw.monitorCount} monitor{hw.monitorCount !== 1 ? "s" : ""} connected</p>
-                  )}
-                </div>
-
-                <div className="hw-section">
-                  <h4>System</h4>
-                  <table className="hw-system-table">
-                    <tbody>
-                      {hw.hostname &&      <tr><td>Hostname</td><td>{hw.hostname}</td></tr>}
-                      {hw.hardwareModel && <tr><td>Model</td><td>{hw.hardwareModel}</td></tr>}
-                      {hw.cpuModel &&      <tr><td>CPU</td><td>{hw.cpuModel} ({hw.cpuCores} cores / {hw.cpuLogical} threads)</td></tr>}
-                      {hw.gpu &&           <tr><td>GPU</td><td>{hw.gpu}</td></tr>}
-                      {hw.ramGB &&         <tr><td>RAM</td><td>{hw.ramGB} GB</td></tr>}
-                      {hw.diskGB &&        <tr><td>Disk</td><td>{hw.diskGB} GB total · {hw.diskFreeGB} GB free</td></tr>}
-                      {hw.osCaption &&     <tr><td>OS</td><td>{hw.osCaption} (build {hw.osBuild})</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <details style={{ marginTop: "16px" }}>
-                <summary>Raw device document</summary>
-                <pre style={{ fontSize: "11px", marginTop: "8px" }}>{JSON.stringify(device, null, 2)}</pre>
-              </details>
-            </div>
-          ) : (
-            <>
-              <p className="text-muted">
-                Hardware inventory not yet captured. This device may have been registered with an older
-                installer (before v1.0.4). Run the latest installer to populate hardware details.
-              </p>
-              <pre>{JSON.stringify(device, null, 2)}</pre>
-            </>
+          {h.liveWatch && (
+            <DetailGroup title="Live watch">
+              <DetailRow label="State" value={h.liveWatch.state || "Idle"} />
+              <DetailRow label="Room" value={h.liveWatch.roomName} />
+              <DetailRow label="Reconnects" value={String(h.liveWatch.reconnectCount ?? 0)} />
+            </DetailGroup>
           )}
         </div>
+        <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
+          <Link
+            to={`/windows/devices/${device.deviceId}/remote`}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg"
+          >
+            Open device console
+          </Link>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function DetailGroup({ title, children }) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+        {title}
+      </h3>
+      <div className="bg-slate-50 border border-slate-200 rounded-lg divide-y divide-slate-200">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2 text-sm">
+      <span className="text-slate-500 text-xs">{label}</span>
+      <span className="font-medium text-slate-800 text-right max-w-[60%] truncate">
+        {value || "—"}
+      </span>
     </div>
   );
 }
