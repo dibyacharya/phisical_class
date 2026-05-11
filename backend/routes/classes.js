@@ -3,6 +3,7 @@ const ctrl = require("../controllers/classController");
 const { auth, adminOnly } = require("../middleware/auth");
 
 router.get("/dashboard", auth, adminOnly, ctrl.dashboard);
+router.post("/cleanup-orphans", auth, adminOnly, ctrl.cleanupOrphans);
 router.post("/bulk-validate", auth, adminOnly, ctrl.bulkValidate);
 router.post("/bulk-create",   auth, adminOnly, ctrl.bulkCreate);
 router.get("/",    auth, ctrl.getAll);

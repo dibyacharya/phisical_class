@@ -246,13 +246,29 @@ exports.getOne = async (req, res) => {
 };
 
 // GET /api/classes/dashboard
+//
+// All counts EXCLUDE orphans — i.e. records whose scheduledClass reference
+// no longer points to an existing row. Prior to this fix the dashboard
+// kept showing inflated totals because Recording / Attendance rows could
+// survive the class delete cascade (e.g. recordings created via free-form
+// admin start_recording command, or rows that pre-date the cascade
+// being added).
 exports.dashboard = async (req, res) => {
   try {
-    const totalClasses = await ScheduledClass.countDocuments();
-    const totalRecordings = await Recording.countDocuments({ status: "completed" });
+    // Live ScheduledClass _id set — every other count filters to this.
+    const liveClassIds = await ScheduledClass.find({}, { _id: 1 }).lean();
+    const liveIds = liveClassIds.map((c) => c._id);
 
-    // Use aggregation instead of loading all docs into memory
+    const totalClasses = liveClassIds.length;
+
+    const totalRecordings = await Recording.countDocuments({
+      status: "completed",
+      scheduledClass: { $in: liveIds },
+    });
+
+    // Sum attendees only for attendance rows pointing at still-live classes.
     const scanAgg = await Attendance.aggregate([
+      { $match: { scheduledClass: { $in: liveIds } } },
       { $project: { count: { $size: { $ifNull: ["$attendees", []] } } } },
       { $group: { _id: null, total: { $sum: "$count" } } },
     ]);
@@ -272,6 +288,62 @@ exports.dashboard = async (req, res) => {
       totalRecordings,
       totalAttendanceScans: totalScans,
       todayClasses,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/classes/cleanup-orphans (admin)
+//
+// One-shot cleanup that hard-deletes any Recording / Attendance rows
+// whose scheduledClass reference does not resolve to a live ScheduledClass.
+// Use when the dashboard counts look inflated because old test data was
+// created before the delete cascade existed, or via the free-form
+// start_recording admin command (which writes Recording rows with
+// non-ObjectId classId values that can never match a ScheduledClass).
+exports.cleanupOrphans = async (req, res) => {
+  try {
+    const liveIds = (await ScheduledClass.find({}, { _id: 1 }).lean()).map(
+      (c) => String(c._id)
+    );
+    const liveSet = new Set(liveIds);
+
+    // Recording rows: scheduledClass missing OR not in liveSet OR non-ObjectId.
+    const recCandidates = await Recording.find(
+      {},
+      { _id: 1, scheduledClass: 1 }
+    ).lean();
+    const recOrphanIds = recCandidates
+      .filter((r) => !r.scheduledClass || !liveSet.has(String(r.scheduledClass)))
+      .map((r) => r._id);
+
+    const attCandidates = await Attendance.find(
+      {},
+      { _id: 1, scheduledClass: 1 }
+    ).lean();
+    const attOrphanIds = attCandidates
+      .filter((a) => !a.scheduledClass || !liveSet.has(String(a.scheduledClass)))
+      .map((a) => a._id);
+
+    const recDel = recOrphanIds.length
+      ? await Recording.deleteMany({ _id: { $in: recOrphanIds } })
+      : { deletedCount: 0 };
+    const attDel = attOrphanIds.length
+      ? await Attendance.deleteMany({ _id: { $in: attOrphanIds } })
+      : { deletedCount: 0 };
+
+    res.json({
+      message: "Orphan cleanup complete",
+      liveClasses: liveIds.length,
+      orphansFound: {
+        recordings: recOrphanIds.length,
+        attendances: attOrphanIds.length,
+      },
+      deleted: {
+        recordings: recDel.deletedCount,
+        attendances: attDel.deletedCount,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
