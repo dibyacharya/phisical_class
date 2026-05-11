@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
 
@@ -162,7 +163,10 @@ export default function WindowsDevices() {
             </div>
 
             <div className="device-card-actions">
-              <button onClick={() => setSelectedDevice(d)}>Details</button>
+              <Link to={`/windows/devices/${d.deviceId}/remote`} className="btn-primary">
+                Manage
+              </Link>
+              <button onClick={() => setSelectedDevice(d)}>Quick info</button>
               {canWatchLive(d) && (
                 <button
                   className="btn-primary"

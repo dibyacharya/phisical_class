@@ -67,3 +67,24 @@ export const winLicenses = {
   extend: (key, newExpiresAt) =>
     api(`/licenses/${key}/extend`, { method: "PATCH", body: JSON.stringify({ newExpiresAt }) }),
 };
+
+// ── Diagnostics (v2.1.0) ───────────────────────────────────
+// Admin endpoints. The device-side upload endpoints aren't exposed
+// here — only the device hits those, with its X-Device-Id + X-Device-Token.
+export const winDiagnostics = {
+  listForDevice: (deviceId) => api(`/diagnostics/device/${deviceId}`),
+  // Returns a direct URL the browser can <img src> or <a href download> from.
+  fileUrl: (id) => `${API_BASE}/api/windows/diagnostics/file/${id}`,
+};
+
+// ── Live watch (v2.1.0) ────────────────────────────────────
+export const winLiveWatch = {
+  // Admin subscriber JWT for the LiveKit room. recordingId is optional;
+  // when omitted, backend resolves it from the latest active ingress.
+  viewerToken: (deviceId, recordingId) => {
+    const qs = new URLSearchParams({ deviceId });
+    if (recordingId) qs.set("recordingId", recordingId);
+    return api(`/live-watch/viewer-token?${qs.toString()}`);
+  },
+  active: () => api("/live-watch/active"),
+};

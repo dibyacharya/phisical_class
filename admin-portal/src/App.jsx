@@ -19,10 +19,12 @@ import Layout from "./components/Layout";
 // ── Windows Edition pages (isolated namespace, no Android pages touched) ──
 import WindowsDashboard from "./pages/windows/WindowsDashboard";
 import WindowsDevices from "./pages/windows/WindowsDevices";
+import WindowsDeviceRemote from "./pages/windows/WindowsDeviceRemote";
 import WindowsRecordings from "./pages/windows/WindowsRecordings";
 import WindowsBooking from "./pages/windows/WindowsBooking";
 import WindowsLicenses from "./pages/windows/WindowsLicenses";
 import WindowsAppUpdate from "./pages/windows/WindowsAppUpdate";
+import WindowsAnalytics from "./pages/windows/WindowsAnalytics";
 import "./pages/windows/windows.css";
 
 export default function App() {
@@ -92,8 +94,10 @@ export default function App() {
                   {/* ── Windows Edition routes (isolated under /windows/*) ── */}
                   <Route path="/windows" element={<WindowsDashboard />} />
                   <Route path="/windows/devices" element={<WindowsDevices />} />
+                  <Route path="/windows/devices/:deviceId/remote" element={<WindowsDeviceRemote />} />
                   <Route path="/windows/recordings" element={<WindowsRecordings />} />
                   <Route path="/windows/booking" element={<WindowsBooking />} />
+                  <Route path="/windows/analytics" element={<WindowsAnalytics />} />
                   <Route path="/windows/licenses" element={<WindowsLicenses />} />
                   <Route path="/windows/app-update" element={<WindowsAppUpdate />} />
                 </Routes>

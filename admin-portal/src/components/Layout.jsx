@@ -32,11 +32,17 @@ const androidNavItems = [
   { to: "/analytics", label: "Analytics", icon: Activity },
 ];
 
+// v4.2 — Windows section reached parity with Android. Facility / Batches /
+// Users are intentionally NOT duplicated under /windows/* because the
+// underlying data (campuses, courses, users) is org-wide and shared between
+// pipelines. The Android-side routes already render correctly for any room
+// regardless of which pipeline records there.
 const windowsNavItems = [
   { to: "/windows", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/windows/booking", label: "Booking", icon: CalendarPlus },
   { to: "/windows/devices", label: "Devices", icon: Cpu },
   { to: "/windows/recordings", label: "Recordings", icon: Video },
+  { to: "/windows/analytics", label: "Analytics", icon: Activity },
   { to: "/windows/licenses", label: "Licenses", icon: KeyRound },
   { to: "/windows/app-update", label: "App Update", icon: Download },
 ];
