@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { winDevices } from "../../services/windowsApi";
+import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
 
 export default function WindowsDevices() {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedDevice, setSelectedDevice] = useState(null);
+  // v2.1.0: live-watch — { deviceId, recordingId, title } or null.
+  const [liveWatchTarget, setLiveWatchTarget] = useState(null);
 
   async function load() {
     try {
@@ -47,6 +50,34 @@ export default function WindowsDevices() {
     if (status === "expired") return <span className="badge badge-warning">Expired</span>;
     if (status === "revoked") return <span className="badge badge-danger">Revoked</span>;
     return <span className="badge badge-muted">Unlicensed</span>;
+  }
+
+  // v2.1.0: DiskGovernor + LiveWatch badges (only shown if device reports them)
+  function diskGovernorBadge(device) {
+    const s = device.health?.diskGovernor?.state;
+    if (!s || s === "Normal") return null;
+    const cls =
+      s === "HardStop" ? "badge-danger"
+      : s === "Cleanup" ? "badge-warning"
+      : s === "Warn"    ? "badge-warning"
+      : "badge-muted";
+    return <span className={`badge ${cls}`} title={`Free: ${(device.health?.diskGovernor?.freeBytes / 1e9 || 0).toFixed(1)} GB`}>Disk: {s}</span>;
+  }
+  function liveWatchBadge(device) {
+    const s = device.health?.liveWatch?.state;
+    if (!s || s === "Idle") return null;
+    const cls =
+      s === "Connected"     ? "badge-recording"
+      : s === "Reconnecting" ? "badge-warning"
+      : s === "Failed"      ? "badge-danger"
+      : "badge-muted";
+    return <span className={`badge ${cls}`}>Live: {s}</span>;
+  }
+  function canWatchLive(device) {
+    return (
+      device.health?.liveWatch?.state === "Connected" &&
+      device.health?.recording?.isRecording
+    );
   }
 
   if (loading) return <div className="page-loading">Loading Windows devices...</div>;
@@ -125,9 +156,28 @@ export default function WindowsDevices() {
               )}
             </div>
 
+            <div className="device-card-extras" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {diskGovernorBadge(d)}
+              {liveWatchBadge(d)}
+            </div>
+
             <div className="device-card-actions">
               <button onClick={() => setSelectedDevice(d)}>Details</button>
+              {canWatchLive(d) && (
+                <button
+                  className="btn-primary"
+                  onClick={() =>
+                    setLiveWatchTarget({
+                      deviceId: d.deviceId,
+                      title: d.name || `Room ${d.roomNumber}`,
+                    })
+                  }
+                >
+                  Watch Live
+                </button>
+              )}
               <button onClick={() => sendCommand(d.deviceId, "pull_logs")}>Logs</button>
+              <button onClick={() => sendCommand(d.deviceId, "capture_screenshot")}>Screenshot</button>
               <button onClick={() => sendCommand(d.deviceId, "restart_service")}>Restart Service</button>
             </div>
           </div>
@@ -136,6 +186,14 @@ export default function WindowsDevices() {
 
       {selectedDevice && (
         <DeviceDetailModal device={selectedDevice} onClose={() => setSelectedDevice(null)} />
+      )}
+
+      {liveWatchTarget && (
+        <WindowsLiveWatchModal
+          deviceId={liveWatchTarget.deviceId}
+          title={liveWatchTarget.title}
+          onClose={() => setLiveWatchTarget(null)}
+        />
       )}
     </div>
   );

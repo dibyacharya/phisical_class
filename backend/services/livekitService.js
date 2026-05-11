@@ -23,6 +23,10 @@ const {
   AzureBlobUpload,
   AutoTrackEgress,
   RoomEgress,
+  IngressClient,
+  IngressInput,
+  IngressVideoEncodingPreset,
+  IngressAudioEncodingPreset,
 } = require("livekit-server-sdk");
 
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
@@ -95,6 +99,148 @@ const getRoomServiceClient = () =>
 
 const getEgressClient = () =>
   new EgressClient(LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+
+const getIngressClient = () =>
+  new IngressClient(LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+
+/**
+ * Windows live-watch room name. Distinct from the Android/`phyclass-` rooms
+ * because the Windows pipeline never runs Egress (recording happens locally
+ * on the device), so we keep the namespace separate to avoid the LiveKit
+ * webhook handler ever trying to apply Egress lifecycle to a Windows row.
+ *
+ * Convention: `winwatch-<recordingId>`.
+ */
+const windowsLiveWatchRoomName = (recordingId) =>
+  `winwatch-${String(recordingId)}`;
+
+/**
+ * Create an RTMP-input Ingress so a Windows device's bundled ffmpeg can
+ * publish a live composite (screen + camera PIP) into a LiveKit room.
+ *
+ * Why RTMP ingest (not WHIP / native participant)?
+ *   - .NET 8 has no mature LiveKit/WebRTC publisher library
+ *   - bundled ffmpeg.exe supports rtmp out of the box
+ *   - Ingress decouples device codec choice from LiveKit's expected codec,
+ *     so we can let h264_qsv on device emit whatever it prefers and
+ *     LiveKit's ingest server transcodes (or passes through if compatible)
+ *
+ * The returned object carries:
+ *   ingressId   — used later to delete this ingress when class ends
+ *   url + streamKey — what ffmpeg's "-f flv rtmp://<url>/<streamKey>" needs
+ *   roomName    — confirmation echo so device + admin agree on which room
+ *
+ * Idempotent-ish: caller should track the returned ingressId and pass it
+ * to deleteIngress() when class ends. We don't have a "find by name" loop
+ * here because LiveKit ingress IDs are short-lived and not human-meaningful.
+ */
+const createWindowsLiveWatchIngress = async ({
+  recordingId,
+  deviceId,
+  deviceName = "Windows Recorder",
+}) => {
+  if (!isConfigured()) {
+    throw new Error("LiveKit not configured (missing API key/secret)");
+  }
+  const client = getIngressClient();
+  const roomName = windowsLiveWatchRoomName(recordingId);
+
+  // Ensure the room exists before we point ingress at it — otherwise the
+  // ingest server has nothing to publish into and the device's RTMP push
+  // would hang.
+  try {
+    const rc = getRoomServiceClient();
+    await rc.createRoom({ name: roomName, emptyTimeout: 60, maxParticipants: 50 });
+  } catch (e) {
+    // Already exists is fine.
+    if (!String(e.message || "").toLowerCase().includes("already exists")) {
+      console.warn(`[livekit] room create non-fatal: ${e.message}`);
+    }
+  }
+
+  // Create ingress. We choose 720p preset for live to keep customer-site
+  // uplink usage at ~1.5 Mbps — the 1080p recording is independent of
+  // this live stream (device records to local disk + uploads chunks).
+  const ingress = await client.createIngress(IngressInput.RTMP_INPUT, {
+    name: `win-${deviceId}-${String(recordingId)}`,
+    roomName,
+    participantIdentity: `win-publisher-${deviceId}`,
+    participantName: deviceName,
+    video: {
+      source: 1, // CAMERA
+      preset: IngressVideoEncodingPreset.H264_720P_30FPS_3_LAYERS,
+    },
+    audio: {
+      source: 2, // MICROPHONE
+      preset: IngressAudioEncodingPreset.OPUS_STEREO_96KBPS,
+    },
+  });
+
+  return {
+    ingressId: ingress.ingressId,
+    url: ingress.url,
+    streamKey: ingress.streamKey,
+    roomName,
+  };
+};
+
+/**
+ * Tear down an Ingress when the class ends. LiveKit auto-cleans inactive
+ * ingresses on a slow timer, but we explicitly delete so the dashboard
+ * doesn't accumulate stale rows + so a buggy device cannot leak its old
+ * streamKey to publish into a future class's room.
+ */
+const deleteWindowsLiveWatchIngress = async (ingressId) => {
+  if (!ingressId) return false;
+  if (!isConfigured()) return false;
+  try {
+    const client = getIngressClient();
+    await client.deleteIngress(ingressId);
+    return true;
+  } catch (e) {
+    console.warn(`[livekit] deleteIngress(${ingressId}) failed: ${e.message}`);
+    return false;
+  }
+};
+
+/**
+ * Admin watcher token specialised for Windows live-watch rooms.
+ * Mirrors generateAdminWatchToken but resolves to the `winwatch-` room.
+ */
+const generateWindowsAdminWatchToken = async ({
+  recordingId,
+  adminUserId,
+  adminName = "Admin",
+  ttl = "2h",
+}) => {
+  if (!isConfigured()) {
+    throw new Error("LiveKit not configured (missing API key/secret)");
+  }
+  const roomName = windowsLiveWatchRoomName(recordingId);
+
+  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+    identity: `admin-${adminUserId}`,
+    name: adminName,
+    ttl,
+    metadata: JSON.stringify({
+      role: "admin-watcher",
+      recordingId: String(recordingId),
+      pipeline: "windows-rtmp",
+    }),
+  });
+
+  at.addGrant({
+    roomJoin: true,
+    room: roomName,
+    canPublish: false,
+    canSubscribe: true,
+    canPublishData: false,
+    roomAdmin: false,
+    roomRecord: false,
+  });
+
+  return await at.toJwt();
+};
 
 /**
  * Build the canonical room name for a physical-class Recording.
@@ -454,7 +600,8 @@ module.exports = {
   // Naming helpers
   roomNameForRecording,
   blobKeyForRecording,
-  // Lifecycle
+  windowsLiveWatchRoomName,
+  // Lifecycle (Android / Egress)
   generateDeviceToken,
   generateAdminWatchToken,
   createRoom,
@@ -462,4 +609,8 @@ module.exports = {
   startCompositeEgress,
   stopEgress,
   listParticipants,
+  // Lifecycle (Windows RTMP Ingress live-watch — v2.1.0)
+  createWindowsLiveWatchIngress,
+  deleteWindowsLiveWatchIngress,
+  generateWindowsAdminWatchToken,
 };

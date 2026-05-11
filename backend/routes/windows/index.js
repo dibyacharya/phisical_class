@@ -6,6 +6,8 @@ const deviceCtrl = require("../../controllers/windows/deviceController");
 const recordingCtrl = require("../../controllers/windows/recordingController");
 const licenseCtrl = require("../../controllers/windows/licenseController");
 const appUpdateCtrl = require("../../controllers/windows/appUpdateController");
+const diagnosticsCtrl = require("../../controllers/windows/diagnosticsController");
+const liveWatchCtrl = require("../../controllers/windows/liveWatchController");
 
 // ── Device endpoints ──────────────────────────────────────
 // Public
@@ -51,5 +53,21 @@ router.post("/app/upload", auth, adminOnly, appUpdateCtrl.upload);
 router.get("/app/versions", auth, adminOnly, appUpdateCtrl.list);
 router.post("/app/versions/:id/activate", auth, adminOnly, appUpdateCtrl.activate);
 router.get("/app/download", appUpdateCtrl.download); // public — used by self-updater
+
+// ── Diagnostics (v2.1.0) ──────────────────────────────────────
+// Device uploads (logs zip, screenshot jpeg) — windowsDeviceAuth gates
+// who can write under which deviceId.
+router.post("/diagnostics/:kind", windowsDeviceAuth, diagnosticsCtrl.uploadArtifact);
+// Admin: list recent diagnostics for a device + fetch one by id.
+router.get("/diagnostics/device/:deviceId", auth, adminOnly, diagnosticsCtrl.listForDevice);
+router.get("/diagnostics/file/:id", auth, adminOnly, diagnosticsCtrl.fetchById);
+
+// ── Live Watch (LiveKit RTMP Ingress, v2.1.0) ────────────────
+// Device creates/tears down its own ingress.
+router.post("/live-watch/ingress", windowsDeviceAuth, liveWatchCtrl.createIngress);
+router.delete("/live-watch/ingress/:ingressId", windowsDeviceAuth, liveWatchCtrl.deleteIngress);
+// Admin: watch a live session via subscriber JWT, list active sessions.
+router.get("/live-watch/viewer-token", auth, adminOnly, liveWatchCtrl.viewerToken);
+router.get("/live-watch/active", auth, adminOnly, liveWatchCtrl.listActive);
 
 module.exports = router;

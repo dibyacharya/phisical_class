@@ -31,6 +31,48 @@ const Recording = require("../models/Recording");
 const ScheduledClass = require("../models/ScheduledClass");
 const { fastStartOptimizeBlobInBackground } = require("./fastStartOptimizer");
 
+// ────────────────────────────────────────────────────────────────
+// Idempotency cache for inbound webhooks.
+//
+// LiveKit retries any non-2xx webhook up to 5 times with exponential
+// backoff. If our handler takes too long the same event can also arrive
+// twice independently (load balancer retries, network blip after we
+// already committed). Without dedup, two concurrent egress_ended events
+// race each other in `recording.save()` and the last-writer-wins,
+// occasionally corrupting status (especially when one is a success and
+// one is a delayed failure retry).
+//
+// Strategy: cache <event>:<egressId>:<status> for 60s. Second hit is a
+// no-op return. 60s comfortably covers LiveKit's retry window and is
+// short enough that legitimate re-publishes after a server restart
+// (rare) still go through.
+// ────────────────────────────────────────────────────────────────
+const _seen = new Map(); // key -> expiresAtEpochMs
+const SEEN_TTL_MS = 60_000;
+const _seenKey = (event, egressId, status) =>
+  `${event}::${egressId || ""}::${status || ""}`;
+
+function _markSeen(key) {
+  const now = Date.now();
+  _seen.set(key, now + SEEN_TTL_MS);
+  // Lazy GC: when map gets bigger than 1k entries, sweep expired.
+  if (_seen.size > 1000) {
+    for (const [k, expires] of _seen.entries()) {
+      if (expires <= now) _seen.delete(k);
+    }
+  }
+}
+
+function _alreadySeen(key) {
+  const expiresAt = _seen.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    _seen.delete(key);
+    return false;
+  }
+  return true;
+}
+
 // Helper — Egress's webhook payload reports `fileResult.location` as a
 // URL but on this Azure deployment the URL is built without the container
 // segment (account_name.blob.core.windows.net/{filepath} instead of
@@ -101,6 +143,18 @@ const processEgressEvent = async (payload) => {
   const egressInfo = payload.egressInfo || {};
   const egressId = egressInfo.egressId || payload.egressId || "";
   const roomName = egressInfo.roomName || payload.roomName || "";
+
+  // Dedup check — see _seen cache above. We key on (event, egressId,
+  // rawStatus) so two retried egress_ended events with the same status
+  // are coalesced, but a follow-up egress_updated still goes through.
+  const _dedupKey = _seenKey(event, egressId, String(egressInfo.status ?? ""));
+  if (_alreadySeen(_dedupKey)) {
+    console.log(
+      `[LiveKit webhook] dedup hit ${event} egress=${egressId} status=${egressInfo.status} — skipping`
+    );
+    return { recordingId: null, status: "deduped" };
+  }
+  _markSeen(_dedupKey);
   // LiveKit's webhook serialiser sends EgressStatus as either the enum
   // name string ("EGRESS_COMPLETE") or the protobuf enum integer (3).
   // Map both forms to a normalised lowercase string so isComplete /
@@ -155,12 +209,38 @@ const processEgressEvent = async (payload) => {
   const now = new Date();
 
   if (event === "egress_started") {
-    recording.livekitEgressId = egressId || recording.livekitEgressId;
-    recording.livekitEgressStatus = "recording";
-    recording.livekitEgressStartedAt =
-      recording.livekitEgressStartedAt || now;
-    recording.pipeline = "livekit";
-    await recording.save();
+    // Atomic: only the first concurrent egress_started ever writes the
+    // startedAt timestamp. Subsequent webhooks (retries) match the
+    // pre-set state and become no-ops at the DB layer. This prevents
+    // the startedAt timestamp from drifting on retry storms.
+    const updated = await Recording.findOneAndUpdate(
+      {
+        _id: recording._id,
+        // Idempotency guard: only first hit transitions out of any state
+        // that is NOT already "recording" (e.g., null, "pending", "starting").
+        livekitEgressStatus: { $ne: "recording" },
+      },
+      {
+        $set: {
+          livekitEgressId: egressId || recording.livekitEgressId,
+          livekitEgressStatus: "recording",
+          pipeline: "livekit",
+        },
+        $setOnInsert: {}, // no-op, but kept for clarity
+        $min: {
+          // First webhook wins on the earliest timestamp — if a faster
+          // retry beats us with a slightly later `now`, $min still
+          // preserves the earliest-known start time.
+          livekitEgressStartedAt: now,
+        },
+      },
+      { new: true }
+    );
+    if (!updated) {
+      console.log(
+        `[LiveKit webhook] egress_started no-op (already recording) rec=${recording._id} egress=${egressId}`
+      );
+    }
     return { recordingId: recording._id.toString(), status: "recording" };
   }
 
@@ -176,22 +256,29 @@ const processEgressEvent = async (payload) => {
     const isComplete = status === "egress_complete";
     const isFailed = !isComplete || !!errorReason;
 
-    recording.livekitEgressEndedAt = now;
-    recording.recordingEnd = recording.recordingEnd || now;
-    recording.pipeline = "livekit";
+    // Build the set of fields to write atomically below. We accumulate
+    // into a plain object so we can do exactly one findOneAndUpdate
+    // call at the end — replacing the old read-modify-save pattern
+    // that raced when LiveKit retried egress_ended.
+    const setFields = {
+      livekitEgressEndedAt: now,
+      pipeline: "livekit",
+    };
+    if (!recording.recordingEnd) {
+      setFields.recordingEnd = now;
+    }
 
     if (isFailed) {
-      recording.livekitEgressStatus = "failed";
-      recording.livekitEgressErrorReason = String(
-        errorReason || status || "unknown"
-      ).slice(0, 500);
-      recording.status = "failed";
-      recording.mergeStatus = "failed";
-      recording.mergeError = `LiveKit Egress: ${recording.livekitEgressErrorReason}`;
+      const errMsg = String(errorReason || status || "unknown").slice(0, 500);
+      setFields.livekitEgressStatus = "failed";
+      setFields.livekitEgressErrorReason = errMsg;
+      setFields.status = "failed";
+      setFields.mergeStatus = "failed";
+      setFields.mergeError = `LiveKit Egress: ${errMsg}`;
     } else {
-      recording.livekitEgressStatus = "available";
-      recording.status = "completed";
-      recording.mergeStatus = "ready";
+      setFields.livekitEgressStatus = "available";
+      setFields.status = "completed";
+      setFields.mergeStatus = "ready";
       // Egress wrote directly to Azure — these fields are the playback
       // source of truth. Both videoUrl and mergedVideoUrl are set so the
       // admin portal (which prefers mergedVideoUrl) and any legacy
@@ -232,14 +319,14 @@ const processEgressEvent = async (payload) => {
       }
       if (!fileLocation && filepath) fileLocation = filepath;
       if (fileLocation) {
-        recording.videoUrl = fileLocation;
-        recording.mergedVideoUrl = fileLocation;
+        setFields.videoUrl = fileLocation;
+        setFields.mergedVideoUrl = fileLocation;
       }
       if (fileResult.size) {
         const sz = Number(fileResult.size) || 0;
         if (sz > 0) {
-          recording.fileSize = sz;
-          recording.mergedFileSize = sz;
+          setFields.fileSize = sz;
+          setFields.mergedFileSize = sz;
         }
       }
       // Egress reports duration in NANOSECONDS (protobuf int64). Earlier
@@ -248,12 +335,40 @@ const processEgressEvent = async (payload) => {
       if (fileResult.duration) {
         const ns = Number(fileResult.duration) || 0;
         const secs = Math.max(0, Math.round(ns / 1_000_000_000));
-        if (secs > 0) recording.duration = secs;
+        if (secs > 0) setFields.duration = secs;
       }
-      recording.mergedAt = now;
+      setFields.mergedAt = now;
     }
 
-    await recording.save();
+    // Single atomic write. Precondition: only finalize if not already
+    // finalized. This prevents two concurrent egress_ended retries from
+    // both writing the terminal state; the second one matches zero
+    // documents and is a no-op (we still return success to LiveKit so
+    // it stops retrying).
+    const finalizeResult = await Recording.findOneAndUpdate(
+      {
+        _id: recording._id,
+        // Atomic guard: only first hit transitions out of "recording".
+        // "available" and "failed" are both terminal so this filter
+        // also ignores follow-up retries.
+        livekitEgressStatus: { $nin: ["available", "failed"] },
+      },
+      { $set: setFields },
+      { new: true }
+    );
+    if (!finalizeResult) {
+      console.log(
+        `[LiveKit webhook] egress_ended no-op (already finalized) rec=${recording._id} egress=${egressId}`
+      );
+      // Skip downstream side-effects too — they already ran for the
+      // first webhook in this race.
+      return {
+        recordingId: recording._id.toString(),
+        status: "already-finalized",
+      };
+    }
+    // Use the freshly-updated doc for downstream side-effects below.
+    recording = finalizeResult;
 
     // v3.3.20 — Faststart optimization.
     //
