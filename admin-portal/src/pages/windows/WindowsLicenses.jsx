@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
-  KeyRound, RefreshCw, Copy, Check, Plus, Filter, AlertTriangle,
+  KeyRound, RefreshCw, Copy, Check, Filter, AlertTriangle,
   CalendarPlus, Ban, Clock, CheckCircle2, XCircle, Search,
 } from "lucide-react";
 import { winLicenses } from "../../services/windowsApi";
@@ -22,7 +22,6 @@ export default function WindowsLicenses() {
   const [copiedKey, setCopiedKey] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [issueOpen, setIssueOpen] = useState(false);
   const [extendTarget, setExtendTarget] = useState(null);
 
   const fetchAll = useCallback(async () => {
@@ -113,22 +112,14 @@ export default function WindowsLicenses() {
             {stats.active} active · {stats.issued} unbound · ₹{stats.revenue.toLocaleString("en-IN")}/yr revenue
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIssueOpen(true)}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm flex items-center gap-2"
-          >
-            <Plus size={14} /> Issue license
-          </button>
-          <button
-            onClick={fetchAll}
-            disabled={refreshing}
-            className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
-          </button>
-        </div>
+        <button
+          onClick={fetchAll}
+          disabled={refreshing}
+          className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
+        </button>
       </div>
 
       {error && (
@@ -207,12 +198,6 @@ export default function WindowsLicenses() {
         </div>
       </div>
 
-      {issueOpen && (
-        <IssueLicenseModal
-          onClose={() => setIssueOpen(false)}
-          onIssued={() => { setIssueOpen(false); fetchAll(); }}
-        />
-      )}
       {extendTarget && (
         <ExtendLicenseModal
           lic={extendTarget}
@@ -332,122 +317,9 @@ function StatusBadge({ status }) {
   );
 }
 
-// ── Issue License modal ─────────────────────────────────
-
-function IssueLicenseModal({ onClose, onIssued }) {
-  const [form, setForm] = useState({
-    tier: "professional",
-    customerName: "",
-    customerEmail: "",
-    customerOrg: "",
-    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-    pricePerYearINR: 45000,
-    notes: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await winLicenses.issue({
-        ...form,
-        expiresAt: new Date(form.expiresAt).toISOString(),
-        pricePerYearINR: Number(form.pricePerYearINR) || 0,
-      });
-      onIssued();
-    } catch (err) {
-      alert("Failed to issue: " + err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal title="Issue new Windows license" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <FormRow label="Customer name" required>
-          <input
-            type="text"
-            value={form.customerName}
-            onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-            required
-            className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </FormRow>
-        <FormRow label="Customer email">
-          <input
-            type="email"
-            value={form.customerEmail}
-            onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
-            className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </FormRow>
-        <FormRow label="Customer organization">
-          <input
-            type="text"
-            value={form.customerOrg}
-            onChange={(e) => setForm({ ...form, customerOrg: e.target.value })}
-            className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </FormRow>
-        <div className="grid grid-cols-2 gap-3">
-          <FormRow label="Tier" required>
-            <select
-              value={form.tier}
-              onChange={(e) => setForm({ ...form, tier: e.target.value })}
-              required
-              className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-            >
-              <option value="professional">Professional</option>
-            </select>
-          </FormRow>
-          <FormRow label="Price / year (INR)">
-            <input
-              type="number"
-              value={form.pricePerYearINR}
-              onChange={(e) => setForm({ ...form, pricePerYearINR: e.target.value })}
-              className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-            />
-          </FormRow>
-        </div>
-        <FormRow label="Expires at" required>
-          <input
-            type="date"
-            value={form.expiresAt}
-            onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
-            required
-            className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </FormRow>
-        <FormRow label="Notes">
-          <textarea
-            rows={2}
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </FormRow>
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg"
-          >
-            {submitting ? "Issuing..." : "Issue license"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
+// Note: Issue License modal was removed (per product decision). Licenses
+// are pre-provisioned by ops via the backend API (POST /api/windows/licenses)
+// in bulk batches. Admin portal only surfaces list / extend / revoke.
 
 function ExtendLicenseModal({ lic, onClose, onExtended }) {
   const [newExpiresAt, setNewExpiresAt] = useState(() => {
