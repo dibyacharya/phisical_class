@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Cpu, RefreshCw, Search, Radio, AlertTriangle, FileText,
   Camera, Power, ChevronRight, Filter, Wifi, WifiOff, HardDrive,
-  Video, X, Monitor, MemoryStick,
+  Video, X, Monitor, MemoryStick, Trash2,
 } from "lucide-react";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
@@ -52,6 +52,27 @@ export default function WindowsDevices() {
       alert(`Command "${command}" queued.`);
     } catch (e) {
       alert(`Failed: ${e.message}`);
+    }
+  }
+
+  async function deleteDevice(d) {
+    const label = d.name || `Room ${d.roomNumber}`;
+    if (
+      !confirm(
+        `Delete "${label}" (${d.deviceId.substring(0, 18)}...) from the database?\n\n` +
+        `This DOES NOT uninstall the recorder on the device — the .exe stays running. ` +
+        `Next time the device heartbeats, it'll re-register automatically with the same ` +
+        `license key + room number (if first-run.json or appsettings.json is still present).\n\n` +
+        `To fully decommission a device: (1) Delete here, (2) Uninstall the recorder ` +
+        `via Settings → Apps on the device.\n\nContinue?`
+      )
+    ) return;
+    try {
+      await winDevices.deregister(d._id);
+      alert(`"${label}" deleted from the database.`);
+      load();
+    } catch (e) {
+      alert(`Failed to delete: ${e.message}`);
     }
   }
 
@@ -165,6 +186,7 @@ export default function WindowsDevices() {
                 })
               }
               onCommand={(cmd) => sendCommand(d.deviceId, cmd)}
+              onDelete={() => deleteDevice(d)}
             />
           ))}
         </div>
@@ -184,7 +206,7 @@ export default function WindowsDevices() {
   );
 }
 
-function DeviceCard({ d, onDetails, onWatchLive, onCommand }) {
+function DeviceCard({ d, onDetails, onWatchLive, onCommand, onDelete }) {
   const h = d.health || {};
   const live = h.liveWatch?.state;
   const disk = h.diskGovernor?.state;
@@ -294,6 +316,13 @@ function DeviceCard({ d, onDetails, onWatchLive, onCommand }) {
           title="Restart service"
         >
           <Power size={14} />
+        </button>
+        <button
+          onClick={onDelete}
+          className="p-1.5 hover:bg-red-50 rounded text-red-500 ml-auto"
+          title="Delete device from database"
+        >
+          <Trash2 size={14} />
         </button>
       </div>
     </div>
