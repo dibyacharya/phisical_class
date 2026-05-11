@@ -152,3 +152,43 @@ exports.extend = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+/**
+ * DELETE /api/windows/licenses/:key (admin)
+ *
+ * Hard-delete the license row. Distinct from /revoke (which leaves the
+ * row but flips status='revoked' so historical audit is preserved). Use
+ * delete only when ops needs to fully scrub a key from the system —
+ * typically when a license was provisioned by mistake or for a test
+ * environment that's being torn down.
+ *
+ * Safety: refuses to delete a license that is currently bound to an
+ * active device. Caller must deregister the device first.
+ */
+exports.remove = async (req, res) => {
+  try {
+    const WindowsDevice = require("../../models/windows/WindowsDevice");
+    const lic = await WindowsLicense.findOne({ licenseKey: req.params.key });
+    if (!lic) return res.status(404).json({ error: "License not found" });
+
+    // Bound to a still-registered device? Refuse — admin must
+    // deregister the device first so the device-side bootstrap
+    // doesn't try to validate against a deleted key on next heartbeat.
+    const boundDevice = await WindowsDevice.findOne({
+      licenseKey: lic.licenseKey,
+      isActive: true,
+    }).lean();
+    if (boundDevice) {
+      return res.status(409).json({
+        error:
+          `License is bound to active device ${boundDevice.deviceId} (Room ${boundDevice.roomNumber}). ` +
+          `Delete the device first (Windows → Devices → 🗑️), then retry.`,
+      });
+    }
+
+    await WindowsLicense.deleteOne({ licenseKey: req.params.key });
+    res.json({ message: "License deleted", licenseKey: req.params.key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

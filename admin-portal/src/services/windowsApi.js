@@ -66,6 +66,7 @@ export const winLicenses = {
     api(`/licenses/${key}/revoke`, { method: "POST", body: JSON.stringify({ reason }) }),
   extend: (key, newExpiresAt) =>
     api(`/licenses/${key}/extend`, { method: "PATCH", body: JSON.stringify({ newExpiresAt }) }),
+  remove: (key) => api(`/licenses/${key}`, { method: "DELETE" }),
 };
 
 // ── Diagnostics (v2.1.0) ───────────────────────────────────

@@ -44,6 +44,7 @@ router.get("/licenses", auth, adminOnly, licenseCtrl.list);
 router.get("/licenses/:key", auth, adminOnly, licenseCtrl.get);
 router.post("/licenses/:key/revoke", auth, adminOnly, licenseCtrl.revoke);
 router.patch("/licenses/:key/extend", auth, adminOnly, licenseCtrl.extend);
+router.delete("/licenses/:key", auth, adminOnly, licenseCtrl.remove);
 
 // Public (called by Windows installer to validate before activation)
 router.get("/licenses/:key/validate", licenseCtrl.validate);

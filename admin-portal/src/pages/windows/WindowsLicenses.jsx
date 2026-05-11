@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   KeyRound, RefreshCw, Copy, Check, Filter, AlertTriangle,
-  CalendarPlus, Ban, Clock, CheckCircle2, XCircle, Search,
+  CalendarPlus, Ban, Clock, CheckCircle2, XCircle, Search, Trash2,
 } from "lucide-react";
 import { winLicenses } from "../../services/windowsApi";
 
@@ -47,6 +47,25 @@ export default function WindowsLicenses() {
       await winLicenses.revoke(key, reason);
       fetchAll();
     } catch (e) { alert(e.message); }
+  }
+
+  async function remove(lic) {
+    if (
+      !confirm(
+        `Permanently DELETE ${lic.licenseKey} from the database?\n\n` +
+        `This is irreversible. Audit trail will be lost. Prefer Revoke ` +
+        `for any case where you may want to investigate misuse later.\n\n` +
+        `Backend refuses to delete a license currently bound to an active ` +
+        `device — deregister the device first (Windows → Devices → 🗑️).\n\n` +
+        `Continue?`
+      )
+    ) return;
+    try {
+      await winLicenses.remove(lic.licenseKey);
+      fetchAll();
+    } catch (e) {
+      alert("Failed to delete: " + e.message);
+    }
   }
 
   async function copyKey(key) {
@@ -181,6 +200,7 @@ export default function WindowsLicenses() {
                   onCopy={copyKey}
                   onRevoke={revoke}
                   onExtend={setExtendTarget}
+                  onDelete={remove}
                   copiedKey={copiedKey}
                 />
               ))}
@@ -209,7 +229,7 @@ export default function WindowsLicenses() {
   );
 }
 
-function LicenseRow({ lic, onCopy, onRevoke, onExtend, copiedKey }) {
+function LicenseRow({ lic, onCopy, onRevoke, onExtend, onDelete, copiedKey }) {
   const isCopied = copiedKey === lic.licenseKey;
   const isRevoked = lic.status === "revoked";
   const isExpired = lic.status === "expired";
@@ -275,7 +295,7 @@ function LicenseRow({ lic, onCopy, onRevoke, onExtend, copiedKey }) {
         ₹{lic.pricePerYearINR?.toLocaleString("en-IN") || "—"}
       </td>
       <td className="py-2 px-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {!isRevoked && (
             <>
               <button
@@ -287,13 +307,20 @@ function LicenseRow({ lic, onCopy, onRevoke, onExtend, copiedKey }) {
               </button>
               <button
                 onClick={() => onRevoke(lic.licenseKey)}
-                className="text-xs text-red-600 hover:underline flex items-center gap-1"
-                title="Revoke license"
+                className="text-xs text-amber-600 hover:underline flex items-center gap-1"
+                title="Revoke license (status flips to 'revoked', row preserved for audit)"
               >
                 <Ban size={12} /> Revoke
               </button>
             </>
           )}
+          <button
+            onClick={() => onDelete(lic)}
+            className="text-xs text-red-600 hover:underline flex items-center gap-1"
+            title="Permanently delete from database (audit trail lost)"
+          >
+            <Trash2 size={12} /> Delete
+          </button>
         </div>
       </td>
     </tr>
