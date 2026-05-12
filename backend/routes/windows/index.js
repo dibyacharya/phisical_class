@@ -33,6 +33,7 @@ router.get("/devices/:id/commands", auth, adminOnly, deviceCtrl.listCommands);
 // Admin
 router.get("/recordings", auth, adminOnly, recordingCtrl.list);
 router.get("/recordings/:id", auth, adminOnly, recordingCtrl.get);
+router.delete("/recordings/:id", auth, adminOnly, recordingCtrl.remove);
 router.post("/recordings/:id/admin-set-merged", auth, adminOnly, recordingCtrl.setMerged);
 
 // Device

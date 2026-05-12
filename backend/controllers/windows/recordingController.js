@@ -180,6 +180,31 @@ exports.finalize = async (req, res) => {
 };
 
 /**
+ * DELETE /api/windows/recordings/:id   (admin)
+ *
+ * Hard-deletes a recording row. Used to prune stuck `merging` / `recording`
+ * entries left over from pre-v2.2.0 failed uploads — the recording Mongo
+ * doc lingers because the device never sent a finalize call. The blob in
+ * Cloudflare R2 (if any was uploaded) is NOT touched by this — admin can
+ * tidy R2 separately if they want; for the merging-stuck rows there's
+ * usually nothing in R2 anyway.
+ *
+ * Why not soft-delete: the admin portal lists everything not-soft-deleted
+ * already, so a soft-delete column would just need another query. For
+ * the cleanup use-case a hard delete is fine; if we later want a
+ * "recently deleted" view we'll add it.
+ */
+exports.remove = async (req, res) => {
+  try {
+    const rec = await WindowsRecording.findByIdAndDelete(req.params.id);
+    if (!rec) return res.status(404).json({ error: "Recording not found" });
+    res.json({ message: "Deleted", _id: rec._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * POST /api/windows/recordings/:id/admin-set-merged
  * Admin endpoint to manually set mergedVideoUrl (for use until ffmpeg merge worker exists)
  */
