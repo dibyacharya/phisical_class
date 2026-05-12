@@ -1,0 +1,70 @@
+name: Backend tests
+
+# Run on every push + PR that touches the backend. Skip if a commit
+# only changes admin-portal/, docs/, or the Windows installer workflow
+# so we don't burn CI minutes on UI-only changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-tests.yml'
+  # Manual trigger from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  jest:
+    name: Jest test suite (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Match Railway runtime (Node 18) — and one newer LTS so we catch
+        # regressions when we upgrade.
+        node: [18, 20]
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # mongodb-memory-server downloads a Mongo binary on first run; cache it
+      # so subsequent CI runs don't re-download (saves ~30s).
+      - name: Cache mongodb-memory-server binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-bin-${{ runner.os }}-v1
+
+      - name: Run Jest test suite
+        env:
+          NODE_ENV: test
+        run: npm test
+
+      # Surface a clean summary line in the Actions UI even when the
+      # full Jest output is verbose.
+      - name: Test summary
+        if: always()
+        run: |
+          echo "### Backend Jest results" >> "$GITHUB_STEP_SUMMARY"
+          echo "Node version: ${{ matrix.node }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
