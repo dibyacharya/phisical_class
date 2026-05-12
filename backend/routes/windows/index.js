@@ -15,7 +15,10 @@ router.post("/devices/register", deviceCtrl.register);
 
 // Device-authenticated (called by Windows app)
 router.post("/devices/:deviceId/heartbeat", windowsDeviceAuth, deviceCtrl.heartbeat);
+// v2.1.x legacy — Azure connection string
 router.get("/devices/blob-config", windowsDeviceAuth, deviceCtrl.blobConfig);
+// v2.2.0+ — Cloudflare R2 S3-compatible credentials
+router.get("/devices/r2-config", windowsDeviceAuth, deviceCtrl.r2Config);
 
 // Admin-authenticated
 router.get("/devices", auth, adminOnly, deviceCtrl.list);
@@ -59,6 +62,10 @@ router.get("/app/download", appUpdateCtrl.download); // public — used by self-
 // Device uploads (logs zip, screenshot jpeg) — windowsDeviceAuth gates
 // who can write under which deviceId.
 router.post("/diagnostics/:kind", windowsDeviceAuth, diagnosticsCtrl.uploadArtifact);
+// Admin: probe the live Azure config (no secrets returned, only operation results).
+// Used to verify v2.1.3 BlobUploader fix before pushing a full OTA: confirms
+// upload works against the existing container WITHOUT CreateIfNotExists.
+router.get("/diagnostics/azure-probe", auth, adminOnly, diagnosticsCtrl.azureProbe);
 // Admin: list recent diagnostics for a device + fetch one by id.
 router.get("/diagnostics/device/:deviceId", auth, adminOnly, diagnosticsCtrl.listForDevice);
 router.get("/diagnostics/file/:id", auth, adminOnly, diagnosticsCtrl.fetchById);

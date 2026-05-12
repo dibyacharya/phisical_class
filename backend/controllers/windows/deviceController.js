@@ -309,22 +309,19 @@ exports.heartbeat = async (req, res) => {
 
 /**
  * GET /api/windows/devices/blob-config
- * Device-authenticated. Returns Azure Blob credentials so the device can
- * upload chunks + merged recordings directly. Backend env owns the secret;
- * the device receives the connection string at runtime (no hardcoding in
- * the .exe). Service caches in memory + re-fetches on each service start.
  *
- * Tradeoff: every authenticated device sees the full connection string. For
- * pilot/school deployments where devices are physically secured this is OK.
- * Production hardening (v2.x): switch to short-lived SAS tokens scoped to
- * each device's recording prefix.
+ * v2.2.0 — DEPRECATED for new devices. Kept for back-compat with v2.1.x and
+ * earlier devices still in the field that fetch Azure config at startup.
+ * Returns Azure connection details ONLY if AZURE_STORAGE_CONNECTION_STRING
+ * env is set; otherwise returns 503 so the device can transparently fall
+ * back to the /r2-config endpoint introduced in v2.2.0.
  */
 exports.blobConfig = async (_req, res) => {
   try {
     const cs = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
     if (!cs) {
       return res.status(503).json({
-        error: "Azure Blob not configured on backend (AZURE_STORAGE_CONNECTION_STRING env missing)",
+        error: "Azure Blob not configured on backend (use /r2-config for v2.2.0+)",
       });
     }
     const container = process.env.AZURE_STORAGE_CONTAINER || "lms-storage";
@@ -337,6 +334,57 @@ exports.blobConfig = async (_req, res) => {
     });
   } catch (err) {
     console.error("[Windows/blobConfig] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * GET /api/windows/devices/r2-config
+ *
+ * v2.2.0 — Cloudflare R2 (S3-compatible) credentials for device-side upload.
+ * The device uses the AWSSDK.S3 NuGet package pointing at R2 endpoint —
+ * exact same code pattern as Azure (PutObject is the only call we make);
+ * the difference is the auth + endpoint, not the API surface.
+ *
+ * Why R2 over Azure: Cloudflare R2 has zero egress fees, 10 GB free tier,
+ * and (most importantly) the upload-only credentials we use here don't
+ * need any container-management permissions — the v2.1.2 BlobUploader
+ * issue where Azure's CreateIfNotExists kept throwing 404 and silently
+ * killing every upload is structurally impossible here because the
+ * bucket is provisioned out of band and we only ever PutObject.
+ *
+ * Returned fields go straight into device-side RuntimeConfig at startup.
+ */
+exports.r2Config = async (_req, res) => {
+  try {
+    const accountId       = process.env.R2_ACCOUNT_ID || "";
+    const accessKeyId     = process.env.R2_ACCESS_KEY_ID || "";
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || "";
+    const bucket          = process.env.R2_BUCKET || "";
+    const publicUrl       = process.env.R2_PUBLIC_URL || "";
+    const endpoint        = process.env.R2_ENDPOINT ||
+      (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+
+    if (!accessKeyId || !secretAccessKey || !bucket || !endpoint) {
+      return res.status(503).json({
+        error: "R2 not configured on backend (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_ENDPOINT or R2_ACCOUNT_ID required)",
+        present: { accessKeyId: !!accessKeyId, secretAccessKey: !!secretAccessKey, bucket: !!bucket, endpoint: !!endpoint, publicUrl: !!publicUrl },
+      });
+    }
+
+    res.json({
+      accountId,
+      accessKeyId,
+      secretAccessKey,
+      bucket,
+      endpoint,
+      publicUrl,
+      // Device prefixes blobs as <pathPrefix>/<yyyy-MM-dd>/<room>/<recordingId>/final.mp4
+      // so the storage layout mirrors what Android had on Azure (easier to audit).
+      pathPrefix: process.env.R2_PATH_PREFIX || "physical-class-recordings",
+    });
+  } catch (err) {
+    console.error("[Windows/r2Config] Error:", err);
     res.status(500).json({ error: err.message });
   }
 };

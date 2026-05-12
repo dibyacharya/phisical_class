@@ -52,7 +52,20 @@ const windowsRecordingSchema = new mongoose.Schema(
     ],
 
     // Final merged file
-    mergedVideoUrl: String,
+    //
+    // v2.2.0 — Migrated from Azure Blob to Cloudflare R2:
+    //   - r2ObjectKey   : the bucket-relative path the device uploaded to
+    //   - r2PublicUrl   : full https URL (pub-<hash>.r2.dev/<key>) the
+    //                     admin portal player streams from directly
+    //   - r2Bucket      : bucket name (so future migrations to other
+    //                     buckets / regions don't break old rows)
+    //   - mergedVideoUrl: KEPT for back-compat with the v2.1.x Azure-era
+    //                     rows. Player chooses r2PublicUrl when present,
+    //                     falls back to mergedVideoUrl otherwise.
+    r2ObjectKey: String,
+    r2PublicUrl: String,
+    r2Bucket: String,
+    mergedVideoUrl: String,         // legacy Azure URL (deprecated; nullable)
     mergedFileSize: { type: Number, default: 0 },
     mergeStatus: {
       type: String,

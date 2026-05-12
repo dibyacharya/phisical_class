@@ -126,9 +126,29 @@ exports.finalize = async (req, res) => {
     rec.recordingEnd = req.body.recordingEnd ? new Date(req.body.recordingEnd) : new Date();
     rec.duration = req.body.duration || Math.floor((rec.recordingEnd - rec.recordingStart) / 1000);
 
-    // v2.0.4: device-side post-process — if the device has already merged + uploaded
-    // the final file, accept the URL here and mark fully complete.
-    if (req.body.mergedVideoUrl) {
+    // v2.2.0 — Cloudflare R2 upload path. Device uploads final.mp4 to R2 and
+    // sends back the bucket + object key + already-rendered public URL. We
+    // mirror the URL into the legacy mergedVideoUrl field so existing admin
+    // portal UI code that reads mergedVideoUrl still works without changes.
+    //
+    // v2.0.4 (legacy Azure path) still accepted: if the device sends only
+    // mergedVideoUrl (no r2*), we fall through to the original behaviour so
+    // pre-v2.2.0 fleet in the field continues to work during rollout.
+    if (req.body.r2ObjectKey && req.body.r2PublicUrl) {
+      rec.r2ObjectKey = req.body.r2ObjectKey;
+      rec.r2PublicUrl = req.body.r2PublicUrl;
+      rec.r2Bucket   = req.body.r2Bucket || "";
+      rec.mergedVideoUrl = req.body.r2PublicUrl;     // mirror for back-compat readers
+      if (req.body.mergedFileSize) {
+        rec.mergedFileSize = req.body.mergedFileSize;
+        rec.fileSize = req.body.mergedFileSize;
+      }
+      rec.mergeStatus = "ready";
+      rec.mergedAt = new Date();
+      rec.status = "completed";
+      rec.isPublished = true;
+    } else if (req.body.mergedVideoUrl) {
+      // legacy Azure path
       rec.mergedVideoUrl = req.body.mergedVideoUrl;
       if (req.body.mergedFileSize) {
         rec.mergedFileSize = req.body.mergedFileSize;
@@ -139,7 +159,7 @@ exports.finalize = async (req, res) => {
       rec.status = "completed";
       rec.isPublished = true;
     } else {
-      // Legacy path: device only did capture, server will merge
+      // capture-only — server will merge (rarely used in practice)
       rec.status = "merging";
       rec.mergeStatus = "pending";
     }
