@@ -1,9 +1,27 @@
+const mongoose = require("mongoose");
 const WindowsDevice = require("../../models/windows/WindowsDevice");
 const WindowsDeviceCommand = require("../../models/windows/WindowsDeviceCommand");
 const WindowsLicense = require("../../models/windows/WindowsLicense");
 const ScheduledClass = require("../../models/ScheduledClass");
 const WindowsRecording = require("../../models/windows/WindowsRecording");
 const WindowsAppVersion = require("../../models/windows/WindowsAppVersion");
+
+/**
+ * Build the $or clauses for looking up a WindowsDevice by either its Mongo
+ * _id (24-char hex ObjectId) or its human-readable deviceId (e.g.
+ * "win_057d6f2f90b16806"). The admin portal's device cards pass `deviceId`
+ * — including a raw `{ _id: "win_..." }` clause used to throw a Mongoose 8
+ * strict CastError, surfacing as HTTP 500 on every admin command button
+ * (stop_recording, pull_logs, capture_screenshot, restart_service, delete).
+ *
+ * Always include the deviceId branch; add the _id branch only when the param
+ * actually parses as an ObjectId.
+ */
+function deviceLookupOr(id) {
+  const clauses = [{ deviceId: id }];
+  if (mongoose.Types.ObjectId.isValid(id)) clauses.push({ _id: id });
+  return clauses;
+}
 
 /**
  * POST /api/windows/devices/register
@@ -360,7 +378,7 @@ exports.list = async (_req, res) => {
 exports.get = async (req, res) => {
   try {
     const device = await WindowsDevice.findOne({
-      $or: [{ _id: req.params.id }, { deviceId: req.params.id }],
+      $or: deviceLookupOr(req.params.id),
     });
     if (!device) return res.status(404).json({ error: "Device not found" });
     res.json(device);
@@ -379,7 +397,7 @@ exports.issueCommand = async (req, res) => {
     if (!command) return res.status(400).json({ error: "command is required" });
 
     const device = await WindowsDevice.findOne({
-      $or: [{ _id: req.params.id }, { deviceId: req.params.id }],
+      $or: deviceLookupOr(req.params.id),
     });
     if (!device) return res.status(404).json({ error: "Device not found" });
 
@@ -402,7 +420,7 @@ exports.issueCommand = async (req, res) => {
 exports.listCommands = async (req, res) => {
   try {
     const device = await WindowsDevice.findOne({
-      $or: [{ _id: req.params.id }, { deviceId: req.params.id }],
+      $or: deviceLookupOr(req.params.id),
     });
     if (!device) return res.status(404).json({ error: "Device not found" });
 
@@ -422,7 +440,7 @@ exports.listCommands = async (req, res) => {
 exports.deregister = async (req, res) => {
   try {
     const device = await WindowsDevice.findOneAndUpdate(
-      { $or: [{ _id: req.params.id }, { deviceId: req.params.id }] },
+      { $or: deviceLookupOr(req.params.id) },
       { isActive: false },
       { new: true }
     );
