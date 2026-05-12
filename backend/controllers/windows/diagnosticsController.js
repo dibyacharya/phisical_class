@@ -198,3 +198,102 @@ exports.fetchById = async (req, res) => {
     return res.status(500).json({ error: "internal error", detail: err.message });
   }
 };
+
+/**
+ * GET /api/windows/diagnostics/azure-probe   (admin)
+ *
+ * Verifies the EXACT Azure config that the Windows device-side BlobUploader
+ * sees, by running each operation independently and reporting the outcome.
+ * Used to validate the v2.1.3 BlobUploader fix before pushing a full OTA:
+ *
+ *   1. getProperties  — does the container exist + are we authorized to
+ *                       read its metadata?
+ *   2. uploadBlob     — can we PUT a tiny test blob (the only operation
+ *                       v2.1.3 actually needs)?
+ *   3. createIfNotExists — what does the failing call return? This is the
+ *                       call the v2.1.2 BlobUploader makes and that
+ *                       throws 404 ResourceNotFound on the device.
+ *
+ * No secrets are returned — only operation status + Azure error codes.
+ *
+ * This endpoint is purposely admin-only because it exposes details about
+ * the storage account state.
+ */
+exports.azureProbe = async (_req, res) => {
+  const conn = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+  const containerName = process.env.AZURE_STORAGE_CONTAINER || "lms-storage";
+  if (!conn) {
+    return res.status(503).json({ error: "AZURE_STORAGE_CONNECTION_STRING not set" });
+  }
+
+  // Parse account name only (NEVER return the key)
+  const accountMatch = conn.match(/AccountName=([^;]+)/);
+  const accountName = accountMatch ? accountMatch[1] : "unknown";
+
+  const result = { containerName, accountName, ops: {} };
+
+  const svc = BlobServiceClient.fromConnectionString(conn);
+  const container = svc.getContainerClient(containerName);
+
+  // Op 1: getProperties (HEAD on container)
+  try {
+    const props = await container.getProperties();
+    result.ops.getProperties = {
+      ok: true,
+      lastModified: props.lastModified,
+      etag: props.etag,
+      publicAccess: props.blobPublicAccess || "private",
+    };
+  } catch (e) {
+    result.ops.getProperties = {
+      ok: false,
+      statusCode: e.statusCode,
+      errorCode: e.code || e.details?.errorCode,
+      message: (e.message || "").substring(0, 300),
+    };
+  }
+
+  // Op 2: uploadBlob — tiny test blob
+  const testPath = `_azure-probe/${Date.now()}-${Math.random().toString(36).slice(2,8)}.txt`;
+  try {
+    const blockBlob = container.getBlockBlobClient(testPath);
+    const buf = Buffer.from("ping");
+    await blockBlob.uploadData(buf, { blobHTTPHeaders: { blobContentType: "text/plain" } });
+    result.ops.uploadBlob = {
+      ok: true,
+      blobPath: testPath,
+      blobUrl: blockBlob.url,
+    };
+    // Cleanup — best-effort
+    try { await blockBlob.delete(); result.ops.uploadBlob.deletedAfter = true; }
+    catch (delE) { result.ops.uploadBlob.deletedAfter = false; result.ops.uploadBlob.delErr = (delE.message||"").substring(0,150); }
+  } catch (e) {
+    result.ops.uploadBlob = {
+      ok: false,
+      statusCode: e.statusCode,
+      errorCode: e.code || e.details?.errorCode,
+      message: (e.message || "").substring(0, 300),
+    };
+  }
+
+  // Op 3: createIfNotExists — the failing call on the device
+  try {
+    const cr = await container.createIfNotExists();
+    // succeeded: cr.succeeded indicates whether the container was actually
+    // created or already existed; either way the call returned 2xx.
+    result.ops.createIfNotExists = {
+      ok: true,
+      succeeded: cr.succeeded,
+      statusCode: cr._response?.status,
+    };
+  } catch (e) {
+    result.ops.createIfNotExists = {
+      ok: false,
+      statusCode: e.statusCode,
+      errorCode: e.code || e.details?.errorCode,
+      message: (e.message || "").substring(0, 300),
+    };
+  }
+
+  return res.json(result);
+};
