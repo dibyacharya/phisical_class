@@ -79,16 +79,27 @@ export default function Layout({ user, onLogout, children }) {
 
   const [expanded, setExpanded] = useState(() => {
     const persisted = readPersisted() || {};
-    // v4.2 — Only the active section is expanded by default. If the user
-    // has manually toggled a section before, that persisted choice always
-    // wins (`?? fallback` only kicks in for `undefined`). On a fresh
-    // visit (empty localStorage), landing on /windows/* collapses the
-    // Android group and vice-versa, so users don't see two simultaneously
-    // open groups they didn't ask for.
     const onWindowsAtMount = window.location.pathname.startsWith("/windows");
+    // v4.3 — Active section is forced open on the VERY FIRST paint, not in
+    // a follow-up useEffect. Previously the URL-driven force-expand lived
+    // in a useEffect that ran after first render, so users with a stale
+    // {android:true, windows:false} in localStorage would briefly see
+    // Android open + Windows closed before the effect corrected it — a
+    // visible flash on every refresh.
+    //
+    // The inactive section still respects user persistence. Empty
+    // localStorage defaults the inactive section closed (the v4.2 fix).
     return {
-      android: persisted.android ?? !onWindowsAtMount,
-      windows: persisted.windows ?? onWindowsAtMount,
+      android: onWindowsAtMount
+        // On Windows page: respect persistence for Android, default closed.
+        ? (persisted.android ?? false)
+        // On Android page: force open from frame 1 — no flash.
+        : true,
+      windows: onWindowsAtMount
+        // On Windows page: force open from frame 1.
+        ? true
+        // On Android page: respect persistence for Windows, default closed.
+        : (persisted.windows ?? false),
     };
   });
 
