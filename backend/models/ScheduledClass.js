@@ -18,6 +18,19 @@ const scheduledClassSchema = new mongoose.Schema(
       enum: ["scheduled", "live", "completed", "cancelled"],
       default: "scheduled",
     },
+    // Platform routing — which recorder type should pick up this class.
+    //   "windows" → only the Windows Mini PC in this room polls + records.
+    //   "android" → only the Android TV ClassroomRecorder polls + records.
+    //   "any"     → either device claims it (legacy behaviour, first-heartbeat wins).
+    // Created via /windows/booking → "windows". Created via Android Booking → "android".
+    // Bulk-create / programmatic / pre-migration rows that never set this default to "any".
+    // Rows whose field is absent are treated as "any" by the device-side filters via $or { $exists: false }.
+    assignedPlatform: {
+      type: String,
+      enum: ["android", "windows", "any"],
+      default: "any",
+      index: true,
+    },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_User" },
   },
   { timestamps: true }

@@ -270,6 +270,11 @@ export default function Booking() {
         date:       sel.date,
         startTime:  sel.startTime,
         endTime:    sel.endTime,
+        // Pin to Android recorder — the Windows Mini PC in the same room
+        // (if any) will NOT see this class on its next heartbeat and won't
+        // start recording. Pre-platform-routing this page implicitly assumed
+        // Android-only fleets; explicit pin preserves that intent.
+        assignedPlatform: "android",
       });
       setBookSuccess(true);
       if (activeTab === "all") loadClasses();
@@ -352,7 +357,9 @@ export default function Booking() {
     if (!validRows.length) return;
     setImportLoad(true);
     try {
-      const { data } = await api.post("/classes/bulk-create", { rows: validRows });
+      // Android Booking → pin every row to Android recorder. Mirror of the
+      // Windows page's bulk import — keeps the two fleets cleanly separated.
+      const { data } = await api.post("/classes/bulk-create", { rows: validRows, assignedPlatform: "android" });
       setImportResult(data);
     } catch (err) { alert(err.response?.data?.error || "Import failed"); }
     finally { setImportLoad(false); }

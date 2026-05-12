@@ -560,10 +560,22 @@ exports.heartbeat = async (req, res) => {
 
     const roomNumber = device.roomNumber || device.roomId;
 
+    // Platform routing — Android TV only sees classes explicitly assigned to
+    // "android" OR open-routed as "any". Classes assigned to "windows" are
+    // hidden so the TV's ClassroomRecorder doesn't wake up + steal the HDMI
+    // input from a Windows Mini PC that's about to record.
+    //
+    // The $exists:false branch covers legacy rows created before this field
+    // existed — those are treated as "any" so existing Android-only fleets
+    // (e.g. the v3.5.1 pilot in Room 006) continue to work unchanged.
     const classes = await ScheduledClass.find({
       roomNumber,
       date: { $gte: today, $lt: tomorrow },
       status: { $ne: "cancelled" },
+      $or: [
+        { assignedPlatform: { $in: ["android", "any"] } },
+        { assignedPlatform: { $exists: false } },
+      ],
     }).sort({ startTime: 1 });
 
     // Check which classes already have recordings

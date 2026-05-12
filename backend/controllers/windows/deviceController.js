@@ -137,10 +137,22 @@ exports.heartbeat = async (req, res) => {
     const windowEnd = new Date(Date.now() + 2 * oneDayMs);
     windowEnd.setHours(0, 0, 0, 0);
 
+    // Platform routing — Windows device only sees classes explicitly assigned
+    // to "windows" OR open-routed as "any". Classes assigned to "android" are
+    // hidden so the Mini PC doesn't try to record them (and so a parallel
+    // Android TV in the same room can claim them without a race).
+    //
+    // The $exists:false branch covers legacy rows created before this field
+    // existed — those are treated as "any" so we don't break pre-migration
+    // schedules in production.
     const classes = await ScheduledClass.find({
       roomNumber: device.roomNumber,
       date: { $gte: windowStart, $lt: windowEnd },
       status: { $ne: "cancelled" },
+      $or: [
+        { assignedPlatform: { $in: ["windows", "any"] } },
+        { assignedPlatform: { $exists: false } },
+      ],
     }).sort({ date: 1, startTime: 1 });
 
     const classIds = classes.map((c) => c._id);

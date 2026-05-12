@@ -250,9 +250,13 @@ function ScheduleTab({ windowsRooms }) {
         date: new Date(form.date).toISOString(),
         startTime: form.startTime,
         endTime: form.endTime,
+        // Pin to Windows recorder — the Android TV ClassroomRecorder in the
+        // same room (if any) will NOT see this class on its next heartbeat
+        // and therefore won't wake the screen / steal HDMI input.
+        assignedPlatform: "windows",
       });
       setSuccess(
-        `Class "${form.title}" scheduled in Room ${form.roomNumber}. Device picks it up on next heartbeat (within 30s).`
+        `Class "${form.title}" scheduled in Room ${form.roomNumber} on Windows recorder. Device picks it up on next heartbeat (within 30s).`
       );
       setForm((f) => ({ ...f, title: "" }));
       // refresh day schedule
@@ -831,7 +835,10 @@ function UploadTab({ windowsRooms }) {
     setImporting(true);
     setResult(null);
     try {
-      const { data } = await api.post("/classes/bulk-create", { rows: validRows });
+      // Whole CSV import from Windows Booking → pin every row to Windows recorder.
+      // Backend's bulk-create reads req.body.assignedPlatform as the default for
+      // rows that don't carry the field themselves (see classController bulk path).
+      const { data } = await api.post("/classes/bulk-create", { rows: validRows, assignedPlatform: "windows" });
       setResult(data);
     } catch (e) {
       alert(`Import failed: ${e.response?.data?.error || e.message}`);

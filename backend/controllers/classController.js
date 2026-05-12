@@ -39,6 +39,14 @@ exports.create = async (req, res) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
+    // Platform routing — admin portal sends "windows" / "android" / "any" so the
+    // device heartbeat filter can decide whether to surface this class to the
+    // Windows Mini PC, the Android TV, or both. Missing → "any" (legacy behaviour).
+    const validPlatforms = ["android", "windows", "any"];
+    const assignedPlatform = validPlatforms.includes(req.body.assignedPlatform)
+      ? req.body.assignedPlatform
+      : "any";
+
     // v3.1.10: align validation with the bulk-create path so single-create
     // isn't a back door for malformed bookings. Previously this endpoint
     // skipped format / overlap / course-teacher-existence checks — a bad
@@ -126,6 +134,7 @@ exports.create = async (req, res) => {
       date: parsedDate,
       startTime,
       endTime,
+      assignedPlatform,
       createdBy: req.user._id,
     });
 
@@ -149,7 +158,7 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     // Whitelist updatable fields to prevent mass assignment
-    const allowed = ["title", "course", "teacher", "roomNumber", "date", "startTime", "endTime", "status"];
+    const allowed = ["title", "course", "teacher", "roomNumber", "date", "startTime", "endTime", "status", "assignedPlatform"];
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -491,6 +500,14 @@ exports.bulkCreate = async (req, res) => {
         if (!courseDoc) throw new Error(`Course not found: "${row.courseCode || row.courseName}"`);
         if (!teacherDoc) throw new Error(`Teacher not found: "${row.teacherName}"`);
 
+        // Bulk-create accepts an optional row.assignedPlatform (CSV column) — falls
+        // back to req.body.assignedPlatform (when whole bulk batch is platform-tagged
+        // by the calling page) and finally to "any".
+        const validPlatforms = ["android", "windows", "any"];
+        const rowPlatform = validPlatforms.includes(row.assignedPlatform)
+          ? row.assignedPlatform
+          : (validPlatforms.includes(req.body.assignedPlatform) ? req.body.assignedPlatform : "any");
+
         const cls = await ScheduledClass.create({
           title:      row.title.trim(),
           course:     courseDoc._id,
@@ -503,6 +520,7 @@ exports.bulkCreate = async (req, res) => {
           startTime:  row.startTime,
           endTime:    row.endTime,
           status:     "scheduled",
+          assignedPlatform: rowPlatform,
           createdBy:  req.user._id,
         });
 
