@@ -55,17 +55,11 @@ const windowsNavItems = [
   { to: "/windows/app-update", label: "App Update", icon: Download },
 ];
 
-const STORAGE_KEY = "ll_sidebar_expanded_v1";
-
-function readPersisted() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+// v4.4 — STORAGE_KEY / readPersisted intentionally removed. The sidebar
+// group state is now URL-derived; we don't persist user toggles across
+// page loads anymore (see comment on `expanded` below for rationale).
+// Old `ll_sidebar_expanded_v1` values in localStorage are simply ignored
+// — harmless to leave behind and not worth a migration cleanup.
 
 export default function Layout({ user, onLogout, children }) {
   const [profileOpen, setProfileOpen] = useState(false);
@@ -77,45 +71,34 @@ export default function Layout({ user, onLogout, children }) {
   // visits so users can keep their preferred layout.
   const onWindows = location.pathname.startsWith("/windows");
 
-  const [expanded, setExpanded] = useState(() => {
-    const persisted = readPersisted() || {};
-    const onWindowsAtMount = window.location.pathname.startsWith("/windows");
-    // v4.3 — Active section is forced open on the VERY FIRST paint, not in
-    // a follow-up useEffect. Previously the URL-driven force-expand lived
-    // in a useEffect that ran after first render, so users with a stale
-    // {android:true, windows:false} in localStorage would briefly see
-    // Android open + Windows closed before the effect corrected it — a
-    // visible flash on every refresh.
-    //
-    // The inactive section still respects user persistence. Empty
-    // localStorage defaults the inactive section closed (the v4.2 fix).
-    return {
-      android: onWindowsAtMount
-        // On Windows page: respect persistence for Android, default closed.
-        ? (persisted.android ?? false)
-        // On Android page: force open from frame 1 — no flash.
-        : true,
-      windows: onWindowsAtMount
-        // On Windows page: force open from frame 1.
-        ? true
-        // On Android page: respect persistence for Windows, default closed.
-        : (persisted.windows ?? false),
-    };
-  });
+  // v4.4 — Sidebar groups now follow the URL strictly: the section
+  // containing the current page is expanded, the other is collapsed. This
+  // replaces the persistence-driven model from v4.1-4.3 which had two
+  // failure modes the user reported:
+  //
+  //   1. Stale localStorage like {android:true, windows:false} caused a
+  //      visible flash where Android opened + Windows closed for one
+  //      frame before the URL-effect corrected it.
+  //
+  //   2. Even after the v4.3 first-paint fix, a previously-set
+  //      Android:true value would persist across navigation to a Windows
+  //      page, leaving the user with both sections open when they only
+  //      wanted Windows.
+  //
+  // The new model: state is derived from the URL on every render. Manual
+  // toggles still work (so a power user can temporarily open the other
+  // section to navigate cross-section) but are session-scoped — clicking
+  // any link recomputes from the URL. No localStorage involvement, no
+  // flash, no stale-state surprises.
+  const [expanded, setExpanded] = useState(() => ({
+    android: !onWindows,
+    windows: onWindows,
+  }));
 
   useEffect(() => {
-    // Auto-expand whichever section the current page belongs to so the
-    // active link is never hidden inside a collapsed group.
-    setExpanded((prev) => {
-      if (onWindows && !prev.windows) return { ...prev, windows: true };
-      if (!onWindows && !prev.android) return { ...prev, android: true };
-      return prev;
-    });
+    // URL changed (in-app navigation) — snap back to the URL-derived state.
+    setExpanded({ android: !onWindows, windows: onWindows });
   }, [onWindows]);
-
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded)); } catch { /* quota / private mode */ }
-  }, [expanded]);
 
   function toggle(section) {
     setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
