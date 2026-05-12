@@ -19,6 +19,14 @@ import AdminProfileModal from "./AdminProfileModal";
 // State persisted in localStorage. The active section auto-expands so
 // you can never end up with the current page hidden inside a collapsed
 // group.
+//
+// v4.2 — Default initial state is now CONTEXT-AWARE. Previously both
+// sections defaulted to `true` (expanded) on first visit, which meant a
+// user landing on /windows/recordings would see Android expanded even
+// though they don't care about it. New default: only the section
+// matching the current URL is expanded; the other starts collapsed.
+// Returning users with a persisted choice still get their preference
+// honoured untouched — this only affects the empty-localStorage path.
 const androidNavItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/facility", label: "Facility", icon: Building2 },
@@ -71,9 +79,16 @@ export default function Layout({ user, onLogout, children }) {
 
   const [expanded, setExpanded] = useState(() => {
     const persisted = readPersisted() || {};
+    // v4.2 — Only the active section is expanded by default. If the user
+    // has manually toggled a section before, that persisted choice always
+    // wins (`?? fallback` only kicks in for `undefined`). On a fresh
+    // visit (empty localStorage), landing on /windows/* collapses the
+    // Android group and vice-versa, so users don't see two simultaneously
+    // open groups they didn't ask for.
+    const onWindowsAtMount = window.location.pathname.startsWith("/windows");
     return {
-      android: persisted.android ?? true,
-      windows: persisted.windows ?? true,
+      android: persisted.android ?? !onWindowsAtMount,
+      windows: persisted.windows ?? onWindowsAtMount,
     };
   });
 
