@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Cpu, RefreshCw, Search, Radio, AlertTriangle, FileText,
   Camera, Power, ChevronRight, Filter, Wifi, WifiOff, HardDrive,
-  Video, X, Monitor, MemoryStick, Trash2,
+  Video, X, Monitor, MemoryStick, Trash2, Square,
 } from "lucide-react";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
@@ -50,6 +50,27 @@ export default function WindowsDevices() {
     try {
       await winDevices.issueCommand(deviceId, command, {});
       alert(`Command "${command}" queued.`);
+    } catch (e) {
+      alert(`Failed: ${e.message}`);
+    }
+  }
+
+  async function forceStopRecording(d) {
+    const label = d.name || `Room ${d.roomNumber}`;
+    if (
+      !confirm(
+        `Force-stop the current recording on "${label}"?\n\n` +
+        `The recording will end immediately. Whatever chunks have been ` +
+        `captured will go through the normal post-process + Azure upload ` +
+        `pipeline (concat + composite PIP + upload). You'll see the ` +
+        `result in Windows → Recordings within 1-2 minutes.\n\nContinue?`
+      )
+    ) return;
+    try {
+      await winDevices.issueCommand(d.deviceId, "stop_recording", {});
+      alert(`Stop command queued. Device picks it up on next heartbeat (~30s).`);
+      // Refresh in 35s so the user sees the post-stop state.
+      setTimeout(load, 35_000);
     } catch (e) {
       alert(`Failed: ${e.message}`);
     }
@@ -186,6 +207,7 @@ export default function WindowsDevices() {
                 })
               }
               onCommand={(cmd) => sendCommand(d.deviceId, cmd)}
+              onForceStop={() => forceStopRecording(d)}
               onDelete={() => deleteDevice(d)}
             />
           ))}
@@ -206,7 +228,7 @@ export default function WindowsDevices() {
   );
 }
 
-function DeviceCard({ d, onDetails, onWatchLive, onCommand, onDelete }) {
+function DeviceCard({ d, onDetails, onWatchLive, onCommand, onForceStop, onDelete }) {
   const h = d.health || {};
   const live = h.liveWatch?.state;
   const disk = h.diskGovernor?.state;
@@ -288,6 +310,15 @@ function DeviceCard({ d, onDetails, onWatchLive, onCommand, onDelete }) {
             className="text-xs px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded flex items-center gap-1"
           >
             <Radio size={12} className="animate-pulse" /> Watch Live
+          </button>
+        )}
+        {isRecording && (
+          <button
+            onClick={onForceStop}
+            className="text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded flex items-center gap-1"
+            title="Force-stop the active recording (will run post-process + Azure upload normally)"
+          >
+            <Square size={12} fill="currentColor" /> Stop Recording
           </button>
         )}
         <button

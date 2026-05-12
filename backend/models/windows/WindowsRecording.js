@@ -9,7 +9,12 @@ const windowsRecordingSchema = new mongoose.Schema(
   {
     scheduledClass: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ScheduledClass",
+      // ScheduledClass model is registered under the project-wide LCS_ prefix
+      // (see models/ScheduledClass.js: mongoose.model("LCS_ScheduledClass",
+      // ...)). Without the prefix, Mongoose.populate throws "Schema hasn't
+      // been registered for model 'ScheduledClass'" and the recordings list
+      // endpoint returns 500.
+      ref: "LCS_ScheduledClass",
       required: true,
       index: true,
     },

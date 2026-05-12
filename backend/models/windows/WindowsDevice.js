@@ -88,7 +88,8 @@ const windowsDeviceSchema = new mongoose.Schema(
     lastHeartbeat: Date,
     isOnline: { type: Boolean, default: false },
     isRecording: { type: Boolean, default: false },
-    currentClassId: { type: mongoose.Schema.Types.ObjectId, ref: "ScheduledClass" },
+    // Same LCS_ prefix gotcha as WindowsRecording.scheduledClass — see comment there.
+    currentClassId: { type: mongoose.Schema.Types.ObjectId, ref: "LCS_ScheduledClass" },
 
     // Health snapshot (latest from heartbeat)
     health: {
