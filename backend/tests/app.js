@@ -39,6 +39,8 @@ function createApp() {
   app.use("/api/app", require("../routes/appUpdate"));
   app.use("/api/analytics", require("../routes/analytics"));
   app.use("/api/remote", require("../routes/remote"));
+  // v2.x — Windows recorder fleet (parallel to Android `/classroom-recording`)
+  app.use("/api/windows", require("../routes/windows"));
 
   // Global error handler
   app.use((err, _req, res, _next) => {
