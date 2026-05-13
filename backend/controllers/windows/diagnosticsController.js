@@ -53,6 +53,39 @@ exports.uploadArtifact = async (req, res) => {
     return res.status(400).json({ error: `Unknown kind ${kind}` });
   }
   try {
+    // v2.2.6 — device may now upload bytes directly to R2 and then POST
+    // metadata-only JSON here. Detect that path by the presence of
+    // r2PublicUrl/r2ObjectKey in the body. The old multipart-file path is
+    // kept for legacy v2.1.x → v2.2.5 devices (which still hit broken Azure
+    // anyway, so this branch returns the same 502 — but at least nothing
+    // silently regresses for new clients).
+    if (req.body && req.body.r2PublicUrl && req.body.r2ObjectKey) {
+      const deviceId = (req.body.deviceId || req.headers["x-device-id"] || "").trim();
+      if (!deviceId) return res.status(400).json({ error: "deviceId is required" });
+      if (req.device && req.device.deviceId && req.device.deviceId !== deviceId) {
+        return res.status(403).json({ error: "deviceId mismatch with auth token" });
+      }
+      const doc = await WindowsDiagnosticsUpload.create({
+        deviceId,
+        kind,
+        filename: String(req.body.filename || `${kind}.bin`),
+        contentType: String(req.body.contentType || (kind === "logs" ? "application/zip" : "image/jpeg")),
+        sizeBytes: Number(req.body.sizeBytes) || 0,
+        r2PublicUrl: String(req.body.r2PublicUrl),
+        r2ObjectKey: String(req.body.r2ObjectKey),
+        r2Bucket: String(req.body.r2Bucket || ""),
+        agentVersion: String(req.body.agentVersion || ""),
+        capturedAt: req.body.capturedAt ? new Date(req.body.capturedAt) : new Date(),
+      });
+      return res.status(201).json({
+        message: "uploaded",
+        id: doc._id,
+        url: doc.r2PublicUrl,
+        sizeBytes: doc.sizeBytes,
+        expiresAt: doc.expiresAt,
+      });
+    }
+
     if (!req.files || !req.files.file) {
       return res.status(400).json({ error: "multipart 'file' is required" });
     }
@@ -159,7 +192,11 @@ exports.listForDevice = async (req, res) => {
         filename: r.filename,
         contentType: r.contentType,
         sizeBytes: r.sizeBytes,
-        url: r.azureBlobUrl,
+        // v2.2.6 — prefer R2 URL when present (new uploads), fall back to
+        // azureBlobUrl for legacy rows (which 404 anyway since Azure is
+        // gone, but at least the API shape is preserved).
+        url: r.r2PublicUrl || r.azureBlobUrl,
+        storage: r.r2PublicUrl ? "r2" : "azure-legacy",
         agentVersion: r.agentVersion,
         capturedAt: r.capturedAt,
         createdAt: r.createdAt,
@@ -183,6 +220,19 @@ exports.fetchById = async (req, res) => {
     const row = await WindowsDiagnosticsUpload.findById(id).lean();
     if (!row) return res.status(404).json({ error: "not found" });
 
+    // v2.2.6 — R2 rows: redirect to the public URL. R2 dev URLs are
+    // unsigned + world-readable for this bucket so a plain 302 is fine.
+    // The admin portal's JWT-gated GET is preserved (this handler still
+    // requires admin auth) — we just hand the browser the actual blob URL.
+    if (row.r2PublicUrl) {
+      return res.redirect(302, row.r2PublicUrl);
+    }
+
+    // Legacy Azure path — kept for v2.1.x → v2.2.5 rows. Will 502 if the
+    // Azure subscription is gone, but we don't 500 on schema-empty rows.
+    if (!row.azureBlobPath) {
+      return res.status(410).json({ error: "artifact storage unavailable (Azure expired, no R2 url)" });
+    }
     const { container } = getBlobContainer();
     const blockBlob = container.getBlockBlobClient(row.azureBlobPath);
     const dl = await blockBlob.download();

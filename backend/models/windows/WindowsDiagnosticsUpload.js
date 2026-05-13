@@ -30,10 +30,18 @@ const windowsDiagnosticsUploadSchema = new mongoose.Schema(
     contentType: { type: String, required: true },
     sizeBytes: { type: Number, default: 0 },
 
-    // Where the binary actually lives.
-    azureBlobUrl: { type: String, required: true },
-    // Container-relative path (without host), in case we re-sign URLs.
-    azureBlobPath: { type: String, required: true },
+    // ── Storage location (v2.2.6+: R2 fields preferred; azure* kept for
+    // ── back-compat with v2.1.x→v2.2.5 rows still in Mongo).
+    //
+    // For v2.2.6 onwards, the device uploads directly to Cloudflare R2 and
+    // then POSTs JSON metadata here, so only r2PublicUrl/r2ObjectKey are
+    // populated. The legacy azure* fields are no longer marked required so
+    // the new R2-only rows validate cleanly.
+    azureBlobUrl: { type: String, default: "" },
+    azureBlobPath: { type: String, default: "" },
+    r2PublicUrl: { type: String, default: "" },
+    r2ObjectKey: { type: String, default: "" },
+    r2Bucket: { type: String, default: "" },
 
     // Diagnostic context — agent version + the timestamp the device
     // captured it (which may pre-date receipt by minutes if a retry
