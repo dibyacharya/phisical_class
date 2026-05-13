@@ -28,9 +28,17 @@ exports.upload = async (req, res) => {
       return res.status(400).json({ error: "versionCode must be a positive integer" });
     }
 
+    // v2.2.6 — Make upload idempotent. The previous "return 409 if versionCode
+    // exists" check made recovery from a Railway redeploy impossible: the DB
+    // row would survive but its fsPath inside /tmp gets wiped, leaving every
+    // /api/windows/app/download return 503. Admin would re-upload the same .exe
+    // — and the 409 would silently waste 60+ MB of upload bandwidth. Now we
+    // delete the orphan row first and replace it with the fresh upload.
     const existing = await WindowsAppVersion.findOne({ versionCode: code });
     if (existing) {
-      return res.status(409).json({ error: `Version code ${code} already exists` });
+      try { if (existing.fsPath && fs.existsSync(existing.fsPath)) fs.unlinkSync(existing.fsPath); }
+      catch (e) { /* best effort */ }
+      await WindowsAppVersion.deleteOne({ _id: existing._id });
     }
 
     fs.mkdirSync(INSTALLER_DIR, { recursive: true });
