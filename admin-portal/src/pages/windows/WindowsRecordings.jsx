@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Video, Search, RefreshCw, Play, Download, Filter,
   Clock, HardDrive, CheckCircle2, XCircle, Loader2, Radio,
-  AlertTriangle, ChevronRight,
+  AlertTriangle, ChevronRight, Trash2,
 } from "lucide-react";
 import { winRecordings, winDevices } from "../../services/windowsApi";
 
@@ -54,6 +54,30 @@ export default function WindowsRecordings() {
     const t = setInterval(fetchAll, 30_000);
     return () => clearInterval(t);
   }, [fetchAll]);
+
+  // Delete a single recording. Confirms first because the R2 file stays
+  // intact behind it (backend removes only the Mongo row), so technically
+  // the recording is recoverable by an admin who knows the URL — but the
+  // operator-facing UX should still feel like "this disappears".
+  const handleDelete = useCallback(
+    async (rec) => {
+      const title = rec.title || rec.scheduledClass?.title || "this recording";
+      const ok = window.confirm(
+        `Delete "${title}"?\n\n` +
+        `This removes it from the admin portal. The underlying R2 file is\n` +
+        `kept in cold storage as a safety net — contact engineering to\n` +
+        `restore if deleted by mistake.`
+      );
+      if (!ok) return;
+      try {
+        await winRecordings.remove(rec._id);
+        setRecordings((prev) => prev.filter((x) => x._id !== rec._id));
+      } catch (e) {
+        alert("Delete failed: " + (e.message || e));
+      }
+    },
+    []
+  );
 
   const rooms = useMemo(() => {
     const set = new Set();
@@ -191,6 +215,7 @@ export default function WindowsRecordings() {
                   r={r}
                   devices={devices}
                   onPlay={() => setSelected(r)}
+                  onDelete={() => handleDelete(r)}
                 />
               ))}
               {filtered.length === 0 && (
@@ -222,7 +247,7 @@ export default function WindowsRecordings() {
   );
 }
 
-function RecordingRow({ r, devices, onPlay }) {
+function RecordingRow({ r, devices, onPlay, onDelete }) {
   const room = r.scheduledClass?.roomNumber || r.roomNumber || "?";
   const title = r.title || r.scheduledClass?.title || "—";
   const courseName = r.scheduledClass?.courseName;
@@ -281,6 +306,16 @@ function RecordingRow({ r, devices, onPlay }) {
           ) : (
             <span className="text-xs text-slate-400">—</span>
           )}
+          {/* Delete is always available regardless of merge state — orphan
+              "merging" rows from killed recordings should also be cleanable.
+              The confirmation dialog (in handleDelete) covers operator safety. */}
+          <button
+            onClick={onDelete}
+            className="text-slate-400 hover:text-red-600 ml-auto"
+            title="Delete recording"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
       </td>
     </tr>

@@ -55,6 +55,12 @@ export const winRecordings = {
       method: "POST",
       body: JSON.stringify({ mergedVideoUrl, mergedFileSize }),
     }),
+  // v2.3.2 — Admin can delete a recording. Backend route exists at
+  // DELETE /api/windows/recordings/:id (recordingController.remove).
+  // Note: backend currently only removes the Mongo row, NOT the R2
+  // object (intentional — keeps a recoverable copy of the .mp4 on R2
+  // in case of accidental delete; storage cost is trivial).
+  remove: (id) => api(`/recordings/${id}`, { method: "DELETE" }),
 };
 
 // ── Licenses ──────────────────────────────────────────────
