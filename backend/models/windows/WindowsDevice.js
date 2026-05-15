@@ -15,10 +15,19 @@ const windowsDeviceSchema = new mongoose.Schema(
       index: true,
       default: () => `win_${crypto.randomBytes(8).toString("hex")}`,
     },
+    // Device's per-installation auth token. Used by windowsDeviceAuth
+    // middleware to validate that incoming heartbeats / commands actually
+    // come from a registered device, not an attacker spoofing deviceId.
+    //
+    // `select: false` (2026-05-15): keeps this field out of admin-portal
+    // list/detail responses by default — admins shouldn't see device
+    // credentials in their browser network tab. Middleware that needs to
+    // verify auth explicitly uses `.select("+authToken")` to fetch it.
     authToken: {
       type: String,
       required: true,
       default: () => crypto.randomBytes(32).toString("hex"),
+      select: false,
     },
 
     name: { type: String, required: true },
@@ -29,7 +38,11 @@ const windowsDeviceSchema = new mongoose.Schema(
     floor: { type: String, default: "", index: true },
     roomNumber: { type: String, required: true, index: true },
     spaceCode: { type: String, index: true },
-    facilityId: { type: mongoose.Schema.Types.ObjectId, ref: "Facility" },
+    // (2026-05-15 audit: removed `facilityId: { type: ObjectId, ref: "Facility" }`
+    // — the Facility model doesn't exist in the codebase and the field had no
+    // readers/writers. Dead schema field with a broken populate target. If a
+    // facility-grouping feature lands in the future, add a real model + this
+    // field together.)
 
     // Hardware
     hardwareModel: String,        // e.g. "Intel NUC 13 Pro NUC13ANHi5"

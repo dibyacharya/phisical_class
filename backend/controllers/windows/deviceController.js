@@ -43,8 +43,14 @@ exports.register = async (req, res) => {
 
     // If a device with this fingerprint already exists, return its credentials
     // (and refresh its location info — operator may have moved the Mini PC).
+    //
+    // 2026-05-15 audit: `.select("+authToken")` is REQUIRED here because
+    // WindowsDevice.authToken is now `select: false` by default — and this
+    // is the ONE legitimate place we need to return the token back to the
+    // registering device. Without the explicit select, `existing.authToken`
+    // below would be undefined and the device would receive no credential.
     if (hardwareFingerprint) {
-      const existing = await WindowsDevice.findOne({ hardwareFingerprint });
+      const existing = await WindowsDevice.findOne({ hardwareFingerprint }).select("+authToken");
       if (existing) {
         existing.name = name;
         existing.roomNumber = roomNumber;

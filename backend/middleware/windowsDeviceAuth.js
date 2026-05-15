@@ -15,7 +15,13 @@ const windowsDeviceAuth = async (req, res, next) => {
       return res.status(401).json({ error: "Missing X-Device-Id or X-Device-Token header" });
     }
 
-    // Use .select("+authToken") if your schema marks authToken as select:false in future
+    // 2026-05-15 audit: WindowsDevice.authToken is marked `select: false` in
+    // schema (keeps it out of admin-portal list responses). The WHERE clause
+    // here STILL works against it — `select: false` only suppresses the field
+    // in returned documents, not query filtering. So `device.authToken` will
+    // be undefined on the returned object, which is exactly what we want:
+    // downstream req.device is safe to log or serialize without leaking the
+    // credential.
     const device = await WindowsDevice.findOne({
       deviceId,
       authToken: deviceToken,
