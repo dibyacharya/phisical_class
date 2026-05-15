@@ -61,6 +61,58 @@ export const winRecordings = {
   // object (intentional — keeps a recoverable copy of the .mp4 on R2
   // in case of accidental delete; storage cost is trivial).
   remove: (id) => api(`/recordings/${id}`, { method: "DELETE" }),
+
+  // 2026-05-15 — Force-download a recording. The R2 public URL is cross-
+  // origin (different host than this admin portal), which means the HTML
+  // `download` attribute is silently ignored by every modern browser —
+  // clicking it just opens the .mp4 in a new tab. We work around this by
+  // routing the download through our backend, which streams the bytes
+  // back with `Content-Disposition: attachment` so the browser saves
+  // the file instead.
+  //
+  // Implementation: authenticated fetch → blob → trigger a synthetic
+  // `<a download>` click on a blob: URL. Blob URLs are same-origin to
+  // the admin portal's JS, so the `download` attribute IS respected
+  // there. Filename comes from the backend's Content-Disposition header
+  // (it builds a friendly "<Title>_RoomNNN_YYYY-MM-DD.mp4" string).
+  //
+  // Caveat: the file is fetched fully into browser memory before the
+  // save dialog appears. For our 200-400 MB recordings on a modern admin
+  // machine that's fine; users see a brief loading state, then the save
+  // dialog. If file sizes climb into multi-GB territory, replace with R2
+  // signed URLs + `response-content-disposition` query override (no
+  // proxy through Railway, no in-memory buffering).
+  download: async (id) => {
+    const token = localStorage.getItem("lcs_admin_token");
+    const url = `${API_BASE}/api/windows/recordings/${id}/download`;
+    const resp = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Download failed: HTTP ${resp.status}${text ? ` — ${text}` : ""}`);
+    }
+
+    // Extract filename from `Content-Disposition: attachment; filename="..."`
+    // (backend sets this; fall back to a generic name if header is missing).
+    const cd = resp.headers.get("content-disposition") || "";
+    const match = /filename="([^"]+)"/.exec(cd);
+    const filename = match ? match[1] : `recording-${id}.mp4`;
+
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Slight delay before revoking so Chrome has time to grab the blob —
+    // immediate revoke sometimes truncates the saved file on slow disks.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    return { filename, sizeBytes: blob.size };
+  },
 };
 
 // ── Licenses ──────────────────────────────────────────────

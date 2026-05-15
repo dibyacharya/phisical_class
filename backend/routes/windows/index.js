@@ -33,6 +33,12 @@ router.get("/devices/:id/commands", auth, adminOnly, deviceCtrl.listCommands);
 // Admin
 router.get("/recordings", auth, adminOnly, recordingCtrl.list);
 router.get("/recordings/:id", auth, adminOnly, recordingCtrl.get);
+// 2026-05-15 — proxy R2 download with Content-Disposition: attachment header,
+// so the admin portal's Download button actually saves the file instead of
+// opening it inline. The HTML `download` attribute is ignored by browsers
+// for cross-origin URLs (R2 ≠ admin-portal origin), so this proxy is the
+// cleanest fix. Auth: same admin auth as the rest of /recordings/*.
+router.get("/recordings/:id/download", auth, adminOnly, recordingCtrl.download);
 router.delete("/recordings/:id", auth, adminOnly, recordingCtrl.remove);
 router.post("/recordings/:id/admin-set-merged", auth, adminOnly, recordingCtrl.setMerged);
 

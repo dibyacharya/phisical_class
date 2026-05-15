@@ -1,6 +1,7 @@
 const WindowsRecording = require("../../models/windows/WindowsRecording");
 const WindowsDevice = require("../../models/windows/WindowsDevice");
 const ScheduledClass = require("../../models/ScheduledClass");
+const { Readable } = require("stream");
 
 /**
  * GET /api/windows/recordings
@@ -43,6 +44,110 @@ exports.get = async (req, res) => {
     res.json(rec);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * GET /api/windows/recordings/:id/download
+ *
+ * Proxies the recording's merged video (stored on Cloudflare R2 at a
+ * public bucket URL) through this backend with a `Content-Disposition:
+ * attachment` header so the browser saves the file instead of opening it
+ * inline.
+ *
+ * Why this exists: the admin portal Download button on the Windows →
+ * Recordings page can't force-download a cross-origin R2 URL via the HTML
+ * `<a download>` attribute — modern browsers ignore that attribute on any
+ * URL whose origin differs from the page (security mitigation against
+ * abuse). Proxying through our own origin both restores the download
+ * behavior AND lets us set a friendly filename derived from class title
+ * + room + date instead of the opaque R2 object key.
+ *
+ * Trade-off: Railway egress cost (file streams from R2 → backend → admin
+ * browser). For occasional admin downloads this is acceptable. If high
+ * traffic patterns emerge, migrate to R2 signed URLs with the
+ * `response-content-disposition` query override.
+ *
+ * Auth: same admin auth as the rest of /api/windows/recordings/*. Caller
+ * must pass `Authorization: Bearer <admin token>`. Frontend wraps this
+ * with an authenticated fetch + blob trigger.
+ */
+exports.download = async (req, res) => {
+  try {
+    const rec = await WindowsRecording.findById(req.params.id)
+      .populate("scheduledClass", "title subject")
+      .populate("windowsDevice", "roomNumber");
+    if (!rec) return res.status(404).json({ error: "Recording not found" });
+
+    const sourceUrl = rec.mergedVideoUrl;
+    if (!sourceUrl) {
+      return res.status(404).json({
+        error: "Recording not yet finalized — no merged video available",
+      });
+    }
+
+    // Build a friendly filename: "<Title>_Room<NNN>_YYYY-MM-DD.mp4"
+    // Sanitize aggressively — Windows + Linux both have issues with various
+    // characters, and Content-Disposition itself escapes quotes/control chars.
+    const dt = (rec.recordingStart || rec.createdAt || new Date())
+      .toISOString()
+      .slice(0, 10);
+    const baseTitle =
+      rec.scheduledClass?.title || rec.title || "recording";
+    const room =
+      rec.roomNumber || rec.windowsDevice?.roomNumber || "x";
+    const safe = (s) =>
+      String(s)
+        .replace(/[^a-zA-Z0-9-]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "")
+        .slice(0, 60); // cap segment length so filename stays sane
+    const filename = `${safe(baseTitle)}_Room${safe(room)}_${dt}.mp4`;
+
+    // Stream from R2. Node 18+ `fetch` returns a Web ReadableStream which
+    // we convert with `Readable.fromWeb` so we can `.pipe()` it onto the
+    // Express response. This streams byte-for-byte without buffering the
+    // whole file in memory.
+    const r2Resp = await fetch(sourceUrl);
+    if (!r2Resp.ok) {
+      console.error(
+        "[recordings.download] R2 upstream failure:",
+        r2Resp.status,
+        sourceUrl
+      );
+      return res
+        .status(502)
+        .json({ error: `Upstream storage returned ${r2Resp.status}` });
+    }
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${filename}"`
+    );
+    res.setHeader("Content-Type", "video/mp4");
+    const upstreamLen = r2Resp.headers.get("content-length");
+    if (upstreamLen) res.setHeader("Content-Length", upstreamLen);
+
+    Readable.fromWeb(r2Resp.body)
+      .on("error", (streamErr) => {
+        console.error(
+          "[recordings.download] Stream error:",
+          streamErr.message
+        );
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Stream error during download" });
+        } else {
+          // Headers already sent — best we can do is destroy the connection
+          // so the client knows the file is incomplete.
+          res.destroy(streamErr);
+        }
+      })
+      .pipe(res);
+  } catch (err) {
+    console.error("[recordings.download] Error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
   }
 };
 

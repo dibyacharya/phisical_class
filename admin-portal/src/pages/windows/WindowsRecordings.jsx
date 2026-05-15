@@ -79,6 +79,31 @@ export default function WindowsRecordings() {
     []
   );
 
+  // 2026-05-15 — Force-download a recording. We can't use the HTML
+  // `<a download>` attribute directly because R2 URLs are cross-origin
+  // (browsers ignore `download` then). winRecordings.download() routes
+  // through our backend proxy, which streams the file with a proper
+  // Content-Disposition header so the save dialog fires.
+  //
+  // Per-row download-in-progress state keeps the button spinner-only
+  // for the row being downloaded, so the operator can still play / delete
+  // other rows while a large file is in flight.
+  const [downloadingId, setDownloadingId] = useState(null);
+  const handleDownload = useCallback(
+    async (rec) => {
+      if (downloadingId) return; // one download at a time — prevents memory blowup
+      setDownloadingId(rec._id);
+      try {
+        await winRecordings.download(rec._id);
+      } catch (e) {
+        alert("Download failed: " + (e.message || e));
+      } finally {
+        setDownloadingId(null);
+      }
+    },
+    [downloadingId]
+  );
+
   const rooms = useMemo(() => {
     const set = new Set();
     recordings.forEach((r) => {
@@ -216,6 +241,8 @@ export default function WindowsRecordings() {
                   devices={devices}
                   onPlay={() => setSelected(r)}
                   onDelete={() => handleDelete(r)}
+                  onDownload={() => handleDownload(r)}
+                  isDownloading={downloadingId === r._id}
                 />
               ))}
               {filtered.length === 0 && (
@@ -247,7 +274,7 @@ export default function WindowsRecordings() {
   );
 }
 
-function RecordingRow({ r, devices, onPlay, onDelete }) {
+function RecordingRow({ r, devices, onPlay, onDelete, onDownload, isDownloading }) {
   const room = r.scheduledClass?.roomNumber || r.roomNumber || "?";
   const title = r.title || r.scheduledClass?.title || "—";
   const courseName = r.scheduledClass?.courseName;
@@ -292,16 +319,18 @@ function RecordingRow({ r, devices, onPlay, onDelete }) {
               >
                 <Play size={12} /> Play
               </button>
-              <a
-                href={r.mergedVideoUrl}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-slate-500 hover:text-slate-800"
-                title="Download"
+              <button
+                onClick={onDownload}
+                disabled={isDownloading}
+                className="text-slate-500 hover:text-slate-800 disabled:opacity-50 disabled:cursor-wait"
+                title={isDownloading ? "Downloading…" : "Download"}
               >
-                <Download size={14} />
-              </a>
+                {isDownloading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+              </button>
             </>
           ) : (
             <span className="text-xs text-slate-400">—</span>
@@ -344,6 +373,19 @@ function StatusBadge({ status, mergeStatus }) {
 }
 
 function PlayerModal({ recording, onClose }) {
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await winRecordings.download(recording._id);
+    } catch (e) {
+      alert("Download failed: " + (e.message || e));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm"
@@ -374,15 +416,21 @@ function PlayerModal({ recording, onClose }) {
           <span>
             Duration: {formatDuration(recording.duration)} · Size: {formatBytes(recording.mergedFileSize || recording.fileSize)}
           </span>
-          <a
-            href={recording.mergedVideoUrl}
-            download
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:underline flex items-center gap-1"
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="text-blue-400 hover:underline flex items-center gap-1 disabled:opacity-50 disabled:cursor-wait"
           >
-            <Download size={12} /> Download
-          </a>
+            {downloading ? (
+              <>
+                <Loader2 size={12} className="animate-spin" /> Downloading…
+              </>
+            ) : (
+              <>
+                <Download size={12} /> Download
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
