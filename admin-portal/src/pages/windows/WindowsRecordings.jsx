@@ -3,23 +3,40 @@ import { Link } from "react-router-dom";
 import {
   Video, Search, RefreshCw, Play, Download, Filter,
   Clock, HardDrive, CheckCircle2, XCircle, Loader2, Radio,
-  AlertTriangle, ChevronRight, Trash2,
+  AlertTriangle, ChevronRight, ChevronDown, Trash2, DoorOpen,
+  FileVideo, Eye, BarChart3, CalendarDays, X, MapPin,
 } from "lucide-react";
 import { winRecordings, winDevices } from "../../services/windowsApi";
+import { usePersistedState } from "../../hooks/usePersistedState";
 
-const STATUS_OPTIONS = [
-  { id: "all", label: "All" },
-  { id: "recording", label: "Recording" },
-  { id: "merging", label: "Merging" },
-  { id: "completed", label: "Completed" },
-  { id: "failed", label: "Failed" },
-];
+// Visual layout mirrors the Android Recordings page (src/pages/Recordings.jsx)
+// so the admin portal looks identical across the TV and Mini-PC fleets:
+// eyebrow + heading, 4 stat cards, search/filter bar, and room-grouped
+// collapsible sections of recording cards. Wired to the Windows API.
 
-/**
- * Browse recordings produced by the Windows fleet. Mirrors Android's
- * Recordings.jsx pattern but uses Windows-specific status / merge fields
- * and links to WindowsDeviceRemote for the source device.
- */
+// Recording lifecycle phases. The recorder reports "recording" at start,
+// "merging" when post-processing begins, "uploading" when the upload begins,
+// and the backend sets "completed" at finalize. Each gets a distinct, plain-
+// English badge so the operator always knows the exact current phase.
+const STATUS_META = {
+  recording: { label: "Recording",       cls: "bg-blue-50 text-blue-600 border-blue-200" },
+  merging:   { label: "Post-processing", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  uploading: { label: "Uploading",       cls: "bg-indigo-50 text-indigo-600 border-indigo-200" },
+  completed: { label: "Completed",       cls: "bg-green-50 text-green-600 border-green-200" },
+  failed:    { label: "Failed",          cls: "bg-red-50 text-red-600 border-red-200" },
+};
+const statusMeta = (s) =>
+  STATUS_META[(s || "").toLowerCase()] ||
+  { label: s || "Unknown", cls: "bg-slate-50 text-slate-600 border-slate-200" };
+
+// "Campus · Block · Floor" from a device record — only the parts that exist.
+const locationText = (device) => {
+  if (!device) return "";
+  return [device.campus, device.block, device.floor && `Floor ${device.floor}`]
+    .filter(Boolean)
+    .join(" · ");
+};
+
 export default function WindowsRecordings() {
   const [recordings, setRecordings] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -27,9 +44,15 @@ export default function WindowsRecordings() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [roomFilter, setRoomFilter] = useState("all");
-  const [selected, setSelected] = useState(null); // for inline player modal
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterRoom, setFilterRoom] = useState("all");
+  const [playingRec, setPlayingRec] = useState(null);
+  // Persisted so a browser refresh / 30s auto-refresh keeps each room's
+  // expand/collapse state. Semantics: a room is OPEN by default; an entry of
+  // `false` means the operator explicitly collapsed it.
+  const [expandedRooms, setExpandedRooms] = usePersistedState({}, "win_recordings_expanded_rooms");
+  const [downloadingId, setDownloadingId] = useState(null);
 
   const fetchAll = useCallback(async () => {
     setRefreshing(true);
@@ -55,54 +78,50 @@ export default function WindowsRecordings() {
     return () => clearInterval(t);
   }, [fetchAll]);
 
-  // Delete a single recording. Confirms first because the R2 file stays
-  // intact behind it (backend removes only the Mongo row), so technically
-  // the recording is recoverable by an admin who knows the URL — but the
-  // operator-facing UX should still feel like "this disappears".
-  const handleDelete = useCallback(
-    async (rec) => {
-      const title = rec.title || rec.scheduledClass?.title || "this recording";
-      const ok = window.confirm(
-        `Delete "${title}"?\n\n` +
-        `This removes it from the admin portal. The underlying R2 file is\n` +
-        `kept in cold storage as a safety net — contact engineering to\n` +
-        `restore if deleted by mistake.`
-      );
-      if (!ok) return;
-      try {
-        await winRecordings.remove(rec._id);
-        setRecordings((prev) => prev.filter((x) => x._id !== rec._id));
-      } catch (e) {
-        alert("Delete failed: " + (e.message || e));
-      }
-    },
-    []
-  );
+  const handleDelete = useCallback(async (rec) => {
+    const title = rec.title || rec.scheduledClass?.title || "this recording";
+    if (!window.confirm(
+      `Delete "${title}"?\n\n` +
+      `This removes it from the admin portal. The underlying R2 file is kept ` +
+      `in cold storage as a safety net — contact engineering to restore if ` +
+      `deleted by mistake.`
+    )) return;
+    try {
+      await winRecordings.remove(rec._id);
+      setRecordings((prev) => prev.filter((x) => x._id !== rec._id));
+    } catch (e) {
+      alert("Delete failed: " + (e.message || e));
+    }
+  }, []);
 
-  // 2026-05-15 — Force-download a recording. We can't use the HTML
-  // `<a download>` attribute directly because R2 URLs are cross-origin
-  // (browsers ignore `download` then). winRecordings.download() routes
-  // through our backend proxy, which streams the file with a proper
-  // Content-Disposition header so the save dialog fires.
-  //
-  // Per-row download-in-progress state keeps the button spinner-only
-  // for the row being downloaded, so the operator can still play / delete
-  // other rows while a large file is in flight.
-  const [downloadingId, setDownloadingId] = useState(null);
-  const handleDownload = useCallback(
-    async (rec) => {
-      if (downloadingId) return; // one download at a time — prevents memory blowup
-      setDownloadingId(rec._id);
-      try {
-        await winRecordings.download(rec._id);
-      } catch (e) {
-        alert("Download failed: " + (e.message || e));
-      } finally {
-        setDownloadingId(null);
-      }
-    },
-    [downloadingId]
-  );
+  // Force-download routes through the backend proxy (R2 URLs are cross-origin
+  // so the HTML `download` attribute is ignored by browsers). One at a time
+  // to avoid buffering multiple large files in browser memory.
+  const handleDownload = useCallback(async (rec) => {
+    if (downloadingId) return;
+    setDownloadingId(rec._id);
+    try {
+      await winRecordings.download(rec._id);
+    } catch (e) {
+      alert("Download failed: " + (e.message || e));
+    } finally {
+      setDownloadingId(null);
+    }
+  }, [downloadingId]);
+
+  // ── Stats (mirrors Android Recordings stat bar) ───────────────────────────
+  const stats = useMemo(() => {
+    let completed = 0, inProgress = 0, totalSize = 0;
+    for (const r of recordings) {
+      const s = (r.status || "").toLowerCase();
+      if (s === "completed") completed++;
+      // "In progress" = anything not yet finished: live recording, post-
+      // processing, or uploading.
+      if (s === "recording" || s === "merging" || s === "uploading") inProgress++;
+      totalSize += r.mergedFileSize || r.fileSize || 0;
+    }
+    return { total: recordings.length, completed, inProgress, totalSize };
+  }, [recordings]);
 
   const rooms = useMemo(() => {
     const set = new Set();
@@ -115,265 +134,327 @@ export default function WindowsRecordings() {
 
   const filtered = useMemo(() => {
     return recordings.filter((r) => {
-      if (statusFilter !== "all") {
-        const s = (r.status || "").toLowerCase();
-        if (s !== statusFilter) return false;
-      }
-      if (roomFilter !== "all") {
+      if (filterStatus !== "all" && (r.status || "").toLowerCase() !== filterStatus) return false;
+      if (filterRoom !== "all") {
         const room = String(r.scheduledClass?.roomNumber || r.roomNumber || "");
-        if (room !== roomFilter) return false;
+        if (room !== filterRoom) return false;
       }
       if (search.trim()) {
         const q = search.toLowerCase();
-        const title = (r.title || r.scheduledClass?.title || "").toLowerCase();
-        const course = (r.scheduledClass?.courseName || "").toLowerCase();
-        const teacher = (r.scheduledClass?.teacherName || "").toLowerCase();
-        if (!title.includes(q) && !course.includes(q) && !teacher.includes(q)) return false;
+        const hay = [
+          r.title, r.scheduledClass?.title, r.scheduledClass?.courseName,
+          r.scheduledClass?.teacherName,
+        ].filter(Boolean).map((v) => String(v).toLowerCase());
+        if (!hay.some((h) => h.includes(q))) return false;
       }
       return true;
     });
-  }, [recordings, statusFilter, roomFilter, search]);
+  }, [recordings, filterStatus, filterRoom, search]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="animate-spin text-blue-500" size={32} />
-        <span className="ml-3 text-slate-500">Loading Windows recordings...</span>
-      </div>
-    );
-  }
+  // Group filtered recordings by room number (single-level collapsible tree —
+  // a lighter version of Android's campus → block → floor → room hierarchy,
+  // which fits the flatter Windows-fleet layout).
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const r of filtered) {
+      const room = String(r.scheduledClass?.roomNumber || r.roomNumber || "Unassigned");
+      (map[room] = map[room] || []).push(r);
+    }
+    return map;
+  }, [filtered]);
+
+  const activeFilterCount = (filterStatus !== "all" ? 1 : 0) + (filterRoom !== "all" ? 1 : 0);
+  // Rooms are expanded by default; an entry is only stored when the operator
+  // explicitly collapses (false) or re-opens (true) one. Toggling flips it.
+  const toggleRoom = (room) =>
+    setExpandedRooms((prev) => ({ ...prev, [room]: prev[room] === false }));
 
   return (
-    <div className="space-y-4">
+    <div>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Windows Recordings</h1>
-          <p className="text-sm text-slate-500">
-            {filtered.length} of {recordings.length} recordings
-          </p>
+          <p className="text-xs font-semibold text-indigo-500 tracking-wider uppercase">Recording Library</p>
+          <h2 className="text-2xl font-bold text-gray-800">Windows Recordings</h2>
         </div>
-        <button
-          onClick={fetchAll}
-          disabled={refreshing}
-          className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
-          title="Refresh"
-        >
-          <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
+        <button onClick={fetchAll}
+          className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded p-3 flex items-center gap-2">
-          <AlertTriangle size={16} />
-          {error}
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 mb-4 flex items-center gap-2">
+          <AlertTriangle size={16} /> {error}
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search
-            size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-          />
-          <input
-            type="text"
-            placeholder="Search title, course, teacher..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          <Filter size={12} className="text-slate-400" />
-          <span className="text-slate-500 mr-1">Status:</span>
-          {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => setStatusFilter(opt.id)}
-              className={`px-2 py-1 rounded ${
-                statusFilter === opt.id
-                  ? "bg-blue-100 text-blue-700"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          <span className="text-slate-500 mr-1">Room:</span>
-          <select
-            value={roomFilter}
-            onChange={(e) => setRoomFilter(e.target.value)}
-            className="text-xs border border-slate-300 rounded px-2 py-1"
-          >
-            {rooms.map((r) => (
-              <option key={r} value={r}>
-                {r === "all" ? "All" : `Room ${r}`}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Stats Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {[
+          { label: "Total Recordings", value: stats.total, icon: Video, color: "text-blue-600", bg: "bg-blue-50" },
+          { label: "Completed", value: stats.completed, icon: Eye, color: "text-green-600", bg: "bg-green-50" },
+          { label: "In Progress", value: stats.inProgress, icon: BarChart3, color: "text-purple-600", bg: "bg-purple-50" },
+          { label: "Total Size", value: formatBytes(stats.totalSize), icon: HardDrive, color: "text-orange-600", bg: "bg-orange-50" },
+        ].map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 ${bg} rounded-lg flex items-center justify-center`}>
+                <Icon size={18} className={color} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">{label}</p>
+                <p className={`text-xl font-bold ${color}`}>{value}</p>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase text-slate-500 bg-slate-50 border-b border-slate-200">
-                <th className="py-2 px-3">Class</th>
-                <th className="py-2 px-3">Room</th>
-                <th className="py-2 px-3">Started</th>
-                <th className="py-2 px-3">Duration</th>
-                <th className="py-2 px-3">Size</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 px-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <RecordingRow
-                  key={r._id}
-                  r={r}
-                  devices={devices}
-                  onPlay={() => setSelected(r)}
-                  onDelete={() => handleDelete(r)}
-                  onDownload={() => handleDownload(r)}
-                  isDownloading={downloadingId === r._id}
-                />
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400 text-sm">
-                    {recordings.length === 0 ? (
-                      <>
-                        No Windows recordings yet.{" "}
-                        <Link to="/windows/booking" className="text-blue-600 hover:underline">
-                          Schedule a class
-                        </Link>{" "}
-                        on a Windows-served room to create one.
-                      </>
-                    ) : (
-                      "No recordings match the current filters."
+      {/* Search + Filter Bar */}
+      <div className="bg-white rounded-xl border p-4 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[240px]">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="text" placeholder="Search by title, course, teacher..."
+              value={search} onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <button onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
+              activeFilterCount > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-white text-gray-600 hover:bg-gray-50"
+            }`}>
+            <Filter size={14} />
+            Filters {activeFilterCount > 0 && <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">{activeFilterCount}</span>}
+            <ChevronDown size={14} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+          </button>
+          {activeFilterCount > 0 && (
+            <button onClick={() => { setFilterStatus("all"); setFilterRoom("all"); }}
+              className="text-sm text-red-500 hover:text-red-700 transition">Clear all</button>
+          )}
+          <span className="text-sm text-gray-400 ml-auto">Showing {filtered.length} of {recordings.length}</span>
+        </div>
+
+        {showFilters && (
+          <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1"><Video size={11} /> Status</label>
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="all">All Status</option>
+                <option value="recording">Recording</option>
+                <option value="merging">Post-processing</option>
+                <option value="uploading">Uploading</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1"><DoorOpen size={11} /> Room</label>
+              <select value={filterRoom} onChange={(e) => setFilterRoom(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                {rooms.map((r) => (
+                  <option key={r} value={r}>{r === "all" ? "All Rooms" : `Room ${r}`}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Room-grouped recording list */}
+      {loading ? (
+        <div className="text-center text-gray-400 py-12">
+          <RefreshCw size={20} className="inline animate-spin mr-2" />Loading recordings...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border p-12 text-center text-gray-400">
+          <Video size={48} className="mx-auto mb-3 opacity-50" />
+          <p className="font-medium text-gray-600">No recordings found</p>
+          <p className="text-sm mt-1">
+            {recordings.length > 0 ? (
+              "Try changing the filter or search term."
+            ) : (
+              <>Schedule a class from <Link to="/windows/booking" className="text-blue-600 hover:underline">Windows → Booking</Link> and the device will auto-record.</>
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([room, recs]) => {
+            const isOpen = expandedRooms[room] !== false;
+            const sourceDevice = devices.find((d) => String(d.roomNumber) === String(room));
+            const loc = locationText(sourceDevice);
+            return (
+              <div key={room} className="rounded-xl overflow-hidden border border-slate-200">
+                {/* Room header */}
+                <button
+                  onClick={() => toggleRoom(room)}
+                  className="w-full flex items-center justify-between px-5 py-4 bg-gradient-to-r from-slate-800 to-slate-700 text-white hover:from-slate-700 hover:to-slate-600 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
+                      <DoorOpen size={20} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1">
+                        {loc ? <><MapPin size={9} /> {loc}</> : "Room"}
+                      </p>
+                      <h3 className="text-lg font-bold">{room === "Unassigned" ? "Unassigned" : `Room ${room}`}</h3>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {sourceDevice && (
+                      <Link
+                        to={`/windows/devices/${sourceDevice.deviceId}/remote`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full flex items-center gap-1"
+                      >
+                        Device console <ChevronRight size={12} />
+                      </Link>
                     )}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    <span className="text-xs bg-indigo-500/80 px-3 py-1 rounded-full font-medium">
+                      {recs.length} recording{recs.length !== 1 ? "s" : ""}
+                    </span>
+                    <ChevronDown size={18} className={`transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                  </div>
+                </button>
 
-      {selected && (
-        <PlayerModal recording={selected} onClose={() => setSelected(null)} />
+                {isOpen && (
+                  <div className="bg-slate-50 p-4 space-y-2">
+                    {recs.map((rec) => (
+                      <RecordingCard
+                        key={rec._id}
+                        rec={rec}
+                        onPlay={() => setPlayingRec(rec)}
+                        onDownload={() => handleDownload(rec)}
+                        onDelete={() => handleDelete(rec)}
+                        isDownloading={downloadingId === rec._id}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {playingRec && (
+        <PlayerModal recording={playingRec} onClose={() => setPlayingRec(null)} />
       )}
     </div>
   );
 }
 
-function RecordingRow({ r, devices, onPlay, onDelete, onDownload, isDownloading }) {
-  const room = r.scheduledClass?.roomNumber || r.roomNumber || "?";
-  const title = r.title || r.scheduledClass?.title || "—";
-  const courseName = r.scheduledClass?.courseName;
-  const sourceDevice = devices.find((d) => String(d.roomNumber) === String(room));
-  const status = (r.status || "").toLowerCase();
-  const bytes = r.mergedFileSize || r.fileSize || 0;
+// ── Recording card (mirrors Android Recordings.jsx recording card) ────────────
+
+function RecordingCard({ rec, onPlay, onDownload, onDelete, isDownloading }) {
+  const sc = rec.scheduledClass;
+  const status = (rec.status || "").toLowerCase();
+  const meta = statusMeta(status);
+  const playable = rec.mergedVideoUrl && status === "completed";
+  const inProgress = status === "recording" || status === "merging" || status === "uploading";
+  const bytes = rec.mergedFileSize || rec.fileSize || 0;
 
   return (
-    <tr className="border-b border-slate-100 hover:bg-slate-50">
-      <td className="py-2 px-3 max-w-xs">
-        <div className="font-medium text-slate-800 truncate">{title}</div>
-        {courseName && (
-          <div className="text-xs text-slate-500 truncate">{courseName}</div>
+    <div className="flex items-stretch bg-white rounded-xl border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all overflow-hidden group">
+      {/* Thumbnail */}
+      <div
+        className={`w-44 flex-shrink-0 bg-gray-900 flex items-center justify-center relative ${playable ? "cursor-pointer" : ""}`}
+        onClick={() => playable && onPlay()}
+      >
+        <Video size={28} className="text-gray-600" />
+        {playable && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+              <Play size={18} className="text-indigo-600 ml-0.5" fill="currentColor" />
+            </div>
+          </div>
         )}
-      </td>
-      <td className="py-2 px-3">
-        {sourceDevice ? (
-          <Link
-            to={`/windows/devices/${sourceDevice.deviceId}/remote`}
-            className="text-blue-600 hover:underline text-xs flex items-center gap-1"
-          >
-            Room {room} <ChevronRight size={12} />
-          </Link>
-        ) : (
-          <span className="text-xs">Room {room}</span>
+        {status === "recording" && (
+          <span className="absolute bottom-2 left-2 flex items-center gap-1.5 text-[10px] text-red-400">
+            <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" /> LIVE
+          </span>
         )}
-      </td>
-      <td className="py-2 px-3 text-xs">
-        {r.recordingStart ? new Date(r.recordingStart).toLocaleString() : "—"}
-      </td>
-      <td className="py-2 px-3 font-mono text-xs">{formatDuration(r.duration)}</td>
-      <td className="py-2 px-3 text-xs">{formatBytes(bytes)}</td>
-      <td className="py-2 px-3"><StatusBadge status={r.status} mergeStatus={r.mergeStatus} /></td>
-      <td className="py-2 px-3">
-        <div className="flex items-center gap-2">
-          {r.mergedVideoUrl ? (
-            <>
-              <button
-                onClick={onPlay}
-                className="text-xs flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded"
-                title="Play in modal"
-              >
-                <Play size={12} /> Play
-              </button>
-              <button
-                onClick={onDownload}
-                disabled={isDownloading}
-                className="text-slate-500 hover:text-slate-800 disabled:opacity-50 disabled:cursor-wait"
-                title={isDownloading ? "Downloading…" : "Download"}
-              >
-                {isDownloading ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Download size={14} />
-                )}
-              </button>
-            </>
-          ) : (
-            <span className="text-xs text-slate-400">—</span>
+        {rec.duration > 0 && (
+          <span className="absolute bottom-2 right-2 text-[10px] bg-black/70 text-white px-1.5 py-0.5 rounded">
+            {formatDuration(rec.duration)}
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
+        <div>
+          <div className="flex items-start gap-2 mb-0.5">
+            <h4 className="font-semibold text-gray-800 truncate flex-1 text-sm">
+              {rec.title || sc?.title || "Untitled recording"}
+            </h4>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium border ${meta.cls}`}>
+                {inProgress && status !== "recording" && <Loader2 size={9} className="animate-spin" />}
+                {meta.label}
+              </span>
+            </div>
+          </div>
+          {sc && (sc.courseName || sc.teacherName) && (
+            <p className="text-xs text-gray-500 truncate">
+              {sc.courseName}
+              {sc.teacherName && <span className="text-gray-400"> | {sc.teacherName}</span>}
+            </p>
           )}
-          {/* Delete is always available regardless of merge state — orphan
-              "merging" rows from killed recordings should also be cleanable.
-              The confirmation dialog (in handleDelete) covers operator safety. */}
-          <button
-            onClick={onDelete}
-            className="text-slate-400 hover:text-red-600 ml-auto"
-            title="Delete recording"
-          >
-            <Trash2 size={14} />
-          </button>
         </div>
-      </td>
-    </tr>
+
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center gap-3 text-[11px] text-gray-400">
+            {rec.recordingStart && (
+              <span className="flex items-center gap-1">
+                <CalendarDays size={11} /> {new Date(rec.recordingStart).toLocaleDateString()}
+              </span>
+            )}
+            {rec.recordingStart && (
+              <span className="flex items-center gap-1">
+                <Clock size={11} /> {new Date(rec.recordingStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <HardDrive size={11} /> {formatBytes(bytes)}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            {playable && (
+              <>
+                <button onClick={onPlay}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">
+                  <Play size={11} /> Play
+                </button>
+                <button onClick={onDownload} disabled={isDownloading}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-green-50 text-green-600 hover:bg-green-100 transition disabled:opacity-50 disabled:cursor-wait">
+                  {isDownloading
+                    ? <><Loader2 size={11} className="animate-spin" /> Downloading…</>
+                    : <><Download size={11} /> Download</>}
+                </button>
+              </>
+            )}
+            <button onClick={onDelete}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-red-50 text-red-500 hover:bg-red-100 transition">
+              <Trash2 size={11} /> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function StatusBadge({ status, mergeStatus }) {
-  const s = (status || "").toLowerCase();
-  const cfg = {
-    recording: { cls: "bg-blue-100 text-blue-700", icon: Radio, label: "Recording" },
-    merging:   { cls: "bg-yellow-100 text-yellow-700", icon: Loader2, label: "Merging" },
-    completed: { cls: "bg-green-100 text-green-700", icon: CheckCircle2, label: "Completed" },
-    failed:    { cls: "bg-red-100 text-red-700", icon: XCircle, label: "Failed" },
-  };
-  const c = cfg[s] || { cls: "bg-slate-100 text-slate-600", icon: Clock, label: status || "?" };
-  const Icon = c.icon;
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full ${c.cls}`}>
-      <Icon size={10} className={s === "merging" || s === "recording" ? "animate-pulse" : ""} />
-      {c.label}
-      {mergeStatus && mergeStatus !== "ready" && s !== "merging" && (
-        <span className="text-[9px] opacity-70 ml-1">· {mergeStatus}</span>
-      )}
-    </span>
-  );
-}
+// ── Video player modal (mirrors Android Recordings.jsx player modal) ──────────
 
 function PlayerModal({ recording, onClose }) {
   const [downloading, setDownloading] = useState(false);
+  const sc = recording.scheduledClass;
+
   const handleDownload = async () => {
     if (downloading) return;
     setDownloading(true);
@@ -387,49 +468,42 @@ function PlayerModal({ recording, onClose }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="relative w-full max-w-4xl mx-4 bg-gray-900 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-3 bg-gray-950 border-b border-gray-800">
-          <h2 className="text-white font-medium text-sm">
-            {recording.title || recording.scheduledClass?.title || "Recording"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white px-2 py-1"
-          >
-            ✕
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-gray-900 rounded-2xl overflow-hidden max-w-5xl w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 bg-gray-800">
+          <div>
+            <h3 className="text-white font-semibold">{recording.title || sc?.title || "Recording"}</h3>
+            <p className="text-gray-400 text-sm">
+              Room {sc?.roomNumber || recording.roomNumber || "?"}
+              {sc?.courseName && ` | ${sc.courseName}`}
+              {sc?.teacherName && ` — ${sc.teacherName}`}
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-700 transition">
+            <X size={22} />
           </button>
         </div>
-        <div className="aspect-video bg-black">
-          <video
-            src={recording.mergedVideoUrl}
-            controls
-            autoPlay
-            className="w-full h-full"
-            preload="metadata"
-          />
+        <div className="bg-black aspect-video">
+          <video src={recording.mergedVideoUrl} controls autoPlay preload="metadata" className="w-full h-full" />
         </div>
-        <div className="px-5 py-2 bg-gray-950 text-[11px] text-gray-500 border-t border-gray-800 flex items-center justify-between">
-          <span>
-            Duration: {formatDuration(recording.duration)} · Size: {formatBytes(recording.mergedFileSize || recording.fileSize)}
-          </span>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="text-blue-400 hover:underline flex items-center gap-1 disabled:opacity-50 disabled:cursor-wait"
-          >
-            {downloading ? (
-              <>
-                <Loader2 size={12} className="animate-spin" /> Downloading…
-              </>
-            ) : (
-              <>
-                <Download size={12} /> Download
-              </>
+        <div className="flex items-center justify-between px-5 py-3 bg-gray-800">
+          <div className="flex items-center gap-6 text-xs text-gray-400">
+            <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(recording.duration)}</span>
+            <span className="flex items-center gap-1">
+              <HardDrive size={12} /> {formatBytes(recording.mergedFileSize || recording.fileSize)}
+            </span>
+            {recording.recordingStart && (
+              <span className="flex items-center gap-1">
+                <CalendarDays size={12} /> {new Date(recording.recordingStart).toLocaleString()}
+              </span>
             )}
+          </div>
+          <button onClick={handleDownload} disabled={downloading}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-wait">
+            {downloading
+              ? <><Loader2 size={16} className="animate-spin" /> Downloading…</>
+              : <><Download size={16} /> Download</>}
           </button>
         </div>
       </div>

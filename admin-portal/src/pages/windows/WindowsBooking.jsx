@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   CalendarPlus, RefreshCw, AlertTriangle, CheckCircle2, Wifi, WifiOff,
   List, Upload, Search, Filter, Trash2, QrCode, Download, FileText,
-  X, Clock, Video, Plus, Activity,
+  X, Clock, Video, Plus, Activity, MapPin,
 } from "lucide-react";
 import api from "../../services/api";
 import { winDevices } from "../../services/windowsApi";
@@ -41,6 +41,9 @@ export default function WindowsBooking() {
             deviceName: x.name,
             isOnline: x.isOnline,
             deviceId: x.deviceId,
+            campus: x.campus || "",
+            block: x.block || "",
+            floor: x.floor || "",
           }));
         const seen = new Set();
         setWindowsRooms(
@@ -341,7 +344,7 @@ function ScheduleTab({ windowsRooms }) {
             >
               {windowsRooms.map((r) => (
                 <option key={r.deviceId} value={r.roomNumber}>
-                  Room {r.roomNumber} — {r.deviceName} {r.isOnline ? "✅ Online" : "⚠ Offline"}
+                  {roomLoc(r) ? `${roomLoc(r)} · ` : ""}Room {r.roomNumber} — {r.deviceName} {r.isOnline ? "✅ Online" : "⚠ Offline"}
                 </option>
               ))}
             </select>
@@ -583,7 +586,7 @@ function ListTab({ windowsRooms }) {
             <option value="all">All</option>
             {windowsRooms.map((r) => (
               <option key={r.roomNumber} value={r.roomNumber}>
-                Room {r.roomNumber}
+                {roomLoc(r) ? `${roomLoc(r)} · ` : ""}Room {r.roomNumber}
               </option>
             ))}
           </select>
@@ -632,6 +635,7 @@ function ListTab({ windowsRooms }) {
                 <ClassRow
                   key={c._id}
                   c={c}
+                  loc={roomLoc(windowsRooms.find((r) => String(r.roomNumber) === String(c.roomNumber)))}
                   onDelete={() => handleDelete(c)}
                   onQr={() => handleGenerateQr(c)}
                 />
@@ -655,7 +659,7 @@ function ListTab({ windowsRooms }) {
   );
 }
 
-function ClassRow({ c, onDelete, onQr }) {
+function ClassRow({ c, loc, onDelete, onQr }) {
   const status = (c.status || "scheduled").toLowerCase();
   const cfg = {
     scheduled: "bg-blue-100 text-blue-700",
@@ -677,7 +681,10 @@ function ClassRow({ c, onDelete, onQr }) {
           {c.teacherName ? ` · ${c.teacherName}` : ""}
         </div>
       </td>
-      <td className="py-2 px-3 text-xs">Room {c.roomNumber}</td>
+      <td className="py-2 px-3 text-xs">
+        <div className="text-slate-700">Room {c.roomNumber}</div>
+        {loc && <div className="text-[10px] text-slate-400">{loc}</div>}
+      </td>
       <td className="py-2 px-3 text-xs">
         {date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
         {isPast && (
@@ -1127,22 +1134,35 @@ function DayGantt({ schedule, selStart, selEnd, room, date, onClickTime }) {
   );
 }
 
+// "Campus · Block · Floor" for a Windows room record — only the parts present.
+function roomLoc(r) {
+  if (!r) return "";
+  return [r.campus, r.block, r.floor && `Floor ${r.floor}`].filter(Boolean).join(" · ");
+}
+
 function RoomHint({ room }) {
   if (!room) return null;
+  const loc = roomLoc(room);
   return (
-    <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-      {room.isOnline ? (
-        <>
-          <Wifi size={12} className="text-emerald-500" />
-          {room.deviceName} is online — heartbeat fresh.
-        </>
-      ) : (
-        <>
-          <WifiOff size={12} className="text-amber-500" />
-          {room.deviceName} is offline. Class is still saved; auto-starts when device comes back.
-        </>
-      )}
-    </p>
+    <div className="mt-1 space-y-0.5">
+      <p className="text-xs text-slate-600 flex items-center gap-1">
+        <MapPin size={12} className="text-slate-400" />
+        {loc ? `${loc} · ` : ""}Room {room.roomNumber}
+      </p>
+      <p className="text-xs text-slate-500 flex items-center gap-1">
+        {room.isOnline ? (
+          <>
+            <Wifi size={12} className="text-emerald-500" />
+            {room.deviceName} is online — heartbeat fresh.
+          </>
+        ) : (
+          <>
+            <WifiOff size={12} className="text-amber-500" />
+            {room.deviceName} is offline. Class is still saved; auto-starts when device comes back.
+          </>
+        )}
+      </p>
+    </div>
   );
 }
 

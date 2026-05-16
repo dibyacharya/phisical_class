@@ -1,29 +1,52 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
-  Cpu, RefreshCw, Search, Radio, AlertTriangle, FileText,
-  Camera, Power, ChevronRight, Filter, Wifi, WifiOff, HardDrive,
-  Video, X, Monitor, MemoryStick, Trash2, Square,
+  Cpu, Wifi, WifiOff, CircleDot, Trash2, Square, RefreshCw,
+  Camera, Mic, Monitor, HardDrive, MemoryStick, AlertTriangle,
+  ChevronDown, ChevronUp, Clock, Signal, Terminal, Download,
+  Power, FileText, Radio, MapPin,
 } from "lucide-react";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
 
-const FILTER_OPTIONS = [
-  { id: "all", label: "All" },
-  { id: "online", label: "Online" },
-  { id: "recording", label: "Recording" },
-  { id: "live", label: "Live now" },
-  { id: "warning", label: "Disk warn / offline" },
-];
+// ── helpers ──────────────────────────────────────────────────────────────────
+// Visual layout mirrors the Android Devices page (src/pages/Devices.jsx) so the
+// admin portal looks identical across the TV and Mini-PC fleets. Wired to the
+// Windows API + Windows health fields.
+
+const fmtTime = (iso) =>
+  iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "–";
+
+function UsageBar({ value, warn = 75, danger = 90 }) {
+  if (value == null) return <span className="text-xs text-gray-400">–</span>;
+  const color = value >= danger ? "bg-red-500" : value >= warn ? "bg-yellow-400" : "bg-green-500";
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="flex-1 bg-gray-100 rounded-full h-1.5 min-w-0">
+        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(value, 100)}%` }} />
+      </div>
+      <span className="text-xs text-gray-600 shrink-0">{value}%</span>
+    </div>
+  );
+}
+
+function HardwareIcon({ ok, Icon, label, tooltip }) {
+  const cls = ok === true ? "text-green-600" : ok === false ? "text-red-500" : "text-gray-400";
+  return (
+    <div className="flex items-center gap-1" title={tooltip || label}>
+      <Icon size={13} className={cls} />
+      <span className={`text-xs ${cls}`}>{label}</span>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function WindowsDevices() {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [selected, setSelected] = useState(null);
   const [liveWatchTarget, setLiveWatchTarget] = useState(null);
 
   const load = useCallback(async () => {
@@ -46,48 +69,40 @@ export default function WindowsDevices() {
     return () => clearInterval(t);
   }, [load]);
 
-  async function sendCommand(deviceId, command) {
+  const sendCommand = async (deviceId, command) => {
     try {
       await winDevices.issueCommand(deviceId, command, {});
       alert(`Command "${command}" queued.`);
     } catch (e) {
       alert(`Failed: ${e.message}`);
     }
-  }
+  };
 
-  async function forceStopRecording(d) {
+  const forceStopRecording = async (d) => {
     const label = d.name || `Room ${d.roomNumber}`;
-    if (
-      !confirm(
-        `Force-stop the current recording on "${label}"?\n\n` +
-        `The recording will end immediately. Whatever chunks have been ` +
-        `captured will go through the normal post-process + Azure upload ` +
-        `pipeline (concat + composite PIP + upload). You'll see the ` +
-        `result in Windows → Recordings within 1-2 minutes.\n\nContinue?`
-      )
-    ) return;
+    if (!confirm(
+      `Force-stop the current recording on "${label}"?\n\n` +
+      `The recording ends immediately. Captured chunks go through the normal ` +
+      `post-process + upload pipeline. Result appears in Windows → Recordings ` +
+      `within 1-2 minutes.\n\nContinue?`
+    )) return;
     try {
       await winDevices.issueCommand(d.deviceId, "stop_recording", {});
-      alert(`Stop command queued. Device picks it up on next heartbeat (~30s).`);
-      // Refresh in 35s so the user sees the post-stop state.
+      alert("Stop command queued. Device picks it up on next heartbeat (~30s).");
       setTimeout(load, 35_000);
     } catch (e) {
       alert(`Failed: ${e.message}`);
     }
-  }
+  };
 
-  async function deleteDevice(d) {
+  const deleteDevice = async (d) => {
     const label = d.name || `Room ${d.roomNumber}`;
-    if (
-      !confirm(
-        `Delete "${label}" (${d.deviceId.substring(0, 18)}...) from the database?\n\n` +
-        `This DOES NOT uninstall the recorder on the device — the .exe stays running. ` +
-        `Next time the device heartbeats, it'll re-register automatically with the same ` +
-        `license key + room number (if first-run.json or appsettings.json is still present).\n\n` +
-        `To fully decommission a device: (1) Delete here, (2) Uninstall the recorder ` +
-        `via Settings → Apps on the device.\n\nContinue?`
-      )
-    ) return;
+    if (!confirm(
+      `Delete "${label}" (${d.deviceId.substring(0, 18)}...) from the database?\n\n` +
+      `This does NOT uninstall the recorder — the .exe keeps running and will ` +
+      `re-register on the next heartbeat. To fully decommission: delete here, ` +
+      `then uninstall via Settings → Apps on the device.\n\nContinue?`
+    )) return;
     try {
       await winDevices.deregister(d._id);
       alert(`"${label}" deleted from the database.`);
@@ -95,128 +110,105 @@ export default function WindowsDevices() {
     } catch (e) {
       alert(`Failed to delete: ${e.message}`);
     }
-  }
+  };
 
-  const filtered = useMemo(() => {
-    return devices.filter((d) => {
-      if (filter !== "all") {
-        const liveState = d.health?.liveWatch?.state;
-        const diskState = d.health?.diskGovernor?.state;
-        if (filter === "online" && !d.isOnline) return false;
-        if (filter === "recording" && !d.health?.recording?.isRecording) return false;
-        if (filter === "live" && liveState !== "Connected") return false;
-        if (filter === "warning") {
-          const hasWarning =
-            !d.isOnline ||
-            (diskState && diskState !== "Normal");
-          if (!hasWarning) return false;
-        }
-      }
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        const fields = [
-          d.name, d.deviceId, d.roomNumber, d.licenseTier,
-        ].filter(Boolean).map(String).map((v) => v.toLowerCase());
-        if (!fields.some((f) => f.includes(q))) return false;
-      }
-      return true;
-    });
-  }, [devices, filter, search]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="animate-spin text-blue-500" size={32} />
-        <span className="ml-3 text-slate-500">Loading Windows devices...</span>
-      </div>
-    );
-  }
+  // ── Fleet stats (mirrors Android Devices stat cards) ──────────────────────
+  const online = devices.filter((d) => d.isOnline);
+  const recording = devices.filter((d) => d.health?.recording?.isRecording);
+  const outdated = devices.filter((d) => !d.appVersionCode);
+  const alerts = devices.filter((d) => {
+    const disk = d.health?.diskGovernor?.state;
+    return !d.isOnline || (disk && disk !== "Normal");
+  });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Windows Devices</h1>
-          <p className="text-sm text-slate-500">
-            {filtered.length} of {devices.length} registered
-          </p>
-        </div>
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Windows Devices</h2>
         <button
           onClick={load}
-          disabled={refreshing}
-          className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
-          title="Refresh"
+          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
         >
-          <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
+          <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded p-3 flex items-center gap-2">
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 mb-4 flex items-center gap-2">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search name, device id, room, tier..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center gap-3">
+          <div className="bg-blue-100 p-2.5 rounded-lg"><Cpu size={20} className="text-blue-600" /></div>
+          <div><p className="text-xs text-gray-500">Total</p><p className="text-xl font-bold text-gray-800">{devices.length}</p></div>
         </div>
-        <div className="flex items-center gap-1 text-xs">
-          <Filter size={12} className="text-slate-400" />
-          {FILTER_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => setFilter(opt.id)}
-              className={`px-2 py-1 rounded ${
-                filter === opt.id
-                  ? "bg-blue-100 text-blue-700"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center gap-3">
+          <div className="bg-green-100 p-2.5 rounded-lg"><Wifi size={20} className="text-green-600" /></div>
+          <div><p className="text-xs text-gray-500">Online</p><p className="text-xl font-bold text-gray-800">{online.length}</p></div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center gap-3">
+          <div className="bg-red-100 p-2.5 rounded-lg"><CircleDot size={20} className="text-red-600" /></div>
+          <div><p className="text-xs text-gray-500">Recording</p><p className="text-xl font-bold text-gray-800">{recording.length}</p></div>
+        </div>
+        {outdated.length > 0 && (
+          <Link to="/windows/app-update" className="rounded-xl shadow-sm border p-4 flex items-center gap-3 bg-red-50 border-red-200 hover:bg-red-100 transition-colors">
+            <div className="bg-red-100 p-2.5 rounded-lg"><Download size={20} className="text-red-600" /></div>
+            <div><p className="text-xs text-gray-500">Outdated</p><p className="text-xl font-bold text-red-700">{outdated.length}</p></div>
+          </Link>
+        )}
+        <div className={`rounded-xl shadow-sm border p-4 flex items-center gap-3 ${alerts.length > 0 ? "bg-amber-50 border-amber-200" : "bg-white"}`}>
+          <div className={`p-2.5 rounded-lg ${alerts.length > 0 ? "bg-amber-100" : "bg-gray-100"}`}>
+            <AlertTriangle size={20} className={alerts.length > 0 ? "text-amber-600" : "text-gray-400"} />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Alerts</p>
+            <p className={`text-xl font-bold ${alerts.length > 0 ? "text-amber-700" : "text-gray-800"}`}>{alerts.length}</p>
+          </div>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">
-          {devices.length === 0
-            ? "No Windows devices registered yet. Install the recorder on a Mini PC and complete the wizard."
-            : "No devices match the current filters."}
+      {/* Setup info */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+        <h4 className="font-medium text-blue-800 mb-1">Setup New Device</h4>
+        <p className="text-sm text-blue-600">
+          Install <strong>LectureLens-Setup.exe</strong> on the classroom Mini PC and complete
+          the wizard (License Key + Room). After install, set Windows Sound Output to{" "}
+          <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">HDMI / Intel Display Audio</code>.
+          The service auto-configures everything else and registers automatically.
+        </p>
+      </div>
+
+      {/* Device cards */}
+      {loading ? (
+        <div className="p-12 text-center text-gray-400">Loading...</div>
+      ) : devices.length === 0 ? (
+        <div className="p-12 text-center text-gray-400 bg-white rounded-xl border">
+          <Cpu size={48} className="mx-auto mb-3 opacity-50" />
+          <p>No Windows devices registered yet.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((d) => (
+        <div className="space-y-3">
+          {devices.map((device) => (
             <DeviceCard
-              key={d._id}
-              d={d}
-              onDetails={() => setSelected(d)}
+              key={device._id}
+              device={device}
+              onForceStop={() => forceStopRecording(device)}
+              onDelete={() => deleteDevice(device)}
+              onCommand={(cmd) => sendCommand(device.deviceId, cmd)}
               onWatchLive={() =>
                 setLiveWatchTarget({
-                  deviceId: d.deviceId,
-                  title: d.name || `Room ${d.roomNumber}`,
+                  deviceId: device.deviceId,
+                  title: device.name || `Room ${device.roomNumber}`,
                 })
               }
-              onCommand={(cmd) => sendCommand(d.deviceId, cmd)}
-              onForceStop={() => forceStopRecording(d)}
-              onDelete={() => deleteDevice(d)}
             />
           ))}
         </div>
       )}
 
-      {selected && (
-        <DeviceDetailModal device={selected} onClose={() => setSelected(null)} />
-      )}
       {liveWatchTarget && (
         <WindowsLiveWatchModal
           deviceId={liveWatchTarget.deviceId}
@@ -228,270 +220,259 @@ export default function WindowsDevices() {
   );
 }
 
-function DeviceCard({ d, onDetails, onWatchLive, onCommand, onForceStop, onDelete }) {
-  const h = d.health || {};
-  const live = h.liveWatch?.state;
-  const disk = h.diskGovernor?.state;
-  const isRecording = h.recording?.isRecording;
-  const canLive = live === "Connected" && isRecording;
+// ── Device row card (mirrors Android Devices.jsx DeviceCard) ──────────────────
 
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow transition">
-      <div className="flex items-center gap-3 mb-3">
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            d.isOnline ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"
-          }`}
-        >
-          <Cpu size={20} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-slate-800 truncate">
-            {d.name || `Room ${d.roomNumber}`}
-          </h3>
-          <p className="text-[11px] text-slate-500 font-mono truncate">
-            {d.deviceId}
-          </p>
-        </div>
-        <StatusBadge online={d.isOnline} recording={isRecording} />
-      </div>
-
-      {/* Health metrics row */}
-      <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
-        <Metric icon={Cpu} label="CPU" value={h.cpu?.usagePercent != null ? `${h.cpu.usagePercent}%` : "—"} />
-        <Metric icon={MemoryStick} label="RAM" value={h.ram?.freeGB != null ? `${h.ram.freeGB.toFixed(1)} GB` : "—"} />
-        <Metric icon={HardDrive} label="Disk" value={h.disk?.freeGB != null ? `${h.disk.freeGB.toFixed(1)} GB` : "—"} />
-        <Metric icon={Wifi} label="App" value={d.appVersionName || "—"} />
-      </div>
-
-      {/* Special-state badges */}
-      <div className="flex flex-wrap gap-1 mb-3 min-h-[20px]">
-        {disk && disk !== "Normal" && (
-          <span
-            className={`text-[10px] px-2 py-0.5 rounded-full ${
-              disk === "HardStop"
-                ? "bg-red-100 text-red-700"
-                : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            Disk: {disk}
-          </span>
-        )}
-        {live && live !== "Idle" && (
-          <span
-            className={`text-[10px] px-2 py-0.5 rounded-full ${
-              live === "Connected"
-                ? "bg-red-100 text-red-700"
-                : live === "Failed"
-                ? "bg-red-100 text-red-700"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            Live: {live}
-          </span>
-        )}
-        {d.licenseTier && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 uppercase">
-            {d.licenseTier}
-          </span>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-        <Link
-          to={`/windows/devices/${d.deviceId}/remote`}
-          className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1"
-        >
-          Manage <ChevronRight size={12} />
-        </Link>
-        {canLive && (
-          <button
-            onClick={onWatchLive}
-            className="text-xs px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded flex items-center gap-1"
-          >
-            <Radio size={12} className="animate-pulse" /> Watch Live
-          </button>
-        )}
-        {isRecording && (
-          <button
-            onClick={onForceStop}
-            className="text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded flex items-center gap-1"
-            title="Force-stop the active recording (will run post-process + Azure upload normally)"
-          >
-            <Square size={12} fill="currentColor" /> Stop Recording
-          </button>
-        )}
-        <button
-          onClick={onDetails}
-          className="text-xs px-3 py-1.5 border border-slate-300 hover:bg-slate-50 rounded"
-        >
-          Details
-        </button>
-        <button
-          onClick={() => onCommand("pull_logs")}
-          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
-          title="Pull logs"
-        >
-          <FileText size={14} />
-        </button>
-        <button
-          onClick={() => onCommand("capture_screenshot")}
-          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
-          title="Screenshot"
-        >
-          <Camera size={14} />
-        </button>
-        <button
-          onClick={() => onCommand("restart_service")}
-          className="p-1.5 hover:bg-slate-100 rounded text-slate-500"
-          title="Restart service"
-        >
-          <Power size={14} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-1.5 hover:bg-red-50 rounded text-red-500 ml-auto"
-          title="Delete device from database"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function StatusBadge({ online, recording }) {
-  if (recording) {
-    return (
-      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold flex items-center gap-1">
-        <Radio size={10} className="animate-pulse" /> REC
-      </span>
-    );
-  }
-  if (online) {
-    return (
-      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold flex items-center gap-1">
-        <Wifi size={10} /> Online
-      </span>
-    );
-  }
-  return (
-    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold flex items-center gap-1">
-      <WifiOff size={10} /> Offline
-    </span>
-  );
-}
-
-function Metric({ icon: Icon, label, value }) {
-  return (
-    <div className="flex items-center gap-1.5 text-slate-600">
-      <Icon size={12} className="text-slate-400 flex-shrink-0" />
-      <span className="text-slate-400 min-w-[28px]">{label}</span>
-      <span className="font-medium truncate">{value}</span>
-    </div>
-  );
-}
-
-function DeviceDetailModal({ device, onClose }) {
-  const hw = device.detectedHardware;
+function DeviceCard({ device, onForceStop, onDelete, onCommand, onWatchLive }) {
+  const [expanded, setExpanded] = useState(false);
+  const online = device.isOnline;
   const h = device.health || {};
+  const hw = device.detectedHardware;
+  const isRecording = h.recording?.isRecording;
+  const disk = h.diskGovernor?.state;
+  const live = h.liveWatch?.state;
+  const canLive = live === "Connected" && isRecording;
+  const hasCritical = !online || (disk && disk !== "Normal");
+
+  // Windows health: CPU reports usagePercent; RAM/Disk report freeGB.
+  const cameraOk = hw?.cameras?.length ? true : online ? false : null;
+  const micOk = hw?.microphones?.length ? true : online ? false : null;
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
-          <div>
-            <h2 className="font-semibold text-slate-800 text-sm">
+    <div className={`border rounded-xl bg-white shadow-sm overflow-hidden transition-all ${hasCritical ? "border-red-200" : "border-gray-100"}`}>
+      {/* Main row */}
+      <div className="p-4 flex items-start gap-4">
+        {/* Icon */}
+        <div className={`p-3 rounded-lg shrink-0 ${online ? "bg-green-100" : "bg-gray-100"}`}>
+          <Cpu size={24} className={online ? "text-green-600" : "text-gray-400"} />
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          {/* Name + badges */}
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <p className="font-semibold text-gray-800 truncate">
               {device.name || `Room ${device.roomNumber}`}
-            </h2>
-            <p className="text-xs text-slate-500 font-mono">{device.deviceId}</p>
+            </p>
+            {online ? (
+              <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                <Wifi size={10} /> Online
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-200">
+                <WifiOff size={10} /> Offline
+              </span>
+            )}
+            {isRecording && (
+              <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse">
+                <CircleDot size={10} /> Recording
+              </span>
+            )}
+            {live && live !== "Idle" && (
+              <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                live === "Connected"
+                  ? "text-red-700 bg-red-50 border-red-200"
+                  : live === "Failed"
+                  ? "text-red-700 bg-red-50 border-red-200"
+                  : "text-slate-600 bg-slate-50 border-slate-200"
+              }`}>
+                <Radio size={10} /> Live: {live}
+              </span>
+            )}
+            {disk && disk !== "Normal" && (
+              <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                disk === "HardStop"
+                  ? "text-red-700 bg-red-50 border-red-200"
+                  : "text-amber-700 bg-amber-50 border-amber-200"
+              }`}>
+                <AlertTriangle size={10} /> Disk: {disk}
+              </span>
+            )}
+            {device.licenseTier && (
+              <span className="flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200 uppercase">
+                {device.licenseTier}
+              </span>
+            )}
+            {device.appVersionName ? (
+              <span className="flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
+                v{device.appVersionName}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                <Download size={10} /> Outdated
+              </span>
+            )}
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4 overflow-y-auto">
-          <DetailGroup title="Identity">
-            <DetailRow label="Room" value={device.roomNumber} />
-            <DetailRow label="License tier" value={device.licenseTier} />
-            <DetailRow label="License status" value={device.licenseStatus} />
-            <DetailRow label="App version" value={`${device.appVersionName} (vc=${device.appVersionCode})`} />
-            <DetailRow label="Last heartbeat" value={device.lastHeartbeat ? new Date(device.lastHeartbeat).toLocaleString() : "Never"} />
-          </DetailGroup>
 
-          {hw && (
-            <DetailGroup title="Hardware inventory (snapshot at install)">
-              <DetailRow label="CPU" value={hw.cpuModel} />
-              <DetailRow label="RAM" value={`${hw.ramGB} GB`} />
-              <DetailRow label="Cameras" value={(hw.cameras || []).join(", ")} />
-              <DetailRow label="Microphones" value={(hw.microphones || []).join(", ")} />
-              <DetailRow label="Monitors" value={`${hw.monitorCount || 1}`} />
-              {hw.displays?.[0] && (
-                <DetailRow
-                  label="Primary display"
-                  value={`${hw.displays[0].name} · ${hw.displays[0].width}x${hw.displays[0].height} @ ${hw.displays[0].refreshRate}Hz`}
-                />
+          {/* Location hierarchy: Campus · Block · Floor · Room */}
+          <p className="text-sm text-gray-600 truncate flex items-center gap-1">
+            <MapPin size={12} className="text-gray-400 shrink-0" />
+            {[
+              device.campus,
+              device.block,
+              device.floor && `Floor ${device.floor}`,
+              `Room ${device.roomNumber || "–"}`,
+            ].filter(Boolean).join("  ·  ")}
+          </p>
+          {/* Network + device id */}
+          <p className="text-xs text-gray-400 truncate">
+            {device.ipAddress ? `${device.ipAddress}  ·  ` : ""}
+            <span className="font-mono">{device.deviceId}</span>
+          </p>
+
+          {/* Hardware quick status */}
+          <div className="flex items-center gap-4 mt-2">
+            <HardwareIcon ok={cameraOk} Icon={Camera} label="Camera"
+              tooltip={hw?.cameras?.join(", ") || "No camera detected"} />
+            <HardwareIcon ok={micOk} Icon={Mic} label="Mic"
+              tooltip={hw?.microphones?.join(", ") || "No microphone detected"} />
+            <HardwareIcon ok={online ? true : null} Icon={Monitor} label="Screen"
+              tooltip={hw?.displays?.[0]
+                ? `${hw.displays[0].width}x${hw.displays[0].height}`
+                : "gdigrab desktop capture"} />
+            <div className="flex-1 min-w-0">
+              {h.cpu?.usagePercent != null && (
+                <div className="mb-1">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Cpu size={11} className="text-gray-400" />
+                    <span className="text-[10px] text-gray-500">CPU</span>
+                  </div>
+                  <UsageBar value={h.cpu.usagePercent} />
+                </div>
               )}
-            </DetailGroup>
-          )}
+              <div className="flex items-center gap-4 text-[11px] text-gray-500">
+                {h.ram?.freeGB != null && (
+                  <span className="flex items-center gap-1">
+                    <MemoryStick size={11} className="text-gray-400" />
+                    RAM {h.ram.freeGB.toFixed(1)} GB free
+                  </span>
+                )}
+                {h.disk?.freeGB != null && (
+                  <span className="flex items-center gap-1">
+                    <HardDrive size={11} className="text-gray-400" />
+                    Disk {h.disk.freeGB.toFixed(1)} GB free
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-          {h.diskGovernor && (
-            <DetailGroup title="Disk Governor">
-              <DetailRow label="State" value={h.diskGovernor.state} />
-              <DetailRow
-                label="Free space"
-                value={h.diskGovernor.freeBytes ? `${(h.diskGovernor.freeBytes / 1e9).toFixed(2)} GB` : "—"}
-              />
-              <DetailRow
-                label="Last cleanup"
-                value={h.diskGovernor.lastCleanupAt ? new Date(h.diskGovernor.lastCleanupAt).toLocaleString() : "—"}
-              />
-            </DetailGroup>
-          )}
-
-          {h.liveWatch && (
-            <DetailGroup title="Live watch">
-              <DetailRow label="State" value={h.liveWatch.state || "Idle"} />
-              <DetailRow label="Room" value={h.liveWatch.roomName} />
-              <DetailRow label="Reconnects" value={String(h.liveWatch.reconnectCount ?? 0)} />
-            </DetailGroup>
+        {/* Actions */}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex items-center gap-1">
+            {isRecording && (
+              <button onClick={onForceStop}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100 transition">
+                <Square size={12} /> Stop
+              </button>
+            )}
+            {canLive && (
+              <button onClick={onWatchLive}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition">
+                <Radio size={12} className="animate-pulse" /> Watch Live
+              </button>
+            )}
+            <Link to={`/windows/devices/${device.deviceId}/remote`}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-600 hover:bg-purple-100 transition">
+              <Terminal size={12} /> Remote
+            </Link>
+            <button onClick={onDelete}
+              className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete device">
+              <Trash2 size={14} />
+            </button>
+            <button onClick={() => setExpanded(!expanded)}
+              className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+          {device.lastHeartbeat && (
+            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+              <Clock size={9} /> Heartbeat: {fmtTime(device.lastHeartbeat)}
+            </span>
           )}
         </div>
-        <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
-          <Link
-            to={`/windows/devices/${device.deviceId}/remote`}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg"
-          >
-            Open device console
-          </Link>
+      </div>
+
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div className="border-t bg-gray-50 p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+          {/* Identity */}
+          <div>
+            <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Signal size={12} /> Identity</p>
+            <div className="space-y-1 text-gray-500">
+              <p>Campus: <span className="text-gray-700">{device.campus || "–"}</span></p>
+              <p>Block: <span className="text-gray-700">{device.block || "–"}</span></p>
+              <p>Floor: <span className="text-gray-700">{device.floor || "–"}</span></p>
+              <p>Room: <span className="text-gray-700">{device.roomNumber || "–"}</span></p>
+              <p>License: <span className="text-gray-700">{device.licenseTier || "–"} ({device.licenseStatus || "?"})</span></p>
+              <p>App: <span className="text-gray-700">{device.appVersionName || "?"} (vc={device.appVersionCode || "?"})</span></p>
+              <p>Heartbeat: <span className="text-gray-700">{device.lastHeartbeat ? new Date(device.lastHeartbeat).toLocaleString() : "Never"}</span></p>
+            </div>
+          </div>
+
+          {/* Hardware inventory */}
+          <div>
+            <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Cpu size={12} /> Hardware</p>
+            <div className="space-y-1 text-gray-500">
+              {hw ? (
+                <>
+                  <p>CPU: <span className="text-gray-700">{hw.cpuModel || "?"}</span></p>
+                  <p>RAM: <span className="text-gray-700">{hw.ramGB ? `${hw.ramGB} GB` : "?"}</span></p>
+                  <p>Cameras: <span className="text-gray-700">{(hw.cameras || []).join(", ") || "None"}</span></p>
+                  <p>Mics: <span className="text-gray-700">{(hw.microphones || []).join(", ") || "None"}</span></p>
+                  {hw.displays?.[0] && (
+                    <p>Display: <span className="text-gray-700">
+                      {hw.displays[0].width}x{hw.displays[0].height} @ {hw.displays[0].refreshRate}Hz
+                    </span></p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-400">No hardware snapshot</p>
+              )}
+            </div>
+          </div>
+
+          {/* Disk Governor */}
+          <div>
+            <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><HardDrive size={12} /> Disk Governor</p>
+            <div className="space-y-1 text-gray-500">
+              {h.diskGovernor ? (
+                <>
+                  <p>State: <span className={h.diskGovernor.state === "Normal" ? "text-green-600" : "text-amber-600 font-medium"}>{h.diskGovernor.state}</span></p>
+                  <p>Free: <span className="text-gray-700">{h.diskGovernor.freeBytes ? `${(h.diskGovernor.freeBytes / 1e9).toFixed(2)} GB` : "–"}</span></p>
+                  <p>Last cleanup: <span className="text-gray-700">{h.diskGovernor.lastCleanupAt ? fmtTime(h.diskGovernor.lastCleanupAt) : "–"}</span></p>
+                </>
+              ) : (
+                <p className="text-gray-400">No data</p>
+              )}
+            </div>
+          </div>
+
+          {/* Live Watch + actions */}
+          <div>
+            <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Radio size={12} /> Live Watch</p>
+            <div className="space-y-1 text-gray-500 mb-2">
+              <p>State: <span className="text-gray-700">{h.liveWatch?.state || "Idle"}</span></p>
+              {h.liveWatch?.roomName && <p>Room: <span className="text-gray-700">{h.liveWatch.roomName}</span></p>}
+              <p>Reconnects: <span className="text-gray-700">{h.liveWatch?.reconnectCount ?? 0}</span></p>
+            </div>
+            <div className="flex flex-wrap gap-1 pt-2 border-t border-gray-200">
+              <button onClick={() => onCommand("pull_logs")}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100" title="Pull logs">
+                <FileText size={11} /> Logs
+              </button>
+              <button onClick={() => onCommand("capture_screenshot")}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100" title="Screenshot">
+                <Camera size={11} /> Screenshot
+              </button>
+              <button onClick={() => onCommand("restart_service")}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-slate-600 hover:bg-slate-100" title="Restart service">
+                <Power size={11} /> Restart
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailGroup({ title, children }) {
-  return (
-    <div>
-      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-        {title}
-      </h3>
-      <div className="bg-slate-50 border border-slate-200 rounded-lg divide-y divide-slate-200">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }) {
-  return (
-    <div className="flex items-center justify-between px-3 py-2 text-sm">
-      <span className="text-slate-500 text-xs">{label}</span>
-      <span className="font-medium text-slate-800 text-right max-w-[60%] truncate">
-        {value || "—"}
-      </span>
+      )}
     </div>
   );
 }
