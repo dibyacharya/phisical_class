@@ -442,6 +442,39 @@ exports.get = async (req, res) => {
 };
 
 /**
+ * PATCH /api/windows/devices/:id   (admin)
+ * Body: { name?, roomNumber?, campus?, block?, floor?, spaceCode? }
+ *
+ * 2026-05-16 — Admin edit of a device's location hierarchy. Devices that
+ * registered via the v2.3.8 auto-recovery path (no first-run.json present)
+ * come up with empty campus/block/floor; this lets an admin fill them in
+ * from the portal without reinstalling. Also covers relabelling when a
+ * Mini PC is physically moved to another room/block.
+ */
+exports.updateLocation = async (req, res) => {
+  try {
+    const device = await WindowsDevice.findOne({
+      $or: deviceLookupOr(req.params.id),
+    });
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    const { name, roomNumber, campus, block, floor, spaceCode } = req.body;
+    if (name !== undefined) device.name = name;
+    if (roomNumber !== undefined) device.roomNumber = roomNumber;
+    if (campus !== undefined) device.campus = campus;
+    if (block !== undefined) device.block = block;
+    if (floor !== undefined) device.floor = floor;
+    if (spaceCode !== undefined) device.spaceCode = spaceCode;
+
+    await device.save();
+    res.json({ message: "Device updated", device });
+  } catch (err) {
+    console.error("[Windows/updateLocation] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * POST /api/windows/devices/:id/command  (admin)
  * Body: { command, params }
  */

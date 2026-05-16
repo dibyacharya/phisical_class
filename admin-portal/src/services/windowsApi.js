@@ -34,6 +34,9 @@ async function api(path, opts = {}) {
 export const winDevices = {
   list: () => api("/devices"),
   get: (id) => api(`/devices/${id}`),
+  // Edit a device's location hierarchy (campus/block/floor/room) + name.
+  update: (id, fields) =>
+    api(`/devices/${id}`, { method: "PATCH", body: JSON.stringify(fields) }),
   deregister: (id) => api(`/devices/${id}`, { method: "DELETE" }),
   issueCommand: (id, command, params) =>
     api(`/devices/${id}/command`, {

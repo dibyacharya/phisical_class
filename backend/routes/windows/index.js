@@ -23,6 +23,9 @@ router.get("/devices/r2-config", windowsDeviceAuth, deviceCtrl.r2Config);
 // Admin-authenticated
 router.get("/devices", auth, adminOnly, deviceCtrl.list);
 router.get("/devices/:id", auth, adminOnly, deviceCtrl.get);
+// 2026-05-16 — admin edit of a device's location hierarchy (campus/block/
+// floor/room), for devices that registered with those fields empty.
+router.patch("/devices/:id", auth, adminOnly, deviceCtrl.updateLocation);
 router.delete("/devices/:id", auth, adminOnly, deviceCtrl.deregister);
 
 // ── Commands ──────────────────────────────────────────────

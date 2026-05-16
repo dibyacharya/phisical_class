@@ -4,7 +4,7 @@ import {
   Cpu, Wifi, WifiOff, CircleDot, Trash2, Square, RefreshCw,
   Camera, Mic, Monitor, HardDrive, MemoryStick, AlertTriangle,
   ChevronDown, ChevronUp, Clock, Signal, Terminal, Download,
-  Power, FileText, Radio, MapPin,
+  Power, FileText, Radio, MapPin, Pencil, X,
 } from "lucide-react";
 import { winDevices } from "../../services/windowsApi";
 import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
@@ -48,6 +48,7 @@ export default function WindowsDevices() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [liveWatchTarget, setLiveWatchTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -197,6 +198,7 @@ export default function WindowsDevices() {
               device={device}
               onForceStop={() => forceStopRecording(device)}
               onDelete={() => deleteDevice(device)}
+              onEdit={() => setEditTarget(device)}
               onCommand={(cmd) => sendCommand(device.deviceId, cmd)}
               onWatchLive={() =>
                 setLiveWatchTarget({
@@ -216,13 +218,122 @@ export default function WindowsDevices() {
           onClose={() => setLiveWatchTarget(null)}
         />
       )}
+
+      {editTarget && (
+        <EditLocationModal
+          device={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Edit device location modal ────────────────────────────────────────────────
+// Lets an admin fill in / correct a device's Campus · Block · Floor · Room
+// from the portal. Needed because devices that registered via the v2.3.8
+// auto-recovery path come up with those fields empty; also covers a Mini PC
+// being physically moved. Writes via PATCH /api/windows/devices/:id.
+
+// Module-level so its identity is stable across renders — defining an input
+// wrapper inside the modal's render would remount the <input> every keystroke
+// and drop focus.
+function LocField({ label, value, onChange, placeholder }) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+      />
+    </div>
+  );
+}
+
+function EditLocationModal({ device, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    name: device.name || "",
+    campus: device.campus || "",
+    block: device.block || "",
+    floor: device.floor || "",
+    roomNumber: device.roomNumber || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    if (!form.roomNumber.trim()) {
+      setError("Room number is required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await winDevices.update(device._id, {
+        name: form.name.trim(),
+        campus: form.campus.trim(),
+        block: form.block.trim(),
+        floor: form.floor.trim(),
+        roomNumber: form.roomNumber.trim(),
+      });
+      onSaved();
+    } catch (e) {
+      setError(e.message || "Update failed");
+      setSaving(false);
+    }
+  };
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <MapPin size={16} className="text-blue-600" /> Edit Device Location
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-2">{error}</div>
+          )}
+          <LocField label="Device Name" value={form.name} onChange={set("name")} placeholder="Smart PC - Room 001" />
+          <div className="grid grid-cols-2 gap-3">
+            <LocField label="Campus" value={form.campus} onChange={set("campus")} placeholder="Main Campus" />
+            <LocField label="Block" value={form.block} onChange={set("block")} placeholder="A" />
+            <LocField label="Floor" value={form.floor} onChange={set("floor")} placeholder="1" />
+            <LocField label="Room Number" value={form.roomNumber} onChange={set("roomNumber")} placeholder="001" />
+          </div>
+          <p className="text-[11px] text-gray-400">
+            Shown across Devices, Recordings and Booking. This only updates the admin
+            portal record — it does not change anything on the device itself.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t bg-gray-50">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition">
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving}
+            className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ── Device row card (mirrors Android Devices.jsx DeviceCard) ──────────────────
 
-function DeviceCard({ device, onForceStop, onDelete, onCommand, onWatchLive }) {
+function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchLive }) {
   const [expanded, setExpanded] = useState(false);
   const online = device.isOnline;
   const h = device.health || {};
@@ -376,6 +487,10 @@ function DeviceCard({ device, onForceStop, onDelete, onCommand, onWatchLive }) {
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-600 hover:bg-purple-100 transition">
               <Terminal size={12} /> Remote
             </Link>
+            <button onClick={onEdit}
+              className="p-2 text-blue-400 hover:bg-blue-50 rounded-lg transition" title="Edit location">
+              <Pencil size={14} />
+            </button>
             <button onClick={onDelete}
               className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete device">
               <Trash2 size={14} />
