@@ -46,6 +46,10 @@ router.post("/recordings/:id/admin-set-merged", auth, adminOnly, recordingCtrl.s
 router.post("/recordings", windowsDeviceAuth, recordingCtrl.create);
 router.post("/recordings/:id/chunk", windowsDeviceAuth, recordingCtrl.recordChunk);
 router.post("/recordings/:id/finalize", windowsDeviceAuth, recordingCtrl.finalize);
+// 2026-05-16 — intermediate lifecycle status (merging / uploading) reported by
+// the recorder between recording-stop and finalize, so the admin portal shows
+// the true phase instead of "recording" the whole time.
+router.post("/recordings/:id/status", windowsDeviceAuth, recordingCtrl.reportStatus);
 
 // ── Licenses ──────────────────────────────────────────────
 // Admin

@@ -285,6 +285,49 @@ exports.finalize = async (req, res) => {
 };
 
 /**
+ * POST /api/windows/recordings/:id/status   (device)
+ *
+ * 2026-05-16 — Intermediate lifecycle status from the recorder.
+ *
+ * After a recording stops, the device runs post-processing (chunk concat +
+ * PIP composite) and then uploads the final.mp4 — together ~2-3 minutes —
+ * before calling /finalize. Until /finalize the recording doc still said
+ * status="recording", so the admin portal couldn't distinguish "class is
+ * being recorded live" from "class ended, still processing/uploading".
+ *
+ * The recorder now POSTs "merging" (post-process start) then "uploading"
+ * (upload start) here, so the Recordings page reflects the true phase.
+ */
+exports.reportStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const allowed = ["recording", "merging", "uploading", "completed", "failed"];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: `Invalid status: ${status}` });
+    }
+
+    const rec = await WindowsRecording.findById(req.params.id);
+    if (!rec) return res.status(404).json({ error: "Recording not found" });
+
+    // Never regress a terminal state — once /finalize set "completed" (or a
+    // failure was recorded), a late status report must not undo it.
+    if (rec.status === "completed" || rec.status === "failed") {
+      return res.json({
+        message: "Recording already in a terminal state — status unchanged",
+        recording: rec,
+      });
+    }
+
+    rec.status = status;
+    await rec.save();
+    res.json({ message: "Status updated", recording: rec });
+  } catch (err) {
+    console.error("[WinRec/reportStatus] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * DELETE /api/windows/recordings/:id   (admin)
  *
  * Hard-deletes a recording row. Used to prune stuck `merging` / `recording`
