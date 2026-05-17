@@ -1,7 +1,9 @@
 const WindowsRecording = require("../../models/windows/WindowsRecording");
 const WindowsDevice = require("../../models/windows/WindowsDevice");
 const ScheduledClass = require("../../models/ScheduledClass");
+const Recording = require("../../models/Recording"); // Android recordings (shared R2 bucket)
 const { Readable } = require("stream");
+const { listAllObjects, deleteObjects } = require("../../utils/r2");
 
 /**
  * GET /api/windows/recordings
@@ -374,6 +376,158 @@ exports.setMerged = async (req, res) => {
     );
     res.json(rec);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── R2 storage audit / orphan cleanup (2026-05-17) ─────────────────────────
+//
+// Recordings deleted from the admin portal intentionally leave their R2 file
+// behind (cold-storage safety net). Over time R2 accumulates objects that no
+// recording document references. These helpers find + prune them.
+//
+// CRITICAL: the R2 bucket's `physical-class-recordings/` prefix is shared by
+// BOTH the Windows Mini-PC fleet (WindowsRecording collection) AND the Android
+// Smart-TV fleet (Recording collection, written by LiveKit Egress). The
+// "kept" set MUST union BOTH collections — otherwise this would delete every
+// Android recording. It also skips objects modified in the last 48h so an
+// in-flight recording whose document isn't finalized yet is never touched.
+
+const R2_RECENT_SKIP_MS = 48 * 60 * 60 * 1000;
+
+// Extract the bucket-relative object key from a stored URL or a bare key.
+function _r2KeyFromValue(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) return s.replace(/^\/+/, ""); // already a key
+  const m = s.match(/^https?:\/\/[^/]+\/(.+)$/);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+// Build the set of R2 keys referenced by ANY recording in EITHER collection,
+// then diff against the live R2 listing. Returns the full picture; deletes
+// nothing.
+async function _computeR2Orphans() {
+  const prefixRaw = process.env.R2_PATH_PREFIX || "physical-class-recordings";
+  const prefix = prefixRaw.replace(/^\/+|\/+$/g, "") + "/";
+
+  const kept = new Set();
+  const add = (v) => {
+    const k = _r2KeyFromValue(v);
+    if (k) kept.add(k);
+  };
+
+  // Windows recordings
+  const winRecs = await WindowsRecording.find(
+    {},
+    "r2ObjectKey r2PublicUrl mergedVideoUrl chunks"
+  ).lean();
+  for (const r of winRecs) {
+    add(r.r2ObjectKey);
+    add(r.r2PublicUrl);
+    add(r.mergedVideoUrl);
+    for (const c of r.chunks || []) add(c.azureBlobUrl);
+  }
+
+  // Android recordings — SAME bucket/prefix, written by LiveKit Egress.
+  const andRecs = await Recording.find(
+    {},
+    "mergedVideoUrl videoUrl audioUrl thumbnailUrl segments"
+  ).lean();
+  for (const r of andRecs) {
+    add(r.mergedVideoUrl);
+    add(r.videoUrl);
+    add(r.audioUrl);
+    add(r.thumbnailUrl);
+    for (const s of r.segments || []) add(s.videoUrl);
+  }
+
+  // SAFETY: if both collections returned 0 rows, abort — a DB hiccup must
+  // never be interpreted as "every R2 object is an orphan".
+  if (winRecs.length === 0 && andRecs.length === 0) {
+    throw new Error("Aborting: both recording collections returned 0 rows");
+  }
+
+  const objects = await listAllObjects(prefix);
+  const now = Date.now();
+  const orphans = [];
+  let skippedRecent = 0;
+  let orphanBytes = 0;
+  for (const o of objects) {
+    if (kept.has(o.key)) continue;
+    if (o.lastModified && now - new Date(o.lastModified).getTime() < R2_RECENT_SKIP_MS) {
+      skippedRecent++;
+      continue;
+    }
+    orphans.push(o);
+    orphanBytes += o.size || 0;
+  }
+  orphans.sort((a, b) => (b.size || 0) - (a.size || 0));
+
+  return {
+    prefix,
+    totalObjects: objects.length,
+    keptKeys: kept.size,
+    winRecordings: winRecs.length,
+    androidRecordings: andRecs.length,
+    skippedRecent,
+    orphanCount: orphans.length,
+    orphanBytes,
+    orphans,
+  };
+}
+
+/**
+ * GET /api/windows/recordings/r2-audit   (admin)
+ * DRY RUN — reports orphan R2 objects. Deletes nothing.
+ */
+exports.r2Audit = async (req, res) => {
+  try {
+    const r = await _computeR2Orphans();
+    res.json(r);
+  } catch (err) {
+    console.error("[WinRec/r2Audit] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * POST /api/windows/recordings/r2-cleanup   (admin)
+ * Body: { confirm: "DELETE" }
+ *
+ * Recomputes orphans server-side and deletes them. The confirm string is the
+ * human safety gate; orphans are always re-derived fresh here (never trusted
+ * from the client) so nothing a recording references can ever be deleted.
+ */
+exports.r2Cleanup = async (req, res) => {
+  try {
+    if (!req.body || req.body.confirm !== "DELETE") {
+      return res
+        .status(400)
+        .json({ error: 'Confirmation required: POST { "confirm": "DELETE" }' });
+    }
+    const r = await _computeR2Orphans();
+    if (r.orphanCount === 0) {
+      return res.json({ message: "No orphan objects — nothing to delete", deleted: 0 });
+    }
+    const { deleted, errors } = await deleteObjects(r.orphans.map((o) => o.key));
+    console.log(
+      `[WinRec/r2Cleanup] deleted ${deleted} orphan objects, ${errors.length} errors`
+    );
+    res.json({
+      message: `Deleted ${deleted} orphan object(s)`,
+      deleted,
+      freedBytes: r.orphanBytes,
+      errors,
+    });
+  } catch (err) {
+    console.error("[WinRec/r2Cleanup] Error:", err);
     res.status(500).json({ error: err.message });
   }
 };

@@ -53,6 +53,7 @@ export default function WindowsRecordings() {
   // `false` means the operator explicitly collapsed it.
   const [expandedRooms, setExpandedRooms] = usePersistedState({}, "win_recordings_expanded_rooms");
   const [downloadingId, setDownloadingId] = useState(null);
+  const [showStorage, setShowStorage] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setRefreshing(true);
@@ -177,10 +178,16 @@ export default function WindowsRecordings() {
           <p className="text-xs font-semibold text-indigo-500 tracking-wider uppercase">Recording Library</p>
           <h2 className="text-2xl font-bold text-gray-800">Windows Recordings</h2>
         </div>
-        <button onClick={fetchAll}
-          className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowStorage(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
+            <HardDrive size={14} /> Storage
+          </button>
+          <button onClick={fetchAll}
+            className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -343,6 +350,155 @@ export default function WindowsRecordings() {
       {playingRec && (
         <PlayerModal recording={playingRec} onClose={() => setPlayingRec(null)} />
       )}
+
+      {showStorage && <StorageCleanupModal onClose={() => setShowStorage(false)} />}
+    </div>
+  );
+}
+
+// ── R2 storage cleanup modal ──────────────────────────────────────────────────
+// Dry-run audit first (lists orphan R2 objects — files no recording on the
+// portal references), then a typed-confirmation delete. Orphans are always
+// recomputed server-side against BOTH the Windows and Android recording
+// collections, so nothing a real recording uses can be deleted.
+
+function StorageStat({ label, value, danger }) {
+  return (
+    <div className={`rounded-lg border p-3 ${danger ? "bg-red-50 border-red-200" : "bg-gray-50"}`}>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`text-xl font-bold ${danger ? "text-red-600" : "text-gray-800"}`}>{value}</p>
+    </div>
+  );
+}
+
+function StorageCleanupModal({ onClose }) {
+  const [audit, setAudit] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const runAudit = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setConfirmText("");
+    try {
+      setAudit(await winRecordings.r2Audit());
+    } catch (e) {
+      setError(e.message || "Audit failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { runAudit(); }, [runAudit]);
+
+  const doDelete = async () => {
+    if (confirmText !== "DELETE" || deleting) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const r = await winRecordings.r2Cleanup();
+      setResult(r);
+      await runAudit();
+    } catch (e) {
+      setError(e.message || "Cleanup failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <HardDrive size={16} className="text-blue-600" /> R2 Storage Cleanup
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <div className="p-5 overflow-y-auto">
+          {loading ? (
+            <div className="text-center text-gray-400 py-8">
+              <Loader2 size={20} className="inline animate-spin mr-2" /> Auditing R2 storage…
+            </div>
+          ) : error ? (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">{error}</div>
+          ) : audit ? (
+            <>
+              {result && (
+                <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg p-3 mb-4 flex items-center gap-2">
+                  <CheckCircle2 size={16} /> {result.message} — freed {formatBytes(result.freedBytes)}.
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <StorageStat label="Total R2 objects" value={audit.totalObjects} />
+                <StorageStat label="Kept (on portal)" value={audit.keptKeys} />
+                <StorageStat label="Orphans" value={audit.orphanCount} danger={audit.orphanCount > 0} />
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                "Kept" = referenced by {audit.winRecordings} Windows + {audit.androidRecordings} Android
+                recordings on the portal.
+                {audit.skippedRecent > 0
+                  ? ` ${audit.skippedRecent} object(s) modified in the last 48h were skipped for safety.`
+                  : ""}
+              </p>
+
+              {audit.orphanCount === 0 ? (
+                <div className="text-center text-gray-500 py-6">
+                  <CheckCircle2 size={32} className="mx-auto mb-2 text-green-500" />
+                  Nothing to clean — every R2 object is referenced by a recording.
+                </div>
+              ) : (
+                <>
+                  <div className="border rounded-lg divide-y max-h-52 overflow-y-auto mb-4">
+                    {audit.orphans.map((o) => (
+                      <div key={o.key} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                        <span className="font-mono text-gray-600 truncate mr-3">{o.key}</span>
+                        <span className="text-gray-400 shrink-0">{formatBytes(o.size)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-sm text-amber-800 font-medium flex items-center gap-1.5 mb-1.5">
+                      <AlertTriangle size={14} /> Permanently delete {audit.orphanCount} object(s),
+                      freeing {formatBytes(audit.orphanBytes)}?
+                    </p>
+                    <p className="text-xs text-amber-700 mb-2">
+                      These R2 files are not referenced by any recording on the portal. This cannot be
+                      undone. Type <strong>DELETE</strong> to confirm.
+                    </p>
+                    <div className="flex gap-2">
+                      <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                        className="flex-1 px-3 py-1.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-400" />
+                      <button onClick={doDelete} disabled={confirmText !== "DELETE" || deleting}
+                        className="px-4 py-1.5 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5">
+                        {deleting
+                          ? <><Loader2 size={14} className="animate-spin" /> Deleting…</>
+                          : <><Trash2 size={14} /> Delete orphans</>}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          ) : null}
+        </div>
+
+        <div className="flex justify-between items-center px-5 py-3 border-t bg-gray-50">
+          <button onClick={runAudit} disabled={loading || deleting}
+            className="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1.5 disabled:opacity-50">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Re-audit
+          </button>
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition">Close</button>
+        </div>
+      </div>
     </div>
   );
 }

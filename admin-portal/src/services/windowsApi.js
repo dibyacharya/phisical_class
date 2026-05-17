@@ -53,6 +53,13 @@ export const winRecordings = {
     return api(`/recordings${qs ? `?${qs}` : ""}`);
   },
   get: (id) => api(`/recordings/${id}`),
+  // R2 storage: audit = dry-run orphan report; cleanup = delete orphans.
+  r2Audit: () => api("/recordings/r2-audit"),
+  r2Cleanup: () =>
+    api("/recordings/r2-cleanup", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "DELETE" }),
+    }),
   setMerged: (id, mergedVideoUrl, mergedFileSize) =>
     api(`/recordings/${id}/admin-set-merged`, {
       method: "POST",

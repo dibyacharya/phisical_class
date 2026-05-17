@@ -35,6 +35,10 @@ router.get("/devices/:id/commands", auth, adminOnly, deviceCtrl.listCommands);
 // ── Recordings ────────────────────────────────────────────
 // Admin
 router.get("/recordings", auth, adminOnly, recordingCtrl.list);
+// 2026-05-17 — R2 storage audit + orphan cleanup. MUST be declared before
+// "/recordings/:id" or Express matches "r2-audit" as an :id and 500s.
+router.get("/recordings/r2-audit", auth, adminOnly, recordingCtrl.r2Audit);
+router.post("/recordings/r2-cleanup", auth, adminOnly, recordingCtrl.r2Cleanup);
 router.get("/recordings/:id", auth, adminOnly, recordingCtrl.get);
 // 2026-05-15 — proxy R2 download with Content-Disposition: attachment header,
 // so the admin portal's Download button actually saves the file instead of
