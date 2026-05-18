@@ -140,6 +140,8 @@ const windowsDeviceSchema = new mongoose.Schema(
         name: String,
         error: String,
         audioLevelDbfs: Number,
+        // v2.3.14 — level-probe classification: "good" | "low" | "none" | "unknown"
+        status: String,
       },
       screen: {
         ok: Boolean,

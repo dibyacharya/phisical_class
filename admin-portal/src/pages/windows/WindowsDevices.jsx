@@ -341,6 +341,7 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
   const isRecording = h.recording?.isRecording;
   const disk = h.diskGovernor?.state;
   const live = h.liveWatch?.state;
+  const mic = h.mic; // v2.3.14 mic level probe: { name, audioLevelDbfs, status }
   const canLive = live === "Connected" && isRecording;
   const hasCritical = !online || (disk && disk !== "Normal");
 
@@ -396,6 +397,23 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
                   : "text-amber-700 bg-amber-50 border-amber-200"
               }`}>
                 <AlertTriangle size={10} /> Disk: {disk}
+              </span>
+            )}
+            {mic?.status && mic.status !== "unknown" && (
+              <span
+                title={`Mic: ${mic.name || "unknown"}${
+                  mic.audioLevelDbfs != null ? `  ·  peak ${mic.audioLevelDbfs.toFixed(1)} dB` : ""
+                }`}
+                className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                  mic.status === "good"
+                    ? "text-green-700 bg-green-50 border-green-200"
+                    : mic.status === "low"
+                    ? "text-amber-700 bg-amber-50 border-amber-200"
+                    : "text-red-700 bg-red-50 border-red-200"
+                }`}>
+                <Mic size={10} />
+                {mic.status === "good" ? "Mic Good" : mic.status === "low" ? "Mic Low" : "No Mic Signal"}
+                {mic.audioLevelDbfs != null ? ` ${Math.round(mic.audioLevelDbfs)} dB` : ""}
               </span>
             )}
             {device.licenseTier && (
@@ -559,6 +577,29 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
                 </>
               ) : (
                 <p className="text-gray-400">No data</p>
+              )}
+            </div>
+          </div>
+
+          {/* Microphone — v2.3.14 level probe */}
+          <div>
+            <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Mic size={12} /> Microphone</p>
+            <div className="space-y-1 text-gray-500">
+              {mic?.status && mic.status !== "unknown" ? (
+                <>
+                  <p>Selected: <span className="text-gray-700">{mic.name || "–"}</span></p>
+                  <p>Level: <span className={
+                    mic.status === "good" ? "text-green-600 font-medium"
+                      : mic.status === "low" ? "text-amber-600 font-medium"
+                      : "text-red-600 font-medium"
+                  }>
+                    {mic.audioLevelDbfs != null ? `${mic.audioLevelDbfs.toFixed(1)} dB peak  ·  ` : ""}
+                    {mic.status === "good" ? "Good" : mic.status === "low" ? "Low" : "No signal"}
+                  </span></p>
+                  {mic.error && <p className="text-red-500">{mic.error}</p>}
+                </>
+              ) : (
+                <p className="text-gray-400">Not probed yet</p>
               )}
             </div>
           </div>
