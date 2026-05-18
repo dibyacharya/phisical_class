@@ -448,6 +448,14 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
             <span className="font-mono">{device.deviceId}</span>
           </p>
 
+          {/* Selected microphone (v2.3.14 level probe) */}
+          {mic?.name && (
+            <p className="text-xs text-gray-500 truncate flex items-center gap-1" title={mic.name}>
+              <Mic size={11} className="text-gray-400 shrink-0" />
+              <span className="truncate">{mic.name}</span>
+            </p>
+          )}
+
           {/* Hardware quick status */}
           <div className="flex items-center gap-4 mt-2">
             <HardwareIcon ok={cameraOk} Icon={Camera} label="Camera"
