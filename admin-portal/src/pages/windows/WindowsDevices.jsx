@@ -17,6 +17,20 @@ import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
 const fmtTime = (iso) =>
   iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "–";
 
+// Mic level classification — done portal-side from the recorder's measured
+// peak dBFS so the thresholds can be tuned with a deploy (no recorder rebuild).
+// The probe is a short capture: a healthy mic in a quiet room still only reads
+// its ambient floor (~-40..-52 dB peak), so the "good" band is deliberately
+// wide. "low" = genuinely weak signal; "none" = dead / disconnected mic (an
+// unconnected jack reads roughly -70..-90 dB).
+function micLevel(mic) {
+  if (!mic || mic.audioLevelDbfs == null) return "unknown";
+  const db = mic.audioLevelDbfs;
+  if (db >= -52) return "good";
+  if (db >= -64) return "low";
+  return "none";
+}
+
 function UsageBar({ value, warn = 75, danger = 90 }) {
   if (value == null) return <span className="text-xs text-gray-400">–</span>;
   const color = value >= danger ? "bg-red-500" : value >= warn ? "bg-yellow-400" : "bg-green-500";
@@ -342,6 +356,7 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
   const disk = h.diskGovernor?.state;
   const live = h.liveWatch?.state;
   const mic = h.mic; // v2.3.14 mic level probe: { name, audioLevelDbfs, status }
+  const mLvl = micLevel(mic); // portal-side classification: good | low | none | unknown
   const canLive = live === "Connected" && isRecording;
   const hasCritical = !online || (disk && disk !== "Normal");
 
@@ -399,20 +414,20 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
                 <AlertTriangle size={10} /> Disk: {disk}
               </span>
             )}
-            {mic?.status && mic.status !== "unknown" && (
+            {mic && mLvl !== "unknown" && (
               <span
                 title={`Mic: ${mic.name || "unknown"}${
                   mic.audioLevelDbfs != null ? `  ·  peak ${mic.audioLevelDbfs.toFixed(1)} dB` : ""
                 }`}
                 className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
-                  mic.status === "good"
+                  mLvl === "good"
                     ? "text-green-700 bg-green-50 border-green-200"
-                    : mic.status === "low"
+                    : mLvl === "low"
                     ? "text-amber-700 bg-amber-50 border-amber-200"
                     : "text-red-700 bg-red-50 border-red-200"
                 }`}>
                 <Mic size={10} />
-                {mic.status === "good" ? "Mic Good" : mic.status === "low" ? "Mic Low" : "No Mic Signal"}
+                {mLvl === "good" ? "Mic OK" : mLvl === "low" ? "Mic Low" : "No Mic Signal"}
                 {mic.audioLevelDbfs != null ? ` ${Math.round(mic.audioLevelDbfs)} dB` : ""}
               </span>
             )}
@@ -593,16 +608,16 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
           <div>
             <p className="font-medium text-gray-600 mb-1.5 flex items-center gap-1"><Mic size={12} /> Microphone</p>
             <div className="space-y-1 text-gray-500">
-              {mic?.status && mic.status !== "unknown" ? (
+              {mic && mLvl !== "unknown" ? (
                 <>
                   <p>Selected: <span className="text-gray-700">{mic.name || "–"}</span></p>
                   <p>Level: <span className={
-                    mic.status === "good" ? "text-green-600 font-medium"
-                      : mic.status === "low" ? "text-amber-600 font-medium"
+                    mLvl === "good" ? "text-green-600 font-medium"
+                      : mLvl === "low" ? "text-amber-600 font-medium"
                       : "text-red-600 font-medium"
                   }>
                     {mic.audioLevelDbfs != null ? `${mic.audioLevelDbfs.toFixed(1)} dB peak  ·  ` : ""}
-                    {mic.status === "good" ? "Good" : mic.status === "low" ? "Low" : "No signal"}
+                    {mLvl === "good" ? "Good" : mLvl === "low" ? "Low" : "No signal"}
                   </span></p>
                   {mic.error && <p className="text-red-500">{mic.error}</p>}
                 </>
