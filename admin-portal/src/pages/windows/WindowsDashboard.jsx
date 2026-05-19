@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Cpu, Video, KeyRound, CalendarPlus, Activity, Radio,
-  HardDrive, RefreshCw, ChevronRight, Wifi, CircleDollarSign,
+  HardDrive, RefreshCw, ChevronRight, Wifi,
   AlertTriangle,
 } from "lucide-react";
 import { winDevices, winRecordings, winLicenses, winLiveWatch } from "../../services/windowsApi";
@@ -68,7 +68,6 @@ export default function WindowsDashboard() {
     return s === "Warn" || s === "Cleanup" || s === "HardStop";
   }).length;
   const activeLicenses = licenses.filter((x) => x.status === "active");
-  const totalRevenueINR = activeLicenses.reduce((sum, x) => sum + (x.pricePerYearINR || 0), 0);
 
   if (loading) {
     return (
@@ -136,13 +135,6 @@ export default function WindowsDashboard() {
           sub={`${licenses.length} total`}
           color="violet"
           to="/windows/licenses"
-        />
-        <Kpi
-          icon={CircleDollarSign}
-          label="Annual revenue"
-          value={`₹${(totalRevenueINR / 100000).toFixed(1)}L`}
-          sub={`₹${totalRevenueINR.toLocaleString("en-IN")}/yr`}
-          color="cyan"
         />
       </div>
 

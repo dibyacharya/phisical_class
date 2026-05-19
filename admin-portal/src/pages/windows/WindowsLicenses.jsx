@@ -102,9 +102,9 @@ export default function WindowsLicenses() {
 
   // Aggregate stats
   const stats = useMemo(() => {
-    const t = { total: licenses.length, active: 0, issued: 0, expired: 0, revenue: 0 };
+    const t = { total: licenses.length, active: 0, issued: 0, expired: 0 };
     licenses.forEach((l) => {
-      if (l.status === "active") { t.active++; t.revenue += l.pricePerYearINR || 0; }
+      if (l.status === "active") t.active++;
       if (l.status === "issued") t.issued++;
       if (l.status === "expired") t.expired++;
     });
@@ -128,7 +128,7 @@ export default function WindowsLicenses() {
           <p className="text-sm text-slate-500">
             {filtered.length} of {licenses.length} licenses
             {" · "}
-            {stats.active} active · {stats.issued} unbound · ₹{stats.revenue.toLocaleString("en-IN")}/yr revenue
+            {stats.active} active · {stats.issued} unbound
           </p>
         </div>
         <button
@@ -188,7 +188,6 @@ export default function WindowsLicenses() {
                 <th className="py-2 px-3">Status</th>
                 <th className="py-2 px-3">Bound device</th>
                 <th className="py-2 px-3">Expires</th>
-                <th className="py-2 px-3">Price/yr</th>
                 <th className="py-2 px-3">Actions</th>
               </tr>
             </thead>
@@ -206,7 +205,7 @@ export default function WindowsLicenses() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400 text-sm">
+                  <td colSpan={7} className="py-10 text-center text-slate-400 text-sm">
                     {licenses.length === 0
                       ? "No licenses provisioned yet. Use \"Issue license\" above to add one."
                       : "No licenses match the current filters."}
@@ -290,9 +289,6 @@ function LicenseRow({ lic, onCopy, onRevoke, onExtend, onDelete, copiedKey }) {
             )}
           </div>
         ) : "—"}
-      </td>
-      <td className="py-2 px-3 text-xs">
-        ₹{lic.pricePerYearINR?.toLocaleString("en-IN") || "—"}
       </td>
       <td className="py-2 px-3">
         <div className="flex items-center gap-3">
