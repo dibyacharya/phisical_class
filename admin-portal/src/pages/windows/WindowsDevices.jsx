@@ -17,18 +17,18 @@ import WindowsLiveWatchModal from "../../components/WindowsLiveWatchModal";
 const fmtTime = (iso) =>
   iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "–";
 
-// Mic level classification — done portal-side from the recorder's measured
-// peak dBFS so the thresholds can be tuned with a deploy (no recorder rebuild).
-// The probe is a short capture: a healthy mic in a quiet room still only reads
-// its ambient floor (~-40..-52 dB peak), so the "good" band is deliberately
-// wide. "low" = genuinely weak signal; "none" = dead / disconnected mic (an
-// unconnected jack reads roughly -70..-90 dB).
+// Mic health is PRESENCE-based, not loudness-based. A short capture in a quiet
+// room reads near-silence even for a perfectly good mic, so a measured dB
+// cannot tell "healthy mic" from "dead mic". What IS reliable is WHICH mic the
+// recorder selected: the conference mic (DMP Plus / speakerphone) is the
+// intended classroom mic. If the recorder selected a conference mic → healthy;
+// if it could not (no conference mic plugged in) → red.
 function micLevel(mic) {
-  if (!mic || mic.audioLevelDbfs == null) return "unknown";
-  const db = mic.audioLevelDbfs;
-  if (db >= -52) return "good";
-  if (db >= -64) return "low";
-  return "none";
+  if (!mic || !mic.name) return "unknown";
+  const n = mic.name.toLowerCase();
+  const isConference = ["dmp plus", "speakerphone", "echo cancel", "conference"]
+    .some((k) => n.includes(k));
+  return isConference ? "good" : "none";
 }
 
 function UsageBar({ value, warn = 75, danger = 90 }) {
@@ -416,19 +416,14 @@ function DeviceCard({ device, onForceStop, onDelete, onEdit, onCommand, onWatchL
             )}
             {mic && mLvl !== "unknown" && (
               <span
-                title={`Mic: ${mic.name || "unknown"}${
-                  mic.audioLevelDbfs != null ? `  ·  peak ${mic.audioLevelDbfs.toFixed(1)} dB` : ""
-                }`}
+                title={`Mic: ${mic.name || "unknown"}`}
                 className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
                   mLvl === "good"
                     ? "text-green-700 bg-green-50 border-green-200"
-                    : mLvl === "low"
-                    ? "text-amber-700 bg-amber-50 border-amber-200"
                     : "text-red-700 bg-red-50 border-red-200"
                 }`}>
                 <Mic size={10} />
-                {mLvl === "good" ? "Mic OK" : mLvl === "low" ? "Mic Low" : "No Mic Signal"}
-                {mic.audioLevelDbfs != null ? ` ${Math.round(mic.audioLevelDbfs)} dB` : ""}
+                {mLvl === "good" ? "Mic OK" : "No Conference Mic"}
               </span>
             )}
             {device.licenseTier && (
