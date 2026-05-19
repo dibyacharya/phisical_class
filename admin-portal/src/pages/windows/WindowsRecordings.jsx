@@ -54,6 +54,16 @@ function fmtFloor(f) {
   return t;
 }
 
+// Sort room numbers in true numeric order: "001","007","0014","15" sort as
+// 1, 7, 14, 15 (not the string order "001","0014","007"…). Falls back to a
+// plain string compare for non-numeric room labels (e.g. "Unknown").
+function roomSort(a, b) {
+  const na = parseInt(String(a).replace(/\D/g, ""), 10);
+  const nb = parseInt(String(b).replace(/\D/g, ""), 10);
+  if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+  return String(a).localeCompare(String(b));
+}
+
 // Build a Campus → Block → Floor → Room tree from the recordings.
 // A recording carries only its room number; campus/block/floor come from the
 // Windows device that serves that room (joined by room number).
@@ -441,7 +451,7 @@ export default function WindowsRecordings() {
 
                                     {fOpen && (
                                       <div>
-                                        {Object.entries(roomsObj).sort(([a], [b]) => a.localeCompare(b)).map(([roomNum, roomData]) => {
+                                        {Object.entries(roomsObj).sort(([a], [b]) => roomSort(a, b)).map(([roomNum, roomData]) => {
                                           const rKey = `${campus}|${block}|${floor}|${roomNum}`;
                                           const rOpen = expRoom[rKey] === true;
                                           const recs = roomData.recordings;
