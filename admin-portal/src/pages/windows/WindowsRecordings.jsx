@@ -4,7 +4,7 @@ import {
   Video, Search, RefreshCw, Play, Download, Filter,
   Clock, HardDrive, CheckCircle2, XCircle, Loader2, Radio,
   AlertTriangle, ChevronRight, ChevronDown, Trash2, DoorOpen,
-  FileVideo, Eye, BarChart3, CalendarDays, X, MapPin,
+  FileVideo, Eye, BarChart3, CalendarDays, X, Building2, Layers,
 } from "lucide-react";
 import { winRecordings, winDevices } from "../../services/windowsApi";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -29,12 +29,89 @@ const statusMeta = (s) =>
   STATUS_META[(s || "").toLowerCase()] ||
   { label: s || "Unknown", cls: "bg-slate-50 text-slate-600 border-slate-200" };
 
-// "Campus · Block · Floor" from a device record — only the parts that exist.
-const locationText = (device) => {
-  if (!device) return "";
-  return [device.campus, device.block, device.floor && `Floor ${device.floor}`]
-    .filter(Boolean)
-    .join(" · ");
+// Pretty-print a block label: "A" -> "Block A", "2" -> "Block 2",
+// "Block A" -> "Block A" (unchanged). Unknown -> "Block —".
+function fmtBlock(b) {
+  const t = String(b || "").trim();
+  if (!t || /^unknown/i.test(t)) return "Block —";
+  if (/block/i.test(t)) return t;
+  return `Block ${t}`;
+}
+
+// Pretty-print a floor label: "0"/"g"/"ground" -> "Ground Floor",
+// "1" -> "1st Floor", "Ground Floor" -> unchanged. Unknown -> "Floor —".
+function fmtFloor(f) {
+  const t = String(f || "").trim();
+  if (!t || /^unknown/i.test(t)) return "Floor —";
+  if (/floor/i.test(t)) return t;
+  if (/^g(round)?$/i.test(t)) return "Ground Floor";
+  const n = parseInt(t, 10);
+  if (!isNaN(n)) {
+    if (n === 0) return "Ground Floor";
+    const sfx = n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th";
+    return `${n}${sfx} Floor`;
+  }
+  return t;
+}
+
+// Build a Campus → Block → Floor → Room tree from the recordings.
+// A recording carries only its room number; campus/block/floor come from the
+// Windows device that serves that room (joined by room number).
+function buildTree(recordings, devices) {
+  const devByRoom = {};
+  (devices || []).forEach((d) => {
+    if (d.roomNumber != null && String(d.roomNumber) !== "")
+      devByRoom[String(d.roomNumber)] = d;
+  });
+  const tree = {};
+  recordings.forEach((rec) => {
+    const roomNum = String(rec.scheduledClass?.roomNumber || rec.roomNumber || "Unknown");
+    const dev = devByRoom[roomNum];
+    const campus = dev?.campus || "Unknown Campus";
+    const block = dev?.block || "Unknown Block";
+    const floor = dev?.floor || "Unknown Floor";
+    tree[campus] = tree[campus] || {};
+    tree[campus][block] = tree[campus][block] || {};
+    tree[campus][block][floor] = tree[campus][block][floor] || {};
+    if (!tree[campus][block][floor][roomNum])
+      tree[campus][block][floor][roomNum] = { recordings: [], device: dev || null };
+    tree[campus][block][floor][roomNum].recordings.push(rec);
+  });
+  // Newest recording first inside each room.
+  Object.values(tree).forEach((b) =>
+    Object.values(b).forEach((f) =>
+      Object.values(f).forEach((rooms) =>
+        Object.values(rooms).forEach((rd) =>
+          rd.recordings.sort((a, c) =>
+            new Date(c.recordingStart || c.createdAt || 0) -
+            new Date(a.recordingStart || a.createdAt || 0))
+        ))));
+  return tree;
+}
+
+// Recording-count roll-ups for the tree headers.
+const countRec = (blocks) => {
+  let c = 0;
+  Object.values(blocks).forEach((f) => Object.values(f).forEach((r) =>
+    Object.values(r).forEach((rd) => { c += rd.recordings.length; })));
+  return c;
+};
+const countRecFloors = (floors) => {
+  let c = 0;
+  Object.values(floors).forEach((r) =>
+    Object.values(r).forEach((rd) => { c += rd.recordings.length; }));
+  return c;
+};
+const countRecRooms = (rooms) => {
+  let c = 0;
+  Object.values(rooms).forEach((rd) => { c += rd.recordings.length; });
+  return c;
+};
+const countRooms = (blocks) => {
+  let c = 0;
+  Object.values(blocks).forEach((f) =>
+    Object.values(f).forEach((r) => { c += Object.keys(r).length; }));
+  return c;
 };
 
 export default function WindowsRecordings() {
@@ -48,10 +125,13 @@ export default function WindowsRecordings() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterRoom, setFilterRoom] = useState("all");
   const [playingRec, setPlayingRec] = useState(null);
-  // Persisted so a browser refresh / 30s auto-refresh keeps each room's
-  // expand/collapse state. Semantics: a room is OPEN by default; an entry of
-  // `false` means the operator explicitly collapsed it.
-  const [expandedRooms, setExpandedRooms] = usePersistedState({}, "win_recordings_expanded_rooms");
+  // Tree expand/collapse state — one map per level, persisted so a browser
+  // refresh / 30s auto-refresh keeps the drilled-in view. Sections are
+  // COLLAPSED by default; a stored `true` means the operator drilled in.
+  const [expCampus, setExpCampus] = usePersistedState({}, "win_rec_exp_campus");
+  const [expBlock, setExpBlock]   = usePersistedState({}, "win_rec_exp_block");
+  const [expFloor, setExpFloor]   = usePersistedState({}, "win_rec_exp_floor");
+  const [expRoom, setExpRoom]     = usePersistedState({}, "win_rec_exp_room");
   const [downloadingId, setDownloadingId] = useState(null);
   const [showStorage, setShowStorage] = useState(false);
 
@@ -152,23 +232,14 @@ export default function WindowsRecordings() {
     });
   }, [recordings, filterStatus, filterRoom, search]);
 
-  // Group filtered recordings by room number (single-level collapsible tree —
-  // a lighter version of Android's campus → block → floor → room hierarchy,
-  // which fits the flatter Windows-fleet layout).
-  const grouped = useMemo(() => {
-    const map = {};
-    for (const r of filtered) {
-      const room = String(r.scheduledClass?.roomNumber || r.roomNumber || "Unassigned");
-      (map[room] = map[room] || []).push(r);
-    }
-    return map;
-  }, [filtered]);
+  // Full Campus → Block → Floor → Room hierarchy (mirrors the Android
+  // Recordings page). campus/block/floor are joined from the device serving
+  // each room.
+  const tree = useMemo(() => buildTree(filtered, devices), [filtered, devices]);
 
   const activeFilterCount = (filterStatus !== "all" ? 1 : 0) + (filterRoom !== "all" ? 1 : 0);
-  // Rooms are expanded by default; an entry is only stored when the operator
-  // explicitly collapses (false) or re-opens (true) one. Toggling flips it.
-  const toggleRoom = (room) =>
-    setExpandedRooms((prev) => ({ ...prev, [room]: prev[room] === false }));
+  // Tree sections are collapsed by default — toggleMap flips a level's entry.
+  const toggleMap = (setter, key) => setter((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <div>
@@ -288,57 +359,152 @@ export default function WindowsRecordings() {
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([room, recs]) => {
-            const isOpen = expandedRooms[room] !== false;
-            const sourceDevice = devices.find((d) => String(d.roomNumber) === String(room));
-            const loc = locationText(sourceDevice);
+          {Object.entries(tree).sort(([a], [b]) => a.localeCompare(b)).map(([campus, blocks]) => {
+            const cOpen = expCampus[campus] === true;
+            const totalRec = countRec(blocks);
+            const totalRooms = countRooms(blocks);
+            const totalBlocks = Object.keys(blocks).length;
             return (
-              <div key={room} className="rounded-xl overflow-hidden border border-slate-200">
-                {/* Room header */}
+              <div key={campus} className="rounded-xl overflow-hidden border border-slate-200">
+                {/* ── Campus ─────────────────────────────────────────── */}
                 <button
-                  onClick={() => toggleRoom(room)}
+                  onClick={() => toggleMap(setExpCampus, campus)}
                   className="w-full flex items-center justify-between px-5 py-4 bg-gradient-to-r from-slate-800 to-slate-700 text-white hover:from-slate-700 hover:to-slate-600 transition-all"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
-                      <DoorOpen size={20} />
+                      <Building2 size={20} />
                     </div>
                     <div className="text-left">
-                      <p className="text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1">
-                        {loc ? <><MapPin size={9} /> {loc}</> : "Room"}
-                      </p>
-                      <h3 className="text-lg font-bold">{room === "Unassigned" ? "Unassigned" : `Room ${room}`}</h3>
+                      <p className="text-[10px] tracking-wider uppercase text-slate-400">Campus</p>
+                      <h3 className="text-lg font-bold">{campus}</h3>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {sourceDevice && (
-                      <Link
-                        to={`/windows/devices/${sourceDevice.deviceId}/remote`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full flex items-center gap-1"
-                      >
-                        Device console <ChevronRight size={12} />
-                      </Link>
-                    )}
-                    <span className="text-xs bg-indigo-500/80 px-3 py-1 rounded-full font-medium">
-                      {recs.length} recording{recs.length !== 1 ? "s" : ""}
+                    <span className="text-xs bg-white/10 px-3 py-1 rounded-full">
+                      {totalBlocks} block{totalBlocks !== 1 ? "s" : ""} · {totalRooms} room{totalRooms !== 1 ? "s" : ""}
                     </span>
-                    <ChevronDown size={18} className={`transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                    <span className="text-xs bg-indigo-500/80 px-3 py-1 rounded-full font-medium">
+                      {totalRec} recording{totalRec !== 1 ? "s" : ""}
+                    </span>
+                    <ChevronDown size={18} className={`transition-transform ${cOpen ? "" : "-rotate-90"}`} />
                   </div>
                 </button>
 
-                {isOpen && (
-                  <div className="bg-slate-50 p-4 space-y-2">
-                    {recs.map((rec) => (
-                      <RecordingCard
-                        key={rec._id}
-                        rec={rec}
-                        onPlay={() => setPlayingRec(rec)}
-                        onDownload={() => handleDownload(rec)}
-                        onDelete={() => handleDelete(rec)}
-                        isDownloading={downloadingId === rec._id}
-                      />
-                    ))}
+                {cOpen && (
+                  <div className="bg-slate-50">
+                    {Object.entries(blocks).sort(([a], [b]) => a.localeCompare(b)).map(([block, floors]) => {
+                      const bKey = `${campus}|${block}`;
+                      const bOpen = expBlock[bKey] === true;
+                      const bRec = countRecFloors(floors);
+                      const bFloors = Object.keys(floors).length;
+                      return (
+                        <div key={block}>
+                          {/* ── Block ──────────────────────────────────── */}
+                          <button
+                            onClick={() => toggleMap(setExpBlock, bKey)}
+                            className="w-full flex items-center justify-between px-6 py-3 border-b border-slate-200 hover:bg-slate-100 transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ChevronRight size={16} className={`text-slate-400 transition-transform ${bOpen ? "rotate-90" : ""}`} />
+                              <Layers size={16} className="text-slate-500" />
+                              <span className="font-semibold text-slate-700">{fmtBlock(block)}</span>
+                              <span className="text-xs text-slate-400">{bFloors} floor{bFloors !== 1 ? "s" : ""}</span>
+                            </div>
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full font-medium">
+                              {bRec} recording{bRec !== 1 ? "s" : ""}
+                            </span>
+                          </button>
+
+                          {bOpen && (
+                            <div className="bg-white">
+                              {Object.entries(floors).sort(([a], [b]) => a.localeCompare(b)).map(([floor, roomsObj]) => {
+                                const fKey = `${campus}|${block}|${floor}`;
+                                const fOpen = expFloor[fKey] === true;
+                                const fRec = countRecRooms(roomsObj);
+                                const fRooms = Object.keys(roomsObj).length;
+                                return (
+                                  <div key={floor}>
+                                    {/* ── Floor ──────────────────────────── */}
+                                    <button
+                                      onClick={() => toggleMap(setExpFloor, fKey)}
+                                      className="w-full flex items-center justify-between px-8 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <ChevronRight size={14} className={`text-slate-400 transition-transform ${fOpen ? "rotate-90" : ""}`} />
+                                        <Layers size={14} className="text-slate-400" />
+                                        <span className="text-sm font-medium text-slate-600">{fmtFloor(floor)}</span>
+                                        <span className="text-xs text-slate-400">{fRooms} room{fRooms !== 1 ? "s" : ""}</span>
+                                      </div>
+                                      <span className="text-xs text-slate-400">{fRec} recording{fRec !== 1 ? "s" : ""}</span>
+                                    </button>
+
+                                    {fOpen && (
+                                      <div>
+                                        {Object.entries(roomsObj).sort(([a], [b]) => a.localeCompare(b)).map(([roomNum, roomData]) => {
+                                          const rKey = `${campus}|${block}|${floor}|${roomNum}`;
+                                          const rOpen = expRoom[rKey] === true;
+                                          const recs = roomData.recordings;
+                                          const dev = roomData.device;
+                                          const pathLabel = [campus, fmtBlock(block), fmtFloor(floor), `Room ${roomNum}`].join(" - ");
+                                          return (
+                                            <div key={roomNum} className="border-b border-slate-100 last:border-b-0">
+                                              {/* ── Room ─────────────────────── */}
+                                              <button
+                                                onClick={() => toggleMap(setExpRoom, rKey)}
+                                                className="w-full flex items-center justify-between pl-12 pr-6 py-3 hover:bg-indigo-50/50 transition-colors"
+                                              >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                  <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${rOpen ? "rotate-90" : ""}`} />
+                                                  <DoorOpen size={16} className="shrink-0 text-indigo-500" />
+                                                  <span className="font-medium text-indigo-700 shrink-0">Room {roomNum}</span>
+                                                  <span className="text-xs text-slate-400 truncate">({pathLabel})</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                  {dev && (
+                                                    <Link
+                                                      to={`/windows/devices/${dev.deviceId}/remote`}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-0.5"
+                                                    >
+                                                      Device console <ChevronRight size={11} />
+                                                    </Link>
+                                                  )}
+                                                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full font-medium">
+                                                    <FileVideo size={11} className="inline mr-1" />
+                                                    {recs.length} recording{recs.length !== 1 ? "s" : ""}
+                                                  </span>
+                                                </div>
+                                              </button>
+
+                                              {/* ── Recording videos inside the room ── */}
+                                              {rOpen && (
+                                                <div className="pl-14 pr-6 pt-1 pb-4 space-y-2 bg-slate-50/60">
+                                                  {recs.map((rec) => (
+                                                    <RecordingCard
+                                                      key={rec._id}
+                                                      rec={rec}
+                                                      onPlay={() => setPlayingRec(rec)}
+                                                      onDownload={() => handleDownload(rec)}
+                                                      onDelete={() => handleDelete(rec)}
+                                                      isDownloading={downloadingId === rec._id}
+                                                    />
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
